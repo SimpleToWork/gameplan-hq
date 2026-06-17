@@ -1,21 +1,548 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gameplan HQ</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gameplan HQ</title>
+<!--
+  ============================================================
+  GAMEPLAN HQ — hosted build (Firebase storage + Claude API)
+  ============================================================
+  This file is meant to be SAVED and HOSTED (Vercel / Netlify /
+  Firebase Hosting). It will NOT run inside the Claude.ai preview
+  (the sandbox blocks Firebase + external calls). That's expected.
+
+  SETUP — do these three things, then host the file:
+
+  1) FIREBASE
+     - Create a project at console.firebase.google.com
+     - Build > Firestore Database > Create (start in TEST mode)
+     - Project settings > General > "Your apps" > Web app > copy config
+     - Paste it into firebaseConfig below.
+
+  2) AI PROXY (for Capture + Roadmap + Agenda planning)
+     - You can't call Anthropic directly from the browser, so stand up
+       a tiny serverless function that holds your ANTHROPIC_API_KEY.
+     - Contract: it receives POST {prompt:"..."} and returns {text:"..."}.
+     - Paste its URL into AI_ENDPOINT below. (Sample function provided
+       in chat.)
+
+  3) HOST
+     - Deploy this single .html file anywhere static. Share the URL.
+
+  NOTE: the per-task "Ask" feature does NOT use the API — it builds a
+  ready-to-paste prompt for claude.ai instead.
+  ============================================================
+-->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&display=swap');
+  :root{
+    --ink:#14171f; --muted:#646b78; --faint:#9aa0a8; --line:#e3e5ea;
+    --surface:#ffffff; --canvas:#eef0f2; --accent:#4646c8; --accent-soft:#ecebfb; --danger:#c23b3b; --ok:#1d6b45; --r:12px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
+  button,select,textarea,input{font-family:inherit;}
+  .app{max-width:1060px;margin:0 auto;padding:0 20px 70px;}
+  header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
+  .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+  .brand{display:flex;align-items:baseline;gap:9px;}
+  .brand b{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:21px;letter-spacing:-.02em;}
+  .brand span{font-size:12px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;}
+  .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
+  .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:wrap;}
+  .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;}
+  .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06);}
+  select.ctrl,input.ctrl{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:7px 10px;font-size:13px;cursor:pointer;}
+  .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 14px;font-size:13.5px;font-weight:500;cursor:pointer;transition:background .15s,transform .05s;display:inline-flex;align-items:center;gap:7px;}
+  .btn:hover{background:#f1f1f0;} .btn:active{transform:scale(.99);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;} .btn.primary:hover{background:#3a3ab0;}
+  .btn.sm{padding:5px 10px;font-size:12px;}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .spin{width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;display:inline-block;opacity:.7;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .banner{border-radius:11px;padding:11px 14px;font-size:13px;margin:12px 0;display:none;}
+  .banner.err{background:#fcecec;color:#8a2b2b;border:1px solid #f3cccc;}
+  .banner.ok{background:#eafaf1;color:var(--ok);border:1px solid #c7ecd6;}
+  .banner.show{display:block;}
+  .hero{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;margin-top:6px;}
+  .hero h2{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;margin:0 0 4px;}
+  .hero p{font-size:13.5px;color:var(--muted);margin:0 0 14px;max-width:560px;}
+  .hero textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:13px 15px;font-size:15px;resize:vertical;min-height:120px;color:var(--ink);}
+  .hero textarea:focus{outline:none;border-color:var(--accent);}
+  .hero .row{display:flex;align-items:center;gap:12px;margin-top:11px;flex-wrap:wrap;}
+  .hint{font-size:12.5px;color:var(--faint);}
+  .capresult{margin-top:16px;}
+  .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
+  .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
+  .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .cat{margin-bottom:22px;}
+  .cat-head{display:flex;align-items:center;gap:9px;margin:0 0 9px;}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .cat-name{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;}
+  .cat-count{font-size:12px;color:var(--faint);}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:9px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
+  .ctitle{font-size:14px;font-weight:500;}
+  .cmeta{font-size:12px;color:var(--muted);}
+  .avas{display:flex;align-items:center;}
+  .ava{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;margin-left:-5px;border:1.5px solid var(--surface);}
+  .ava:first-child{margin-left:0;}
+  .ava.empty{background:#e7e8ec;color:#9aa0a8;}
+  .crow{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
+  .mini{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:var(--surface);color:var(--ink);cursor:pointer;max-width:150px;}
+  .acts{display:flex;gap:11px;align-items:center;font-size:11.5px;}
+  .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
+  .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
+  .pop{border-top:1px dashed var(--line);padding-top:8px;display:none;flex-direction:column;gap:6px;}
+  .pop.open{display:flex;}
+  .opt{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
+  .answer{font-size:12.5px;background:var(--accent-soft);border-radius:9px;padding:10px 12px;white-space:pre-wrap;display:none;}
+  .answer.show{display:block;}
+  .promptbox{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:12px;font-family:ui-monospace,Menlo,monospace;color:var(--ink);background:#fafafb;resize:vertical;min-height:120px;}
+  .areahead{display:flex;align-items:center;gap:9px;margin:18px 0 10px;}
+  .areahead .nm{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;}
+  .target{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;margin-bottom:8px;}
+  .target .tt{font-size:14px;font-weight:500;}
+  .target .td{font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .target .tf{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .linkcount{font-size:11.5px;color:var(--accent);}
+  .ag{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;margin-bottom:9px;}
+  .ag h3{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;margin:0;}
+  .ag .agmeta{font-size:12.5px;color:var(--muted);margin:3px 0 0;}
+  .ag ul{margin:9px 0 0;padding-left:18px;}
+  .ag li{font-size:13px;margin-bottom:3px;}
+  .field{margin-bottom:10px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:500;}
+  .field input.ctrl,.field select.ctrl{width:100%;}
+  textarea.ctrl{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:13.5px;color:var(--ink);resize:vertical;min-height:40px;}
+  .formgrid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:9px;align-items:end;}
+  @media(max-width:560px){.formgrid{grid-template-columns:1fr;}}
+  .empty{text-align:center;color:var(--muted);padding:42px 20px;font-size:14px;}
+  .empty .big{font-family:'Space Grotesk',sans-serif;font-size:17px;color:var(--ink);margin-bottom:5px;}
+  .pagehead{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;margin:18px 0 4px;}
+  .pagesub{font-size:13px;color:var(--muted);margin:0 0 14px;max-width:600px;}
+  .barrow{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .setupwarn{background:#fff7e6;border:1px solid #f3e0b5;color:#7a5108;border-radius:11px;padding:11px 14px;font-size:12.5px;margin:12px 0;display:none;}
+  .setupwarn.show{display:block;}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
 </head>
 <body>
-  <!--
-    PLACEHOLDER — replace this entire file with the real Gameplan HQ app HTML.
+<div class="app">
+  <header>
+    <div class="brandrow">
+      <div class="brand"><b>Gameplan HQ</b><span>MerchantsBI</span></div>
+      <div class="hctrl">You are <select class="ctrl" id="identity"></select><button class="btn" id="exportBtn">Export</button></div>
+    </div>
+    <div class="tabs" id="tabs">
+      <button data-page="capture" class="on">Capture</button>
+      <button data-page="tasks">Tasks</button>
+      <button data-page="roadmap">Roadmap</button>
+      <button data-page="agendas">Agendas</button>
+      <button data-page="data">Data</button>
+    </div>
+  </header>
+  <div class="setupwarn" id="setupwarn"></div>
+  <div class="banner" id="banner"></div>
+  <div id="main"></div>
+</div>
 
-    When you paste the real file, set the two config values at the top of its <script>:
-      1. firebaseConfig — paste from Firebase console.
-      2. AI_ENDPOINT    — set to "/api/claude"
-  -->
-  <main style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem;">
-    <h1>Gameplan HQ</h1>
-    <p>Scaffold deployed. Waiting for the app HTML to be pasted into <code>public/index.html</code>.</p>
-  </main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+/* ============== CONFIG — FILL THESE IN ============== */
+const firebaseConfig = {
+  apiKey: "AIzaSyB5jEex4BnweP97q2aWS17mgui_1660i6g",
+  authDomain: "gameplan-hq-5995b.firebaseapp.com",
+  projectId: "gameplan-hq-5995b",
+  storageBucket: "gameplan-hq-5995b.firebasestorage.app",
+  messagingSenderId: "22122025983",
+  appId: "1:22122025983:web:d609d2ded52116771c8dca",
+  measurementId: "G-GQ1S8KJE12"
+};
+// Your serverless proxy that forwards {prompt} to Anthropic and returns {text}.
+const AI_ENDPOINT = "/api/claude"; // co-located Vercel function — same-origin, no CORS
+/* ==================================================== */
+
+let db=null, fbReady=false;
+try{
+  if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); fbReady=true; }
+}catch(e){ console.error("Firebase init failed",e); }
+
+const TEAM=[
+  {name:"Ricky Schweky",color:"#7F77DD"},{name:"Joe Harari",color:"#378ADD"},
+  {name:"Gabe Lesser",color:"#1D9E75"},{name:"yoni",color:"#BA7517"},
+  {name:"Nathan Mosseri",color:"#D4537E"},{name:"Harel Baruchi",color:"#D85A30"}
+];
+const CATS=["AI","Dev-Ops","Front-End","UI/UX","ETL","Back-End","Sales","Operations","Admin"];
+const CAT_COLOR={"AI":"#7F77DD","Dev-Ops":"#378ADD","Front-End":"#1D9E75","UI/UX":"#D4537E","ETL":"#BA7517","Back-End":"#D85A30","Sales":"#E24B4A","Operations":"#C9A227","Admin":"#888780"};
+const PRIORITIES=["Critical","High","Medium","Low"];
+const PRANK={"Critical":0,"High":1,"Medium":2,"Low":3};
+const PRI_COLOR={"Critical":["#fbe6e6","#8a2020"],"High":["#fcecec","#a32d2d"],"Medium":["#faf0db","#7a5108"],"Low":["#e9f1fb","#1f5790"]};
+const STATUSES=["Not started","Working on it","Stuck","Done"];
+const ST_COLOR={"Not started":["#eeeeec","#646b78"],"Working on it":["#fdeecf","#a86a08"],"Stuck":["#fcecec","#a32d2d"],"Done":["#e9f7ee","#1d6b45"]};
+const DEFAULT_AREAS=[{name:"Development",color:"#378ADD"},{name:"AI",color:"#7F77DD"},{name:"Biz-Dev",color:"#1D9E75"},{name:"Operations",color:"#C9A227"}];
+const AREA_POOL=["#378ADD","#7F77DD","#1D9E75","#C9A227","#E24B4A","#D85A30","#D4537E","#BA7517","#2DA8A8","#7A6FF0","#5B8C2A","#B5641F"];
+const HORIZONS=["Now","Next","Later"];
+const areaNames=()=>DB.areas.map(a=>a.name);
+
+let DB={tasks:[],roadmap:[],agendas:[],areas:[]};
+let identity=TEAM[0].name;
+let page="capture";
+let taskView="all";
+let seededAreas=false;
+
+const today=()=>new Date().toISOString().slice(0,10);
+const initials=n=>{const p=(n||"").trim().split(/\s+/);return (p.length>1?p[0][0]+p[1][0]:(n||"?").slice(0,2)).toUpperCase();};
+const member=n=>TEAM.find(m=>m.name.toLowerCase()===(n||"").toLowerCase());
+const esc=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+function banner(msg,kind){const b=document.getElementById("banner");b.textContent=msg;b.className="banner show "+(kind||"ok");if(kind==="ok")setTimeout(()=>{b.className="banner";},3500);}
+
+/* ---------- Firestore layer ---------- */
+const col=name=>collection(db,name);
+async function fbAdd(name,data){ if(!fbReady)throw new Error("Firebase not configured"); return (await addDoc(col(name),data)).id; }
+async function fbUpdate(name,id,patch){ if(!fbReady)throw new Error("Firebase not configured"); await updateDoc(doc(db,name,id),patch); }
+async function fbDelete(name,id){ if(!fbReady)throw new Error("Firebase not configured"); await deleteDoc(doc(db,name,id)); }
+
+function subscribeAll(){
+  ["tasks","roadmap","agendas","areas"].forEach(k=>{
+    onSnapshot(col(k),snap=>{
+      DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
+      if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
+      if(page!=="capture"&&page!=="data") render();
+    },err=>banner("Sync error: "+err.message,"err"));
+  });
+}
+
+/* ---------- Claude API (Capture / Roadmap / Agendas) ---------- */
+async function callClaude(prompt){
+  if(!AI_ENDPOINT)throw new Error("AI endpoint not set — paste your proxy URL into AI_ENDPOINT");
+  const req=fetch(AI_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})})
+    .then(async r=>{if(!r.ok)throw new Error("AI "+r.status);return r.json();});
+  const to=new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),90000));
+  const data=await Promise.race([req,to]);
+  return (data.text||"").trim();
+}
+function extractJSON(text,kind){const o=kind==="array"?"[":"{",c=kind==="array"?"]":"}";const a=text.indexOf(o),b=text.lastIndexOf(c);if(a===-1||b===-1)throw new Error("no JSON in reply");return JSON.parse(text.slice(a,b+1));}
+
+/* ---------- Capture ---------- */
+async function captureTasks(){
+  const ta=document.getElementById("capText");const txt=ta.value.trim();
+  if(!txt){banner("Write what you're working on first.","err");return;}
+  const btn=document.getElementById("capBtn");btn.disabled=true;btn.innerHTML='<span class="spin"></span> Reading your plan';
+  const hint=document.getElementById("capHint");hint.textContent="Turning it into tasks and checking for duplicates…";
+  const out=document.getElementById("capResult");out.innerHTML="";
+  try{
+    const existing=DB.tasks.map(t=>t.title);
+    const p='Convert this team member’s plain-language plan into structured tasks for an internal board. '+
+      'Disciplines (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
+      'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'. '+
+      'These tasks already exist — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
+      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":["existing title it duplicated"]}. '+
+      'assignee = a named person if explicitly named for that task, otherwise "'+identity+'".\nPlan:\n"""'+txt+'"""';
+    const text=await callClaude(p);const res=extractJSON(text,"object");
+    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",
+      priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
+      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",createdBy:identity,createdAt:today(),roadmapId:null}));
+    for(const t of added){ await fbAdd("tasks",t); }
+    ta.value="";
+    const head=document.createElement("div");head.style.cssText="font-size:13.5px;font-weight:500;margin-bottom:7px;";
+    head.textContent="Added "+added.length+" task"+(added.length!==1?"s":"")+(res.skipped&&res.skipped.length?" · skipped "+res.skipped.length+" already on the board":"");
+    out.appendChild(head);added.forEach(t=>out.appendChild(miniCard(t)));
+    (res.skipped||[]).forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.textContent="Already there: "+s;out.appendChild(d);});
+    const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="See the board";go.onclick=()=>setPage("tasks");out.appendChild(go);
+    banner("Added "+added.length+" task"+(added.length!==1?"s":"")+".","ok");
+  }catch(e){out.innerHTML='<div class="banner err show" style="margin:0;">Could not turn that into tasks ('+esc(e.message||"error")+'). Check AI_ENDPOINT, or retry.</div>';console.error(e);}
+  finally{btn.disabled=false;btn.textContent="Turn into tasks";hint.textContent="";}
+}
+function miniCard(t){const d=document.createElement("div");d.className="card";const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium;
+  d.innerHTML='<div class="chips"><span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+t.category+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span></div><div class="ctitle">'+esc(t.title)+'</div>';return d;}
+
+/* ---------- Roadmap ---------- */
+async function captureRoadmap(){
+  const ta=document.getElementById("rmText");const txt=ta.value.trim();
+  if(!txt){banner("Describe a roadmap target or direction first.","err");return;}
+  const btn=document.getElementById("rmBtn");btn.disabled=true;btn.innerHTML='<span class="spin"></span> Drafting';
+  try{
+    const existing=DB.roadmap.map(r=>r.area+": "+r.title);
+    const p='You maintain a company roadmap across these areas: '+areaNames().join(", ")+'. Turn this input into roadmap targets. '+
+      'Each target: area (one of the list), title (short), detail (one line), horizon (Now/Next/Later). '+
+      'Existing targets (do not duplicate): '+JSON.stringify(existing)+'. Reply with ONLY a JSON array of NEW targets: [{"area","title","detail","horizon"}].\nInput:\n"""'+txt+'"""';
+    const text=await callClaude(p);const arr=extractJSON(text,"array");
+    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",horizon:HORIZONS.includes(r.horizon)?r.horizon:"Next",status:"Not started"}); }
+    ta.value="";banner("Added "+arr.length+" roadmap target"+(arr.length!==1?"s":"")+".","ok");
+  }catch(e){banner("Could not draft the roadmap ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
+  finally{btn.disabled=false;btn.textContent="Add to roadmap";}
+}
+
+/* ---------- Areas ---------- */
+async function addArea(name){
+  if(DB.areas.some(a=>a.name.toLowerCase()===name.toLowerCase())){banner("That area already exists.","err");return;}
+  const used=DB.areas.map(a=>a.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.areas.length%AREA_POOL.length];
+  try{await fbAdd("areas",{name,color});banner("Added area “"+name+"”.","ok");}catch(e){banner(e.message,"err");}
+}
+async function removeArea(area){
+  if(DB.areas.length<=1){banner("Keep at least one area.","err");return;}
+  const n=DB.roadmap.filter(r=>r.area===area.name).length;
+  if(n){banner("“"+area.name+"” has "+n+" target"+(n!==1?"s":"")+" — remove or recategorize them first.","err");return;}
+  try{await fbDelete("areas",area.id);banner("Removed area “"+area.name+"”.","ok");}catch(e){banner(e.message,"err");}
+}
+
+/* ---------- Task ops ---------- */
+async function setTask(id,patch){try{await fbUpdate("tasks",id,patch);}catch(e){banner(e.message,"err");}}
+async function deleteTask(id){
+  try{
+    await fbDelete("tasks",id);
+    for(const a of DB.agendas){ if((a.taskIds||[]).includes(id)) await fbUpdate("agendas",a.id,{taskIds:a.taskIds.filter(x=>x!==id)}); }
+  }catch(e){banner(e.message,"err");}
+}
+async function addTaskToAgenda(taskId,agendaId){
+  const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;
+  const ids=Array.from(new Set([...(a.taskIds||[]),taskId]));
+  try{await fbUpdate("agendas",agendaId,{taskIds:ids});banner("Added to “"+a.title+"”.","ok");}catch(e){banner(e.message,"err");}
+}
+async function addManualTask(title,category,priority){
+  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
+}
+
+/* ---------- Task "Ask" => copy-paste prompt for claude.ai ---------- */
+function buildTaskPrompt(task,q){
+  const rm=task.roadmapId?DB.roadmap.find(r=>r.id===task.roadmapId):null;
+  return "I'm working on a task from our team's board. Context:\n\n"+
+    "Task: "+task.title+"\n"+
+    "Discipline: "+task.category+"\n"+
+    "Priority: "+task.priority+"\n"+
+    "Status: "+task.status+"\n"+
+    (task.context?"Context/notes: "+task.context+"\n":"")+
+    "Assignees: "+((task.assignees||[]).join(", ")||"unassigned")+"\n"+
+    (rm?"Linked roadmap target: "+rm.title+(rm.detail?" — "+rm.detail:"")+"\n":"")+
+    "\nMy question: "+(q.trim()||"How should I approach this, what are the risks, and how do I verify it's done?")+
+    "\n\nAnswer concisely and practically.";
+}
+
+/* ---------- Render ---------- */
+function setPage(p){page=p;document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));render();}
+function render(){const m=document.getElementById("main");
+  if(page==="capture")renderCapture(m);else if(page==="tasks")renderTasks(m);
+  else if(page==="roadmap")renderRoadmap(m);else if(page==="agendas")renderAgendas(m);else renderData(m);}
+
+function renderCapture(m){m=m||document.getElementById("main");
+  m.innerHTML='<div class="hero"><h2>What are you working on?</h2>'+
+    '<p>Write it however it comes out. Claude splits it into tasks, files each under the right discipline, and skips anything already on the board. Saved live to your shared database.</p>'+
+    '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
+    '<div class="row"><button class="btn primary" id="capBtn">Turn into tasks</button><span class="hint" id="capHint"></span></div>'+
+    '<div class="capresult" id="capResult"></div></div>';
+  document.getElementById("capBtn").onclick=captureTasks;}
+
+function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
+
+function taskCard(t){
+  const d=document.createElement("div");d.className="card";
+  const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
+  const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
+  const top=document.createElement("div");
+  top.innerHTML='<div class="chips"><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+t.status+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span>'+(rm?'<span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span>':'')+'</div>'+
+    '<div class="ctitle" style="margin-top:6px;">'+esc(t.title)+'</div>'+(t.context?'<div class="cmeta" style="margin-top:3px;">'+esc(t.context)+'</div>':'');
+  d.appendChild(top);
+  const ar=document.createElement("div");ar.className="avas";ar.style.marginTop="2px";
+  (t.assignees&&t.assignees.length?t.assignees:[]).slice(0,4).forEach(n=>{const mm=member(n);const a=document.createElement("div");a.className="ava";a.style.background=mm?mm.color:"#9aa0a8";a.textContent=initials(n);a.title=n;ar.appendChild(a);});
+  if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
+  d.appendChild(ar);
+  const crow=document.createElement("div");crow.className="crow";
+  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),
+    mkSelect(["— roadmap —"].concat(DB.roadmap.map(r=>r.title)),rm?rm.title:"— roadmap —",v=>{const tgt=DB.roadmap.find(r=>r.title===v);setTask(t.id,{roadmapId:tgt?tgt.id:null});}));
+  if(DB.agendas.length){const ag=mkSelect(["+ agenda"].concat(DB.agendas.map(a=>a.title)),"+ agenda",v=>{const a=DB.agendas.find(x=>x.title===v);if(a)addTaskToAgenda(t.id,a.id);ag.value="+ agenda";});crow.append(ag);}
+  d.appendChild(crow);
+  const acts=document.createElement("div");acts.className="acts";
+  const asg=document.createElement("button");asg.textContent="Assign";
+  const edit=document.createElement("button");edit.textContent="Edit";
+  const ask=document.createElement("button");ask.textContent="Ask Claude";
+  const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
+  acts.append(asg,edit,ask,rmv);d.appendChild(acts);
+  // assign pop
+  const apop=document.createElement("div");apop.className="pop";
+  TEAM.forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
+  const aApply=document.createElement("button");aApply.className="btn primary sm";aApply.style.alignSelf="flex-start";aApply.textContent="Apply";
+  aApply.onclick=()=>setTask(t.id,{assignees:Array.from(apop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});
+  apop.appendChild(aApply);d.appendChild(apop);
+  asg.onclick=()=>apop.classList.toggle("open");
+  // edit pop
+  const epop=document.createElement("div");epop.className="pop";
+  const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.width="100%";
+  const cx=document.createElement("textarea");cx.className="ctrl";cx.value=t.context||"";cx.placeholder="Context / notes";
+  const eSave=document.createElement("button");eSave.className="btn primary sm";eSave.style.alignSelf="flex-start";eSave.textContent="Save";
+  eSave.onclick=()=>{if(!ti.value.trim())return;setTask(t.id,{title:ti.value.trim(),context:cx.value.trim()});};
+  epop.append(ti,cx,eSave);d.appendChild(epop);
+  edit.onclick=()=>epop.classList.toggle("open");
+  // ask pop -> builds a prompt to paste into claude.ai
+  const qpop=document.createElement("div");qpop.className="pop";
+  const qt=document.createElement("textarea");qt.className="ctrl";qt.placeholder="What do you want to ask about this task? (optional — leave blank for a general approach)";
+  const qBtn=document.createElement("button");qBtn.className="btn primary sm";qBtn.style.alignSelf="flex-start";qBtn.textContent="Build Claude prompt";
+  const pbox=document.createElement("textarea");pbox.className="promptbox";pbox.style.display="none";pbox.readOnly=true;
+  const prow=document.createElement("div");prow.style.cssText="display:none;gap:8px;flex-wrap:wrap;";
+  const copyB=document.createElement("button");copyB.className="btn sm";copyB.textContent="Copy prompt";
+  const openB=document.createElement("a");openB.className="btn sm";openB.textContent="Open Claude ↗";openB.href="https://claude.ai/new";openB.target="_blank";openB.rel="noopener";
+  prow.append(copyB,openB);
+  qBtn.onclick=()=>{pbox.value=buildTaskPrompt(t,qt.value);pbox.style.display="block";prow.style.display="flex";pbox.scrollIntoView({block:"nearest"});};
+  copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
+  qpop.append(qt,qBtn,pbox,prow);d.appendChild(qpop);
+  ask.onclick=()=>{qpop.classList.toggle("open");if(qpop.classList.contains("open"))qt.focus();};
+  // delete inline confirm
+  rmv.onclick=()=>{acts.innerHTML="";const q=document.createElement("span");q.style.cssText="font-size:11.5px;color:var(--danger);";q.textContent="Delete?";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Yes";y.onclick=()=>deleteTask(t.id);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTasks();acts.append(q,y,n);};
+  return d;
+}
+
+function taskFilter(t){
+  if(taskView==="done")return t.status==="Done";
+  if(taskView==="mine")return t.status!=="Done"&&(t.assignees||[]).some(a=>a.toLowerCase()===identity.toLowerCase());
+  if(taskView==="top")return t.status!=="Done"&&(t.priority==="Critical"||t.priority==="High");
+  return t.status!=="Done";
+}
+function renderTasks(m){
+  m=m||document.getElementById("main");m.innerHTML="";
+  const open=DB.tasks.filter(t=>t.status!=="Done").length;
+  const head=document.createElement("div");
+  head.innerHTML='<div class="barrow"><div><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' disciplines. Edits save live for the whole team.</p></div></div>';
+  m.appendChild(head);
+  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="12px 0";addBtn.textContent="+ Add task";
+  const form=document.createElement("div");form.className="hero";form.style.cssText="padding:14px;display:none;margin-bottom:8px;";
+  const titleI=document.createElement("input");titleI.className="ctrl";titleI.placeholder="Task title";
+  const catS=document.createElement("select");catS.className="ctrl";CATS.forEach(c=>{const o=document.createElement("option");o.textContent=c;catS.appendChild(o);});
+  const priS=document.createElement("select");priS.className="ctrl";PRIORITIES.forEach(p=>{const o=document.createElement("option");o.textContent=p;if(p==="Medium")o.selected=true;priS.appendChild(o);});
+  const fg=document.createElement("div");fg.className="formgrid";
+  const c1=document.createElement("div");c1.className="field";c1.innerHTML='<label>Title</label>';c1.appendChild(titleI);
+  const c2=document.createElement("div");c2.className="field";c2.innerHTML='<label>Discipline</label>';c2.appendChild(catS);
+  const c3=document.createElement("div");c3.className="field";c3.innerHTML='<label>Priority</label>';c3.appendChild(priS);
+  fg.append(c1,c2,c3);
+  const fAdd=document.createElement("button");fAdd.className="btn primary";fAdd.textContent="Add task";
+  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value);titleI.value="";};
+  form.append(fg,fAdd);
+  addBtn.onclick=()=>{form.style.display=form.style.display==="none"?"block":"none";};
+  m.append(addBtn,form);
+  const vb=document.createElement("div");vb.className="views";
+  [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
+  m.appendChild(vb);
+  if(!DB.tasks.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
+  let any=false;
+  CATS.forEach(cat=>{
+    const list=DB.tasks.filter(t=>t.category===cat&&taskFilter(t)).sort((a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2));
+    if(!list.length)return;any=true;
+    const wrap=document.createElement("div");wrap.className="cat";
+    wrap.innerHTML='<div class="cat-head"><span class="dot" style="background:'+(CAT_COLOR[cat]||"#888")+'"></span><span class="cat-name">'+cat+'</span><span class="cat-count">'+list.length+'</span></div>';
+    const grid=document.createElement("div");grid.className="grid";list.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
+  });
+  if(!any){const msg=taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+msg+'</div></div>');}
+}
+
+function renderRoadmap(m){
+  m=m||document.getElementById("main");m.innerHTML="";
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Roadmap</div><p class="pagesub">The overarching plan across the business. Describe a direction and Claude files it; link tasks to targets from the Tasks page to see momentum.</p>');
+  const cap=document.createElement("div");cap.className="hero";cap.style.padding="16px";
+  cap.innerHTML='<textarea id="rmText" class="ctrl" style="min-height:64px;" placeholder="e.g. This quarter: ship AI task-extraction to prod (AI, Now), stand up the new ETL pipeline (Development, Next), close two enterprise pilots (Biz-Dev, Next)."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;align-items:center;"><button class="btn primary" id="rmBtn">Add to roadmap</button></div>';
+  m.appendChild(cap);document.getElementById("rmBtn").onclick=captureRoadmap;
+  const am=document.createElement("div");am.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0 2px;";
+  am.innerHTML='<span class="cmeta" style="font-weight:500;">Areas:</span>';
+  DB.areas.forEach(a=>{
+    const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:6px;font-size:12px;";
+    chip.appendChild(document.createTextNode(a.name));
+    const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:14px;line-height:1;padding:0;";
+    x.onclick=()=>removeArea(a);chip.appendChild(x);am.appendChild(chip);
+  });
+  const ai=document.createElement("input");ai.className="ctrl";ai.placeholder="New area";ai.style.cssText="padding:5px 9px;font-size:12.5px;width:130px;";
+  const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
+  ab.onclick=()=>{if(ai.value.trim()){addArea(ai.value.trim());ai.value="";}};
+  ai.addEventListener("keydown",e=>{if(e.key==="Enter"&&ai.value.trim()){addArea(ai.value.trim());ai.value="";}});
+  am.append(ai,ab);m.appendChild(am);
+  DB.areas.forEach(av=>{const area=av.name;
+    const items=DB.roadmap.filter(r=>r.area===area);
+    const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
+    if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No targets yet.</div>');return;}
+    HORIZONS.forEach(hz=>{items.filter(r=>r.horizon===hz).forEach(r=>{
+      const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
+      const el=document.createElement("div");el.className="target";
+      el.innerHTML='<div class="tt">'+esc(r.title)+'</div>'+(r.detail?'<div class="td">'+esc(r.detail)+'</div>':'')+'<div class="tf"><span class="chip" style="background:#eef0f4;color:#5a6069">'+r.horizon+'</span>'+(linked.length?'<span class="linkcount">'+done+'/'+linked.length+' linked tasks done</span>':'<span class="cmeta">no linked tasks</span>')+'</div>';
+      const del=document.createElement("button");del.className="btn sm";del.style.marginTop="8px";del.textContent="Remove target";
+      del.onclick=async()=>{try{await fbDelete("roadmap",r.id);for(const t of DB.tasks){if(t.roadmapId===r.id)await fbUpdate("tasks",t.id,{roadmapId:null});}}catch(e){banner(e.message,"err");}};
+      el.appendChild(del);m.appendChild(el);
+    });});
+  });
+}
+
+async function planMeeting(){
+  const ta=document.getElementById("planText");const txt=ta.value.trim();
+  if(!txt){banner("Describe what the meeting is about first.","err");return;}
+  const btn=document.getElementById("planBtn");btn.disabled=true;btn.innerHTML='<span class="spin"></span> Planning';
+  try{
+    const open=DB.tasks.filter(t=>t.status!=="Done").map(t=>({id:t.id,title:t.title,discipline:t.category,priority:t.priority,assignees:t.assignees}));
+    const p='Plan a meeting from this request, choosing which existing open tasks belong on the agenda and who should attend (use the assignees of the chosen tasks). '+
+      'Open tasks: '+JSON.stringify(open)+'. Team members: '+JSON.stringify(TEAM.map(m=>m.name))+'. '+
+      'Reply with ONLY JSON: {"title": short meeting title, "taskIds": [ids of chosen tasks], "attendees": [names]}.\nRequest:\n"""'+txt+'"""';
+    const text=await callClaude(p);const res=extractJSON(text,"object");
+    const ids=(res.taskIds||[]).filter(id=>DB.tasks.some(t=>t.id===id));
+    const att=(res.attendees||[]).filter(n=>member(n));
+    await fbAdd("agendas",{title:res.title||"Meeting",date:today(),attendees:att,taskIds:ids,notes:""});
+    ta.value="";banner("Agenda drafted with "+ids.length+" task"+(ids.length!==1?"s":"")+".","ok");
+  }catch(e){banner("Could not plan the meeting ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
+  finally{btn.disabled=false;btn.textContent="Plan meeting";}
+}
+
+function renderAgendas(m){
+  m=m||document.getElementById("main");m.innerHTML="";
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agendas</div><p class="pagesub">Plan a meeting around tasks. Describe it and Claude drafts the agenda from open tasks, or build one by hand.</p>');
+  const plan=document.createElement("div");plan.className="hero";plan.style.padding="16px";
+  plan.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Plan a meeting</h2><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open tasks and attendees.</span></div>';
+  m.appendChild(plan);document.getElementById("planBtn").onclick=planMeeting;
+  const f=document.createElement("div");f.className="hero";f.style.cssText="padding:16px;margin-top:10px;";
+  f.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Or create by hand</h2><div class="field"><label>Meeting title</label><input class="ctrl" id="agTitle" placeholder="e.g. Cache rollout review"></div><div class="field"><label>Date</label><input class="ctrl" id="agDate" type="date"></div><div class="field"><label>Attendees</label><div id="agPeople" style="display:flex;flex-wrap:wrap;gap:10px;">'+TEAM.map(mem=>'<label class="opt"><input type="checkbox" data-name="'+mem.name+'"> '+mem.name+'</label>').join("")+'</div></div><button class="btn" id="agAdd">Create agenda</button>';
+  m.appendChild(f);
+  document.getElementById("agAdd").onclick=async()=>{const title=document.getElementById("agTitle").value.trim();if(!title){banner("Give the meeting a title.","err");return;}
+    const date=document.getElementById("agDate").value;const attendees=Array.from(document.querySelectorAll("#agPeople input:checked")).map(x=>x.dataset.name);
+    try{await fbAdd("agendas",{title,date,attendees,taskIds:[],notes:""});banner("Agenda created.","ok");}catch(e){banner(e.message,"err");}};
+  if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach tasks from the Tasks page.</div>');return;}
+  DB.agendas.forEach(a=>{
+    const tasks=(a.taskIds||[]).map(id=>DB.tasks.find(t=>t.id===id)).filter(Boolean);
+    const el=document.createElement("div");el.className="ag";
+    el.innerHTML='<h3>'+esc(a.title)+'</h3><div class="agmeta">'+(a.date?a.date+" · ":"")+((a.attendees||[]).length?a.attendees.join(", "):"no attendees yet")+'</div>'+(tasks.length?'<ul>'+tasks.map(t=>'<li>'+esc(t.title)+' <span class="cmeta">('+t.category+' · '+t.priority+' · '+t.status+')</span></li>').join("")+'</ul>':'<div class="cmeta" style="margin-top:8px;">No tasks attached yet — add them from the Tasks page.</div>');
+    const del=document.createElement("button");del.className="btn sm";del.style.marginTop="10px";del.textContent="Delete agenda";
+    del.onclick=async()=>{try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
+    el.appendChild(del);m.appendChild(el);
+  });
+}
+
+function renderData(m){
+  m=m||document.getElementById("main");m.innerHTML="";
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Data</div><p class="pagesub">Your shared data lives in Firebase — this is the source of truth for the whole team. Export a snapshot below anytime.</p>');
+  const stats=document.createElement("div");stats.className="cmeta";stats.style.marginBottom="12px";stats.textContent=DB.tasks.length+" tasks · "+DB.roadmap.length+" roadmap targets · "+DB.agendas.length+" agendas";m.appendChild(stats);
+  const box=document.createElement("div");box.className="hero";box.style.padding="16px";
+  box.innerHTML='<div class="field"><label>Snapshot (JSON, read-only)</label><textarea class="ctrl" id="dump" style="min-height:160px;font-family:monospace;font-size:12px;" readonly>'+esc(JSON.stringify(DB,null,2))+'</textarea></div><button class="btn primary" id="copyBtn">Copy snapshot</button>';
+  m.appendChild(box);
+  document.getElementById("copyBtn").onclick=()=>{const t=document.getElementById("dump");t.select();try{navigator.clipboard.writeText(t.value);}catch(e){}banner("Snapshot copied.","ok");};
+}
+
+/* ---------- Init ---------- */
+function init(){
+  const sel=document.getElementById("identity");
+  TEAM.forEach(mem=>{const o=document.createElement("option");o.value=mem.name;o.textContent=mem.name;sel.appendChild(o);});
+  try{const saved=localStorage.getItem("gp_identity");if(saved&&member(saved))identity=saved;}catch(e){}
+  sel.value=identity;
+  sel.onchange=()=>{identity=sel.value;try{localStorage.setItem("gp_identity",identity);}catch(e){}if(page==="tasks")renderTasks();};
+  document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
+  document.getElementById("exportBtn").onclick=()=>setPage("data");
+
+  const warn=document.getElementById("setupwarn");
+  if(!fbReady){warn.className="setupwarn show";warn.textContent="Firebase isn’t configured yet — paste your firebaseConfig into the top of the script. Until then, data won’t save or sync.";}
+  else if(!AI_ENDPOINT){warn.className="setupwarn show";warn.textContent="Storage is live, but AI_ENDPOINT is empty — Capture / Roadmap / Agenda planning need your proxy URL. The board and manual entry work without it.";}
+
+  render();
+  if(fbReady)subscribeAll();
+}
+init();
+</script>
 </body>
 </html>
