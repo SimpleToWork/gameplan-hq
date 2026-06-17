@@ -1,12 +1,19 @@
 rules_version = '2';
 
-// Post-launch rules: replace Firestore "test mode" with these.
-// Requires Firebase Authentication (Google sign-in is the lightest option for a small team).
-// Allows read/write to the app's collections only for signed-in users.
+// Post-launch rules: replace Firestore "test mode" / the temporary `if true` rule
+// with these. Requires Firebase Authentication with Google sign-in enabled.
+// Allows read/write to the app's collections only for signed-in users whose
+// (verified) Google email is on the @merchantsbi.com Workspace domain.
+//
+// To allow ANY signed-in Google account instead, drop the two email lines.
+// To use an explicit allowlist, replace the email check with:
+//   && request.auth.token.email in ['a@x.com', 'b@x.com']
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{collection}/{docId} {
       allow read, write: if request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.matches('.*@merchantsbi[.]com$')
         && collection in ['tasks', 'roadmap', 'agendas', 'areas'];
     }
   }

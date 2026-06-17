@@ -154,6 +154,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 /* ============== CONFIG — FILL THESE IN ============== */
 const firebaseConfig = {
@@ -167,11 +169,14 @@ const firebaseConfig = {
 };
 // Your serverless proxy that forwards {prompt} to Anthropic and returns {text}.
 const AI_ENDPOINT = "/api/claude"; // co-located Vercel function — same-origin, no CORS
+// Only Google accounts on this Workspace domain may sign in. To use an explicit
+// email allowlist instead, set this to "" and edit the check in onAuthStateChanged.
+const ALLOWED_DOMAIN = "merchantsbi.com";
 /* ==================================================== */
 
-let db=null, fbReady=false;
+let db=null, auth=null, fbReady=false;
 try{
-  if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); fbReady=true; }
+  if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); auth=getAuth(app); fbReady=true; }
 }catch(e){ console.error("Firebase init failed",e); }
 
 const TEAM=[
@@ -525,6 +530,51 @@ function renderData(m){
   document.getElementById("copyBtn").onclick=()=>{const t=document.getElementById("dump");t.select();try{navigator.clipboard.writeText(t.value);}catch(e){}banner("Snapshot copied.","ok");};
 }
 
+/* ---------- Auth gate ---------- */
+let subscribed=false, pendingAuthMsg="";
+
+function showUserChip(user){
+  const hctrl=document.querySelector(".hctrl");
+  let chip=document.getElementById("userChip");
+  if(!chip){
+    chip=document.createElement("button");chip.className="btn";chip.id="userChip";
+    chip.textContent="Sign out";chip.onclick=()=>signOut(auth);
+    hctrl.appendChild(chip);
+  }
+  chip.title="Signed in as "+user.email;
+}
+function renderSignIn(msg){
+  document.getElementById("tabs").style.display="none";
+  document.querySelector(".hctrl").style.display="none";
+  document.getElementById("setupwarn").className="setupwarn";
+  const m=document.getElementById("main");
+  m.innerHTML='<div class="hero" style="max-width:420px;margin:48px auto;text-align:center;">'+
+    '<h2 style="font-size:20px;">Sign in to Gameplan HQ</h2>'+
+    '<p style="margin:6px auto 16px;">Use your <b>@'+ALLOWED_DOMAIN+'</b> Google account.</p>'+
+    (msg?'<div class="banner err show" style="margin:0 0 14px;text-align:left;">'+esc(msg)+'</div>':'')+
+    '<button class="btn primary" id="signinBtn">Sign in with Google</button></div>';
+  document.getElementById("signinBtn").onclick=doSignIn;
+}
+async function doSignIn(){
+  try{
+    const provider=new GoogleAuthProvider();
+    if(ALLOWED_DOMAIN)provider.setCustomParameters({hd:ALLOWED_DOMAIN});
+    await signInWithPopup(auth,provider);
+  }catch(e){renderSignIn("Sign-in failed: "+(e.message||e.code||"error"));}
+}
+function allowed(user){
+  if(!user||!user.email)return false;
+  if(!ALLOWED_DOMAIN)return true; // signed-in is enough (swap in an email allowlist here)
+  return user.email.toLowerCase().endsWith("@"+ALLOWED_DOMAIN);
+}
+function startApp(user){
+  document.getElementById("tabs").style.display="";
+  document.querySelector(".hctrl").style.display="";
+  showUserChip(user);
+  render();
+  if(fbReady&&!subscribed){subscribed=true;subscribeAll();}
+}
+
 /* ---------- Init ---------- */
 function init(){
   const sel=document.getElementById("identity");
@@ -535,12 +585,22 @@ function init(){
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
   document.getElementById("exportBtn").onclick=()=>setPage("data");
 
-  const warn=document.getElementById("setupwarn");
-  if(!fbReady){warn.className="setupwarn show";warn.textContent="Firebase isn’t configured yet — paste your firebaseConfig into the top of the script. Until then, data won’t save or sync.";}
-  else if(!AI_ENDPOINT){warn.className="setupwarn show";warn.textContent="Storage is live, but AI_ENDPOINT is empty — Capture / Roadmap / Agenda planning need your proxy URL. The board and manual entry work without it.";}
-
-  render();
-  if(fbReady)subscribeAll();
+  if(!fbReady){
+    const warn=document.getElementById("setupwarn");
+    warn.className="setupwarn show";warn.textContent="Firebase isn’t configured yet — paste your firebaseConfig into the top of the script. Until then, data won’t save or sync.";
+    render();
+    return;
+  }
+  onAuthStateChanged(auth,user=>{
+    if(allowed(user)){
+      startApp(user);
+    }else if(user){
+      pendingAuthMsg=(user.email||"That account")+" is not a @"+ALLOWED_DOMAIN+" account — sign in with your company Google login.";
+      signOut(auth);
+    }else{
+      renderSignIn(pendingAuthMsg);pendingAuthMsg="";
+    }
+  });
 }
 init();
 </script>
