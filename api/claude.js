@@ -1,6 +1,18 @@
+// Only these origins may use the proxy. The app calls /api/claude same-origin,
+// so this mainly stops other sites from borrowing the API key / quota.
+const ALLOWED_ORIGINS = [
+  "https://www.merchantsbi-team.com",
+  "https://merchantsbi-team.com",
+  "https://gameplan-hq.vercel.app"
+];
+
 export default async function handler(req, res) {
-  // CORS — allow requests from the hosted domain
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // CORS — reflect the origin only if it's on the allowlist
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
