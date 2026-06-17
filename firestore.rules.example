@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Post-launch rules: replace Firestore "test mode" with these.
+// Requires Firebase Authentication (Google sign-in is the lightest option for a small team).
+// Allows read/write to the app's collections only for signed-in users.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{collection}/{docId} {
+      allow read, write: if request.auth != null
+        && collection in ['tasks', 'roadmap', 'agendas', 'areas'];
+    }
+  }
+}
