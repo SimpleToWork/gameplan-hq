@@ -155,7 +155,7 @@
   .rmtoolbar-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;}
   .rmtgl .tgchev{display:inline-block;transition:transform .15s;margin-right:6px;font-size:11px;}
   .rmtgl:not(.on) .tgchev{transform:rotate(-90deg);}
-  .rmtgl.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);}
+  .rmtgl.on{background:rgba(37,107,145,.13);border-color:#256b91;color:#256b91;}
   /* roadmap toolbar: larger, easier-to-read area / phase / filter controls */
   .rmtools .cmeta{font-size:14px;}
   .rmtools .btn.sm{font-size:13.5px;padding:7px 13px;}
@@ -905,7 +905,7 @@ function renderRoadmap(m){
   m=m||document.getElementById("main");m.innerHTML="";
   if(rmActive===null)rmActive=new Set(DB.areas.map(a=>a.name));
   rmActive=new Set([...rmActive].filter(n=>DB.areas.some(a=>a.name===n)));
-  m.insertAdjacentHTML("beforeend",'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"><div class="pagehead" style="margin:0;">Roadmap</div><p class="pagesub" style="margin:0;">The overarching plan across the business. Capture with AI or add targets by hand; give each a timeframe to see it on the timeline.</p></div>');
+  m.insertAdjacentHTML("beforeend",'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"><div class="pagehead" style="margin:0;">Roadmap</div><p class="pagesub" style="margin:0;">The overarching plan across the business.</p></div>');
   const cap=document.createElement("div");cap.className="hero";cap.style.padding="14px 16px";
   const capHead=document.createElement("div");capHead.className="caphead"+(rmCapOpen?"":" closed");
   capHead.innerHTML='<span class="capttl"><span class="capchev">▾</span>Capture roadmap with AI</span>';
@@ -1231,7 +1231,7 @@ function agendaForm(a,onDone,onCancel){
   wrap.innerHTML='<div class="field"><label>Meeting title</label><input class="ctrl" data-fld="title" placeholder="e.g. Cache rollout review"></div>'+
     '<div class="field"><label>Date</label><input class="ctrl" data-fld="date" type="date"></div>'+
     '<div class="field"><label>Attendees</label><div class="agPeople" style="display:flex;flex-wrap:wrap;gap:10px;">'+
-      roster().map(mem=>'<label class="opt"><input type="checkbox" data-name="'+esc(mem.name)+'"'+(att.has(mem.name)?" checked":"")+'> '+esc(mem.name)+'</label>').join("")+'</div></div>';
+      roster().map(mem=>'<label class="opt"><input type="checkbox" data-name="'+esc(mem.name)+'"'+(att.has(mem.name)?" checked":"")+'> <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+(mem.color||"#9aa0a8")+';margin-right:3px;"></span>'+esc(mem.name)+'</label>').join("")+'</div></div>';
   wrap.querySelector('[data-fld="title"]').value=a?a.title||"":"";
   wrap.querySelector('[data-fld="date"]').value=a?a.date||"":"";
   const btns=document.createElement("div");btns.style.cssText="display:flex;gap:8px;margin-top:4px;";
@@ -1274,7 +1274,11 @@ function renderAgendas(m){
     const ttl=document.createElement("span");ttl.textContent=a.title;ttl.style.flex="1";h.appendChild(ttl);
     const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent="Edit";h.appendChild(editBtn);
     el.appendChild(h);
-    const meta=document.createElement("div");meta.className="agmeta";meta.textContent=(a.date?a.date+" · ":"")+((a.attendees||[]).length?a.attendees.join(", "):"no attendees yet");el.appendChild(meta);
+    const meta=document.createElement("div");meta.className="agmeta";meta.textContent=a.date?a.date:"No date set";el.appendChild(meta);
+    const atts=document.createElement("div");atts.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;";
+    if((a.attendees||[]).length)a.attendees.forEach(n=>atts.appendChild(attendeeChip(n)));
+    else atts.innerHTML='<span class="cmeta">no attendees yet</span>';
+    el.appendChild(atts);
     // Google Meet link (or a button to generate one)
     const meet=document.createElement("div");meet.style.cssText="margin-top:6px;";
     if(a.meetLink){
@@ -1330,6 +1334,15 @@ function attendeeEmailStats(a){
   const names=a.attendees||[];
   const noEmail=names.filter(n=>!memberEmail(n));
   return {total:names.length,invited:names.length-noEmail.length,missing:noEmail};
+}
+// A colored pill (member avatar + name) using the team member's color.
+function attendeeChip(name){
+  const mm=member(name);const color=mm&&mm.color?mm.color:"#9aa0a8";
+  const c=document.createElement("span");
+  c.style.cssText="display:inline-flex;align-items:center;gap:6px;background:"+color+"22;color:"+color+";border-radius:999px;padding:2px 10px 2px 3px;font-size:12px;font-weight:600;";
+  const av=document.createElement("span");av.className="ava";av.style.cssText="background:"+color+";width:18px;height:18px;font-size:9px;";av.textContent=initials(name);
+  c.append(av,document.createTextNode(name));
+  return c;
 }
 // Build the body sent to /api/calendar from an agenda.
 function meetPayload(a,extra){
