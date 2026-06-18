@@ -1302,7 +1302,8 @@ function renderAgendas(m){
       const ul=document.createElement("ul");
       items.forEach(r=>{
         const li=document.createElement("li");
-        li.innerHTML=esc(r.title)+' <span class="cmeta">('+esc(r.area)+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')</span>';
+        const color=(DB.areas.find(x=>x.name===r.area)||{}).color||"#9aa0a8";
+        li.innerHTML='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+color+';margin-right:7px;vertical-align:middle;"></span>'+esc(r.title)+' <span class="cmeta">(<span style="color:'+color+';font-weight:600;">'+esc(r.area)+'</span>'+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')</span>';
         const x=document.createElement("button");x.className="rm";x.textContent="remove";x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;margin-left:8px;";
         x.onclick=()=>removeItemFromAgenda(a.id,r.id);li.appendChild(x);ul.appendChild(li);
       });
