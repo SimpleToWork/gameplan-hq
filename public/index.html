@@ -312,7 +312,7 @@ let page="capture";
 let taskView="all";
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
-let rmCapOpen=true;          // is the AI-capture prompt box on the roadmap expanded?
+let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
 let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (collapsed by default for space)
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
@@ -905,7 +905,7 @@ function renderRoadmap(m){
   m=m||document.getElementById("main");m.innerHTML="";
   if(rmActive===null)rmActive=new Set(DB.areas.map(a=>a.name));
   rmActive=new Set([...rmActive].filter(n=>DB.areas.some(a=>a.name===n)));
-  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Roadmap</div><p class="pagesub">The overarching plan across the business. Capture with AI or add targets by hand; give each a timeframe to see it on the timeline.</p>');
+  m.insertAdjacentHTML("beforeend",'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"><div class="pagehead" style="margin:0;">Roadmap</div><p class="pagesub" style="margin:0;">The overarching plan across the business. Capture with AI or add targets by hand; give each a timeframe to see it on the timeline.</p></div>');
   const cap=document.createElement("div");cap.className="hero";cap.style.padding="14px 16px";
   const capHead=document.createElement("div");capHead.className="caphead"+(rmCapOpen?"":" closed");
   capHead.innerHTML='<span class="capttl"><span class="capchev">▾</span>Capture roadmap with AI</span>';

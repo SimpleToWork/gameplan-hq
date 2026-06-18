@@ -81,6 +81,15 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
+  // GET = diagnostic: reports which env vars are present (booleans only, never values).
+  if (req.method === "GET") {
+    return res.status(200).json({
+      configured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN),
+      GOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
+      GOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+      GOOGLE_REFRESH_TOKEN: !!process.env.GOOGLE_REFRESH_TOKEN
+    });
+  }
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   const { action = "create", title, date, description, attendees, eventId } = req.body || {};
