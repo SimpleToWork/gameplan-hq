@@ -171,11 +171,14 @@
   .barrow{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
   .setupwarn{background:#fff7e6;border:1px solid #f3e0b5;color:#7a5108;border-radius:11px;padding:11px 14px;font-size:12.5px;margin:12px 0;display:none;}
   .setupwarn.show{display:block;}
-  /* roadmap timeline */
-  .timeline{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;overflow-x:auto;}
-  .tl-axis{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin:0 0 8px 180px;}
+  /* roadmap timeline — --tlw is the draggable title-column width */
+  .timeline{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;overflow-x:auto;--tlw:170px;}
+  .tl-axis{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin:0 0 8px calc(var(--tlw) + 27px);}
   .tl-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
-  .tl-label{width:170px;flex:none;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .tl-label{width:var(--tlw);flex:none;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .tl-handle{flex:none;width:7px;align-self:stretch;cursor:col-resize;border-radius:4px;background:transparent;transition:background .12s;}
+  .tl-row:hover .tl-handle{background:var(--line);}
+  .tl-handle:hover,.tl-handle.dragging{background:var(--accent);}
   .tl-track{position:relative;flex:1;height:24px;background:#f1f2f5;border-radius:6px;min-width:240px;}
   .tl-bar{position:absolute;top:0;height:24px;border-radius:6px;color:#fff;font-size:10.5px;line-height:24px;padding:0 7px;white-space:nowrap;overflow:hidden;min-width:16px;}
   /* roadmap kanban */
@@ -266,7 +269,7 @@ let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=true;          // is the AI-capture prompt box on the roadmap expanded?
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
-let rmTlDescOpen=false;      // is the timeline "Target descriptions" accordion expanded?
+let rmTlLabelW=170;          // width (px) of the timeline title column — draggable to read full titles
 let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area)
 let rmDragId=null;           // id of the roadmap target currently being dragged (manual reorder)
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
@@ -942,6 +945,23 @@ function renderPlot(m){
   m.appendChild(plot);
   m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:10px;">Each dot is a target at its deadline; lanes are areas, time runs left → right. The faint bar shows start → target. Hover anywhere along a lane to see the targets near the cursor.</div>');
 }
+// Drag the seam between the title column and the track to resize all timeline frames live.
+function startTlResize(e){
+  e.preventDefault();
+  const handle=e.currentTarget;handle.classList.add("dragging");
+  const startX=e.clientX,startW=rmTlLabelW;
+  const prevCursor=document.body.style.cursor,prevSel=document.body.style.userSelect;
+  document.body.style.cursor="col-resize";document.body.style.userSelect="none";
+  const move=ev=>{
+    rmTlLabelW=Math.max(110,Math.min(900,Math.round(startW+(ev.clientX-startX))));
+    document.querySelectorAll(".timeline").forEach(t=>t.style.setProperty("--tlw",rmTlLabelW+"px"));
+  };
+  const up=()=>{
+    document.removeEventListener("mousemove",move);document.removeEventListener("mouseup",up);
+    handle.classList.remove("dragging");document.body.style.cursor=prevCursor;document.body.style.userSelect=prevSel;
+  };
+  document.addEventListener("mousemove",move);document.addEventListener("mouseup",up);
+}
 // Build one timeline frame for a set of targets. Driven by the target (deadline) date; start optional (marker at deadline). Scale is local to the passed set.
 function appendTimeline(m,targets,compactEmpty){
   const toMs=s=>Date.parse(s+"T00:00:00");
@@ -956,7 +976,7 @@ function appendTimeline(m,targets,compactEmpty){
     dated.forEach(r=>{min=Math.min(min,toMs(eff(r)));max=Math.max(max,toMs(r.target));});
     const span=Math.max(max-min,86400000);
     const fmt=ms=>new Date(ms).toISOString().slice(0,7);
-    const tl=document.createElement("div");tl.className="timeline";
+    const tl=document.createElement("div");tl.className="timeline";tl.style.setProperty("--tlw",rmTlLabelW+"px");
     const axis=document.createElement("div");axis.className="tl-axis";axis.innerHTML='<span>'+fmt(min)+'</span><span>'+fmt(min+span/2)+'</span><span>'+fmt(max)+'</span>';tl.appendChild(axis);
     dated.slice().sort((a,b)=>toMs(a.target)-toMs(b.target)).forEach(r=>{
       const ac=areaColor(r.area);
@@ -966,6 +986,7 @@ function appendTimeline(m,targets,compactEmpty){
       const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
       const row=document.createElement("div");row.className="tl-row";
       const lbl=document.createElement("div");lbl.className="tl-label";lbl.textContent=r.title;lbl.title=r.title+" ("+r.area+")";
+      const handle=document.createElement("div");handle.className="tl-handle";handle.title="Drag to widen the title column";handle.addEventListener("mousedown",startTlResize);
       const track=document.createElement("div");track.className="tl-track";
       const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";";
       const span2=r.start?(r.start+" → "+r.target):("by "+r.target);
@@ -974,41 +995,16 @@ function appendTimeline(m,targets,compactEmpty){
       bar.addEventListener("mouseenter",e=>{const t=plotTipEl();t.innerHTML=singleTipHTML(r);t.style.display="block";movePlotTip(e);});
       bar.addEventListener("mousemove",movePlotTip);
       bar.addEventListener("mouseleave",hidePlotTip);
-      track.appendChild(bar);row.append(lbl,track);tl.appendChild(row);
+      track.appendChild(bar);row.append(lbl,handle,track);tl.appendChild(row);
     });
     m.appendChild(tl);
   }
   if(undated.length){const d=document.createElement("div");d.className="cmeta";d.style.margin="8px 0 4px";d.textContent="No target date ("+undated.length+"): "+undated.map(r=>r.title).join(", ");m.appendChild(d);}
 }
-// Collapsible panel of the targets' descriptions, parked between the page intro and the timeline.
-function appendTlDescriptions(m){
-  const toMs=s=>Date.parse(s+"T00:00:00");
-  const targets=rmFilteredTargets().slice().sort((a,b)=>{
-    if(!a.target&&!b.target)return 0;if(!a.target)return 1;if(!b.target)return -1;
-    return toMs(a.target)-toMs(b.target);
-  });
-  const box=document.createElement("div");box.className="hero";box.style.cssText="padding:12px 14px;margin:0 0 12px;";
-  const head=document.createElement("div");head.className="caphead"+(rmTlDescOpen?"":" closed");
-  head.innerHTML='<span class="capttl"><span class="capchev">▾</span>Target descriptions</span><span class="cmeta">'+targets.length+' target'+(targets.length!==1?"s":"")+'</span>';
-  const body=document.createElement("div");body.style.cssText="margin-top:10px;display:"+(rmTlDescOpen?"block":"none")+";";
-  if(!targets.length){body.innerHTML='<div class="cmeta">No targets in the current filter.</div>';}
-  else targets.forEach((r,i)=>{
-    const ac=areaColor(r.area);const pn=phaseOf(r);
-    const row=document.createElement("div");row.style.cssText="display:flex;gap:9px;align-items:flex-start;padding:8px 0;"+(i?"border-top:1px solid var(--line);":"");
-    row.innerHTML='<span class="dot" style="background:'+ac+';margin-top:5px;"></span>'+
-      '<div style="flex:1;min-width:0;"><div style="font-weight:500;font-size:13.5px;">'+esc(r.title)+'</div>'+
-      (r.detail?'<div class="cmeta" style="margin-top:2px;">'+esc(r.detail)+'</div>':'')+
-      '<div class="cmeta" style="margin-top:3px;opacity:.8;">'+esc(r.area)+' · '+esc(pn||"—")+(r.target?' · '+(r.start?esc(r.start)+" → ":"by ")+esc(r.target):' · no date')+'</div></div>';
-    body.appendChild(row);
-  });
-  head.onclick=()=>{rmTlDescOpen=!rmTlDescOpen;body.style.display=rmTlDescOpen?"block":"none";head.classList.toggle("closed",!rmTlDescOpen);};
-  box.append(head,body);m.appendChild(box);
-}
 function renderTimeline(m){
   const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
   [["all","Combined"],["area","By area"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
-  appendTlDescriptions(m);
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
       const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
