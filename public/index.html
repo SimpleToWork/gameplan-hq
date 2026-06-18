@@ -310,6 +310,8 @@ let DB={tasks:[],roadmap:[],agendas:[],areas:[],members:[],domains:[],phases:[]}
 let identity=TEAM[0].name;
 let page="capture";
 let taskView="all";
+let taskTime="all";          // timeframe filter on due date: all | today | week | month | past | next | future
+let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
@@ -336,6 +338,29 @@ const phaseColor=name=>{const p=DB.phases.find(x=>x.name===name);return p?p.colo
 const phaseOf=r=>r.phase||r.horizon||"";
 
 const today=()=>new Date().toISOString().slice(0,10);
+// Parse a "YYYY-MM-DD" string to a local midnight Date (null if blank/invalid).
+function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
+// Does a task's due date fall in the selected timeframe bucket? Tasks with no due date match only "all".
+function taskTimeMatch(t){
+  if(taskTime==="all")return true;
+  const d=parseDay(t.due);if(!d)return false;
+  const n=new Date(),t0=new Date(n.getFullYear(),n.getMonth(),n.getDate());
+  if(taskTime==="today")return d.getTime()===t0.getTime();
+  if(taskTime==="past")return d<t0;
+  if(taskTime==="week"){const ws=new Date(t0);ws.setDate(t0.getDate()-((t0.getDay()+6)%7));const we=new Date(ws);we.setDate(ws.getDate()+6);return d>=ws&&d<=we;} // Mon–Sun week containing today
+  if(taskTime==="month")return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth();
+  if(taskTime==="next"){const nm=new Date(n.getFullYear(),n.getMonth()+1,1);return d.getFullYear()===nm.getFullYear()&&d.getMonth()===nm.getMonth();}
+  if(taskTime==="future"){const after=new Date(n.getFullYear(),n.getMonth()+2,1);return d>=after;} // beyond next month
+  return true;
+}
+// A task passes the People filter if no filter is active, or one of its assignees is selected
+// (UNASSIGNED sentinel matches tasks with no assignees).
+function taskPersonMatch(t){
+  if(!taskPerson)return true;
+  const has=(t.assignees||[]).length>0;
+  if(taskPerson.has(UNASSIGNED)&&!has)return true;
+  return (t.assignees||[]).some(n=>taskPerson.has(n));
+}
 const initials=n=>{const p=(n||"").trim().split(/\s+/);return (p.length>1?p[0][0]+p[1][0]:(n||"?").slice(0,2)).toUpperCase();};
 const member=n=>roster().find(m=>m.name.toLowerCase()===(n||"").toLowerCase());
 const esc=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -550,8 +575,8 @@ async function emptyTrash(){
   if(!ids.length)return;
   try{for(const id of ids)await fbDelete("tasks",id);banner("Trash emptied — "+ids.length+" task"+(ids.length!==1?"s":"")+" deleted permanently.","ok");}catch(e){banner(e.message,"err");}
 }
-async function addManualTask(title,category,priority){
-  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
+async function addManualTask(title,category,priority,due){
+  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
 }
 
 /* ---------- Task "Ask" => copy-paste prompt for claude.ai ---------- */
@@ -590,8 +615,10 @@ function taskCard(t){
   const d=document.createElement("div");d.className="card";
   const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
   const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
+  const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
+  const dueChip=dd?'<span class="chip" style="background:'+(overdue?"#fdeaea":"#eef4fb")+';color:'+(overdue?"#c0392b":"#2c6cb0")+'">⏰ '+esc(t.due)+(overdue?" · overdue":"")+'</span>':'';
   const top=document.createElement("div");
-  top.innerHTML='<div class="chips"><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+t.status+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span>'+(rm?'<span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span>':'')+'</div>'+
+  top.innerHTML='<div class="chips"><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+t.status+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span>'+dueChip+(rm?'<span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span>':'')+'</div>'+
     '<div class="ctitle" style="margin-top:6px;">'+esc(t.title)+'</div>'+(t.context?'<div class="cmeta" style="margin-top:3px;">'+esc(t.context)+'</div>':'');
   d.appendChild(top);
   const ar=document.createElement("div");ar.className="avas";ar.style.marginTop="2px";
@@ -619,11 +646,13 @@ function taskCard(t){
   const epop=document.createElement("div");epop.className="pop";
   const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.width="100%";
   const cx=document.createElement("textarea");cx.className="ctrl";cx.value=t.context||"";cx.placeholder="Context / notes";
+  const du=document.createElement("input");du.className="ctrl";du.type="date";du.value=t.due||"";
   const eSave=document.createElement("button");eSave.className="btn primary sm";eSave.style.alignSelf="flex-start";eSave.textContent="Save";
-  eSave.onclick=()=>{if(!ti.value.trim()){banner("Title can’t be empty.","err");return;}setTask(t.id,{title:ti.value.trim(),context:cx.value.trim()});banner("Task updated.","ok");epop.classList.remove("open");};
+  eSave.onclick=()=>{if(!ti.value.trim()){banner("Title can’t be empty.","err");return;}setTask(t.id,{title:ti.value.trim(),context:cx.value.trim(),due:du.value||""});banner("Task updated.","ok");epop.classList.remove("open");};
   const eLbl1=document.createElement("label");eLbl1.className="cmeta";eLbl1.textContent="Title";
   const eLbl2=document.createElement("label");eLbl2.className="cmeta";eLbl2.textContent="Description / notes";
-  epop.append(eLbl1,ti,eLbl2,cx,eSave);d.appendChild(epop);
+  const eLbl3=document.createElement("label");eLbl3.className="cmeta";eLbl3.textContent="Due date";
+  epop.append(eLbl1,ti,eLbl2,cx,eLbl3,du,eSave);d.appendChild(epop);
   edit.onclick=()=>epop.classList.toggle("open");
   // ask pop -> builds a prompt to paste into claude.ai
   const qpop=document.createElement("div");qpop.className="pop";
@@ -659,13 +688,17 @@ function trashCard(t){
   return d;
 }
 
-function taskFilter(t){
-  if(t.trashed)return false;            // trashed tasks only appear in the Trash view
+// Status-based view (the main row). Timeframe + person filters are layered on top in taskFilter.
+function taskViewMatch(t){
   if(taskView==="done")return t.status==="Done";
   if(taskView==="archived")return t.status==="Archived";
   if(taskView==="mine")return isTaskOpen(t)&&(t.assignees||[]).some(a=>a.toLowerCase()===identity.toLowerCase());
   if(taskView==="top")return isTaskOpen(t)&&(t.priority==="Critical"||t.priority==="High");
   return isTaskOpen(t);
+}
+function taskFilter(t){
+  if(t.trashed)return false;            // trashed tasks only appear in the Trash view
+  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t);
 }
 function renderTasks(m){
   m=m||document.getElementById("main");m.innerHTML="";
@@ -684,13 +717,15 @@ function renderTasks(m){
   const titleI=document.createElement("input");titleI.className="ctrl";titleI.placeholder="Task title";
   const catS=document.createElement("select");catS.className="ctrl";CATS.forEach(c=>{const o=document.createElement("option");o.textContent=c;catS.appendChild(o);});
   const priS=document.createElement("select");priS.className="ctrl";PRIORITIES.forEach(p=>{const o=document.createElement("option");o.textContent=p;if(p==="Medium")o.selected=true;priS.appendChild(o);});
-  const fg=document.createElement("div");fg.className="formgrid";
+  const dueI=document.createElement("input");dueI.className="ctrl";dueI.type="date";
+  const fg=document.createElement("div");fg.className="formgrid";fg.style.gridTemplateColumns="2fr 1fr 1fr 1fr";
   const c1=document.createElement("div");c1.className="field";c1.innerHTML='<label>Title</label>';c1.appendChild(titleI);
   const c2=document.createElement("div");c2.className="field";c2.innerHTML='<label>Discipline</label>';c2.appendChild(catS);
   const c3=document.createElement("div");c3.className="field";c3.innerHTML='<label>Priority</label>';c3.appendChild(priS);
-  fg.append(c1,c2,c3);
+  const c4=document.createElement("div");c4.className="field";c4.innerHTML='<label>Due date</label>';c4.appendChild(dueI);
+  fg.append(c1,c2,c3,c4);
   const fAdd=document.createElement("button");fAdd.className="btn primary";fAdd.textContent="Add task";
-  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value);titleI.value="";titleI.focus();};
+  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value,dueI.value);titleI.value="";dueI.value="";titleI.focus();};
   const fCancel=document.createElement("button");fCancel.className="btn";fCancel.textContent="Cancel";fCancel.onclick=closeForm;
   const brow=document.createElement("div");brow.style.cssText="display:flex;gap:10px;align-items:center;margin-top:4px;";brow.append(fAdd,fCancel);
   form.append(fhead,fg,brow);
@@ -718,6 +753,20 @@ function renderTasks(m){
     return;
   }
   if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
+  // Timeframe filter (by due date) — layered on top of the status view above.
+  const tf=document.createElement("div");tf.className="views";tf.style.margin="-4px 0 10px";
+  const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="When:";tf.appendChild(tflab);
+  [["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
+  m.appendChild(tf);
+  // People filter (by assignee) — opt-in; selecting members shows only their tasks.
+  const pf=document.createElement("div");pf.className="views";pf.style.margin="0 0 12px";
+  const plab=document.createElement("span");plab.className="cmeta";plab.style.cssText="align-self:center;margin-right:4px;";plab.textContent="Who:";pf.appendChild(plab);
+  roster().forEach(mem=>{const b=document.createElement("button");b.textContent=mem.name;const on=!!(taskPerson&&taskPerson.has(mem.name));if(on)b.classList.add("on");
+    b.onclick=()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(mem.name)?taskPerson.delete(mem.name):taskPerson.add(mem.name);if(!taskPerson.size)taskPerson=null;renderTasks();};pf.appendChild(b);});
+  const unB=document.createElement("button");unB.textContent="Unassigned";if(taskPerson&&taskPerson.has(UNASSIGNED))unB.classList.add("on");
+  unB.onclick=()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(UNASSIGNED)?taskPerson.delete(UNASSIGNED):taskPerson.add(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();};pf.appendChild(unB);
+  if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
+  m.appendChild(pf);
   let any=false;
   CATS.forEach(cat=>{
     const list=DB.tasks.filter(t=>t.category===cat&&taskFilter(t)).sort((a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2));
@@ -726,7 +775,7 @@ function renderTasks(m){
     wrap.innerHTML='<div class="cat-head"><span class="dot" style="background:'+(CAT_COLOR[cat]||"#888")+'"></span><span class="cat-name">'+cat+'</span><span class="cat-count">'+list.length+'</span></div>';
     const grid=document.createElement("div");grid.className="grid";list.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
   });
-  if(!any){const msg=taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+msg+'</div></div>');}
+  if(!any){const filtered=taskTime!=="all"||taskPerson;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
@@ -1441,23 +1490,18 @@ function renderAgendas(m){
     }
     addItemBtn.onclick=()=>pick.classList.toggle("open");
     el.append(addItemBtn,pick);
-    // Meeting notes → action steps. Paste manually, or pull Gemini notes if available.
+    // Meeting notes → action steps. Paste the summary from your AI notetaker (e.g. Fathom).
     {
       const nw=document.createElement("div");nw.style.cssText="margin-top:12px;border-top:1px solid var(--line,#e6e6e3);padding-top:10px;";
       const nh=document.createElement("div");nh.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
       nh.insertAdjacentHTML("beforeend",'<span style="font-weight:700;font-size:13px;">Meeting notes</span>');
       const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent=a.notes?"Edit notes":"Paste notes";nh.appendChild(editBtn);
-      if(a.calendarEventId){
-        const pullBtn=document.createElement("button");pullBtn.className="btn sm";pullBtn.textContent="Pull from Gemini";pullBtn.title="If your meeting used Gemini “Take notes for me”";
-        pullBtn.onclick=async()=>{pullBtn.disabled=true;pullBtn.innerHTML='<span class="spin"></span> Pulling';await pullMeetingNotes(a);pullBtn.disabled=false;pullBtn.textContent="Pull from Gemini";};
-        nh.appendChild(pullBtn);
-      }
       if(a.notesDocUrl){const dl=document.createElement("a");dl.className="cmeta";dl.href=a.notesDocUrl;dl.target="_blank";dl.rel="noopener";dl.style.marginLeft="2px";dl.textContent="open in Docs";nh.appendChild(dl);}
       if(a.notesPulledAt){nh.insertAdjacentHTML("beforeend",'<span class="cmeta">updated '+esc(a.notesPulledAt)+'</span>');}
       nw.appendChild(nh);
       // manual notes editor (paste notes or a transcript)
       const editor=document.createElement("div");editor.style.cssText="display:none;margin-top:8px;";
-      const ta=document.createElement("textarea");ta.className="ctrl";ta.style.minHeight="120px";ta.placeholder="Paste meeting notes or a transcript here…";ta.value=a.notes||"";
+      const ta=document.createElement("textarea");ta.className="ctrl";ta.style.minHeight="120px";ta.placeholder="Paste your Fathom summary or a transcript here…";ta.value=a.notes||"";
       const saveN=document.createElement("button");saveN.className="btn primary sm";saveN.style.marginTop="6px";saveN.textContent="Save notes";
       saveN.onclick=async()=>{const v=ta.value.trim();try{await fbUpdate("agendas",a.id,{notes:v,notesPulledAt:today()});banner(v?"Notes saved.":"Notes cleared.","ok");editor.style.display="none";}catch(e){banner(e.message,"err");}};
       editor.append(ta,saveN);
@@ -1469,7 +1513,7 @@ function renderAgendas(m){
         const proposed=document.createElement("div");proposed.style.marginTop="8px";
         sa.onclick=()=>suggestActions(a,proposed,sa);
         nw.append(body,sa,proposed);
-      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet — click <b>Paste notes</b> to add them'+(a.calendarEventId?', or <b>Pull from Gemini</b> if your meeting used “Take notes for me”':'')+'.</div>');}
+      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet — click <b>Paste notes</b> and drop in your Fathom summary (or any meeting transcript).</div>');}
       el.appendChild(nw);
     }
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
@@ -1534,19 +1578,9 @@ async function deleteMeetForAgenda(a){
   if(!a||!a.calendarEventId)return;
   try{await callMeet({action:"delete",eventId:a.calendarEventId});}catch(e){console.warn("Meet delete:",e.message);}
 }
-// Pull the Gemini "Take notes for me" Doc for this meeting and store it on the agenda.
-async function pullMeetingNotes(a){
-  if(!a.calendarEventId){banner("This meeting has no calendar event yet.","err");return;}
-  try{
-    const data=await callMeet({action:"notes",eventId:a.calendarEventId});
-    if(!data.found||!data.notes){banner(data.message||"No meeting notes found yet.","err");return;}
-    await fbUpdate("agendas",a.id,{notes:data.notes,notesDocUrl:data.docUrl||"",notesPulledAt:today()});
-    banner("Pulled meeting notes.","ok");
-  }catch(e){banner(e.message,"err");}
-}
 // Ask Claude to turn the stored notes into proposed action-step tasks, then render a review panel.
 async function suggestActions(a,container,btn){
-  if(!a.notes){banner("Pull the meeting notes first.","err");return;}
+  if(!a.notes){banner("Paste the meeting notes first.","err");return;}
   btn.disabled=true;btn.innerHTML='<span class="spin"></span> Thinking';
   try{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean).map(r=>({id:r.id,title:r.title,area:r.area}));
