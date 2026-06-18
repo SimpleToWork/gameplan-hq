@@ -138,6 +138,9 @@
   .rmrow-scroll>*{flex:none;}
   .rmrow-scroll::-webkit-scrollbar{width:0;height:0;display:none;}
   .rmrow-add{flex:none;display:flex;align-items:center;gap:8px;}
+  /* uniform-width add buttons so Add area / Add phase / Select all form a clean right-hand column */
+  .rmrow-add .btn.sm{min-width:104px;justify-content:center;}
+  .rmrow-add .ctrl{width:150px;}
   .rmscroll-arrow{flex:none;width:28px;height:31px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0 0 2px;}
   .rmscroll-arrow:hover{background:#f1f1f0;color:var(--ink);}
   .rmscroll-arrow:disabled{opacity:.28;cursor:default;background:var(--surface);color:var(--muted);}
