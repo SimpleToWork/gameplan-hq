@@ -188,7 +188,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc }
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -281,7 +281,8 @@ function subscribeAll(){
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color})); }
       if(k==="members") refreshIdentity();
-      if(page!=="capture") render();
+      // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
+      if(page!=="capture"){ const y=window.scrollY; render(); window.scrollTo(0,y); }
     },err=>banner("Sync error: "+err.message,"err"));
   });
 }
@@ -588,8 +589,13 @@ async function reorderTarget(draggedId,targetId,before,group){
   let idx=arr.findIndex(x=>x.id===targetId);
   if(idx<0)idx=arr.length;else if(!before)idx++;
   arr.splice(idx,0,dragged);
-  try{for(let k=0;k<arr.length;k++){if((arr[k].order??null)!==k)await fbUpdate("roadmap",arr[k].id,{order:k});}}
-  catch(e){banner(e.message,"err");}
+  // Renumber in a single batched write so the listener fires once (one re-render, not one per card).
+  try{
+    if(!fbReady)throw new Error("Firebase not configured");
+    const batch=writeBatch(db);let changed=0;
+    arr.forEach((x,k)=>{if((x.order??null)!==k){batch.update(doc(db,"roadmap",x.id),{order:k});changed++;}});
+    if(changed)await batch.commit();
+  }catch(e){banner(e.message,"err");}
 }
 async function removeTarget(r){
   try{await fbDelete("roadmap",r.id);for(const t of DB.tasks){if(t.roadmapId===r.id)await fbUpdate("tasks",t.id,{roadmapId:null});}banner("Target removed.","ok");}catch(e){banner(e.message,"err");}
