@@ -81,6 +81,12 @@
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
   .rmtools{position:sticky;top:0;background:var(--canvas);z-index:5;padding:4px 0 2px;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);}
+  .target.draggable{cursor:grab;}
+  .target.draggable:active{cursor:grabbing;}
+  .target.dragging{opacity:.45;}
+  .target.drop-before{box-shadow:inset 0 3px 0 0 var(--accent);}
+  .target.drop-after{box-shadow:inset 0 -3px 0 0 var(--accent);}
+  .grip{cursor:grab;color:var(--faint);font-size:13px;line-height:1;user-select:none;}
   .caphead{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;}
   .caphead .capttl{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;}
   .caphead .capchev{transition:transform .15s;color:var(--muted);}
@@ -229,6 +235,7 @@ let taskView="all";
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=true;          // is the AI-capture prompt box on the roadmap expanded?
+let rmDragId=null;           // id of the roadmap target currently being dragged (manual reorder)
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
 let seededAreas=false;
@@ -562,12 +569,14 @@ function sortTargets(items){
   if(rmSort==="za")return items.slice().sort((a,b)=>(b.title||"").localeCompare(a.title||""));
   return sortManual(items);
 }
-// Reorder within a manual-sorted sibling group by swapping positions and renumbering order.
-async function moveTarget(r,dir,group){
-  const arr=sortManual(group);
-  const i=arr.findIndex(x=>x.id===r.id);if(i<0)return;const j=i+dir;
-  if(j<0||j>=arr.length)return;
-  const t=arr[i];arr[i]=arr[j];arr[j]=t;
+// Drag-and-drop reorder within a manual-sorted sibling group: move dragged before/after the drop target, then renumber.
+async function reorderTarget(draggedId,targetId,before,group){
+  if(draggedId===targetId)return;
+  const dragged=group.find(x=>x.id===draggedId);if(!dragged)return;
+  const arr=sortManual(group).filter(x=>x.id!==draggedId);
+  let idx=arr.findIndex(x=>x.id===targetId);
+  if(idx<0)idx=arr.length;else if(!before)idx++;
+  arr.splice(idx,0,dragged);
   try{for(let k=0;k<arr.length;k++){if((arr[k].order??null)!==k)await fbUpdate("roadmap",arr[k].id,{order:k});}}
   catch(e){banner(e.message,"err");}
 }
@@ -641,13 +650,9 @@ function targetCard(r,group){
   const taskB=document.createElement("button");taskB.textContent="Break into tasks";
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
   acts.append(editB,taskB,delB);
-  // Manual reorder arrows — only in list view with manual sort, where "above/below" is meaningful.
-  if(group&&rmSort==="manual"){
-    const ordered=sortManual(group);const at=ordered.findIndex(x=>x.id===r.id);
-    const up=document.createElement("button");up.textContent="↑";up.title="Move up";up.onclick=()=>moveTarget(r,-1,group);if(at<=0)up.style.visibility="hidden";
-    const dn=document.createElement("button");dn.textContent="↓";dn.title="Move down";dn.onclick=()=>moveTarget(r,1,group);if(at>=ordered.length-1)dn.style.visibility="hidden";
-    acts.prepend(dn);acts.prepend(up);
-  }
+  // Drag handle affordance — only in list view with manual sort, where reordering is meaningful.
+  const canDrag=!!group&&rmSort==="manual";
+  if(canDrag){const grip=document.createElement("span");grip.className="grip";grip.textContent="⠿";grip.title="Drag to reorder";acts.prepend(grip);}
   el.appendChild(acts);
   const ep=document.createElement("div");ep.className="pop";ep.appendChild(targetForm(r,()=>{ep.classList.remove("open");rmOpenEdits.delete(r.id);}));el.appendChild(ep);
   if(rmOpenEdits.has(r.id))ep.classList.add("open");
@@ -664,6 +669,20 @@ function targetCard(r,group){
   bp.append(bt,bb,bo);el.appendChild(bp);
   taskB.onclick=()=>{bp.classList.toggle("open");if(bp.classList.contains("open"))bt.focus();};
   delB.onclick=()=>{acts.innerHTML="";const q=document.createElement("span");q.style.cssText="font-size:11.5px;color:var(--danger);";q.textContent="Remove target?";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Yes";y.onclick=()=>removeTarget(r);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderRoadmap();acts.append(q,y,n);};
+  // Drag-and-drop reorder. The whole card is draggable, but not while an editor is open (so its inputs stay usable).
+  if(canDrag){
+    el.classList.add("draggable");
+    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open");};
+    syncDrag();
+    editB.addEventListener("click",()=>setTimeout(syncDrag,0));
+    taskB.addEventListener("click",()=>setTimeout(syncDrag,0));
+    const clearMark=()=>document.querySelectorAll(".target.drop-before,.target.drop-after").forEach(n=>n.classList.remove("drop-before","drop-after"));
+    el.addEventListener("dragstart",e=>{if(!el.draggable){e.preventDefault();return;}rmDragId=r.id;e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",r.id);}catch(_){}el.classList.add("dragging");});
+    el.addEventListener("dragend",()=>{rmDragId=null;el.classList.remove("dragging");clearMark();});
+    el.addEventListener("dragover",e=>{if(!rmDragId||rmDragId===r.id)return;e.preventDefault();e.dataTransfer.dropEffect="move";const rect=el.getBoundingClientRect();const before=(e.clientY-rect.top)<rect.height/2;el.classList.toggle("drop-before",before);el.classList.toggle("drop-after",!before);});
+    el.addEventListener("dragleave",()=>el.classList.remove("drop-before","drop-after"));
+    el.addEventListener("drop",e=>{if(!rmDragId||rmDragId===r.id)return;e.preventDefault();const before=el.classList.contains("drop-before");clearMark();reorderTarget(rmDragId,r.id,before,group);});
+  }
   return el;
 }
 
