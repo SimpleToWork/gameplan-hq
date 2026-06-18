@@ -1490,7 +1490,7 @@ function renderAgendas(m){
     }
     addItemBtn.onclick=()=>pick.classList.toggle("open");
     el.append(addItemBtn,pick);
-    // Meeting notes → action steps. Paste the summary from your AI notetaker (e.g. Fathom).
+    // Meeting notes → action steps. Paste the summary from your AI notetaker (e.g. Fireflies).
     {
       const nw=document.createElement("div");nw.style.cssText="margin-top:12px;border-top:1px solid var(--line,#e6e6e3);padding-top:10px;";
       const nh=document.createElement("div");nh.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
@@ -1501,7 +1501,7 @@ function renderAgendas(m){
       nw.appendChild(nh);
       // manual notes editor (paste notes or a transcript)
       const editor=document.createElement("div");editor.style.cssText="display:none;margin-top:8px;";
-      const ta=document.createElement("textarea");ta.className="ctrl";ta.style.minHeight="120px";ta.placeholder="Paste your Fathom summary or a transcript here…";ta.value=a.notes||"";
+      const ta=document.createElement("textarea");ta.className="ctrl";ta.style.minHeight="120px";ta.placeholder="Paste your Fireflies summary or a transcript here…";ta.value=a.notes||"";
       const saveN=document.createElement("button");saveN.className="btn primary sm";saveN.style.marginTop="6px";saveN.textContent="Save notes";
       saveN.onclick=async()=>{const v=ta.value.trim();try{await fbUpdate("agendas",a.id,{notes:v,notesPulledAt:today()});banner(v?"Notes saved.":"Notes cleared.","ok");editor.style.display="none";}catch(e){banner(e.message,"err");}};
       editor.append(ta,saveN);
@@ -1513,7 +1513,7 @@ function renderAgendas(m){
         const proposed=document.createElement("div");proposed.style.marginTop="8px";
         sa.onclick=()=>suggestActions(a,proposed,sa);
         nw.append(body,sa,proposed);
-      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet — click <b>Paste notes</b> and drop in your Fathom summary (or any meeting transcript).</div>');}
+      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet — click <b>Paste notes</b> and drop in your Fireflies summary (or any meeting transcript).</div>');}
       el.appendChild(nw);
     }
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
