@@ -48,7 +48,9 @@
   .app{max-width:1060px;margin:0 auto;padding:0 20px 70px;}
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
-  .brand{display:flex;align-items:baseline;gap:9px;}
+  .brand{display:flex;align-items:center;gap:11px;}
+  .brandlogo{height:34px;width:auto;display:block;}
+  .brandtext{display:flex;align-items:baseline;gap:9px;}
   .brand b{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:21px;letter-spacing:-.02em;}
   .brand span{font-size:12px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;}
   .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
@@ -149,7 +151,7 @@
 <div class="app">
   <header>
     <div class="brandrow">
-      <div class="brand"><b>Gameplan HQ</b><span>MerchantsBI</span></div>
+      <div class="brand"><img class="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>Gameplan HQ</b><span>MerchantsBI</span></span></div>
       <div class="hctrl">You are <select class="ctrl" id="identity"></select></div>
     </div>
     <div class="tabs" id="tabs">
