@@ -312,6 +312,7 @@ let page="capture";
 let taskView="all";
 let taskTime="all";          // timeframe filter on due date: all | today | week | month | past | next | future
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
+let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
@@ -360,6 +361,37 @@ function taskPersonMatch(t){
   const has=(t.assignees||[]).length>0;
   if(taskPerson.has(UNASSIGNED)&&!has)return true;
   return (t.assignees||[]).some(n=>taskPerson.has(n));
+}
+// Timeframe grouping: place a task in exactly one due-date bucket. Order = most urgent first.
+const TIME_BUCKETS=[
+  ["past","Past due","#fdeaea","#c0392b"],["today","Today","#fef3e2","#b9770e"],
+  ["week","This week","#eef4fb","#2c6cb0"],["month","This month","#eef7ef","#2e7d4f"],
+  ["next","Next month","#f2eefb","#6a4bb0"],["later","Later","#eef0f4","#566173"],
+  ["none","No date","#f0f0ee","#7a7f88"]];
+function taskBucket(t){
+  const d=parseDay(t.due);if(!d)return "none";
+  const n=new Date(),t0=new Date(n.getFullYear(),n.getMonth(),n.getDate());
+  if(d<t0)return "past";
+  if(d.getTime()===t0.getTime())return "today";
+  const we=new Date(t0);we.setDate(t0.getDate()-((t0.getDay()+6)%7)+6); // Sunday ending this week
+  if(d<=we)return "week";
+  if(d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth())return "month";
+  const nm=new Date(n.getFullYear(),n.getMonth()+1,1);
+  if(d.getFullYear()===nm.getFullYear()&&d.getMonth()===nm.getMonth())return "next";
+  return "later";
+}
+// Build ordered sections [{label,color,items}] for the chosen Group-by mode over already-filtered tasks.
+function taskSections(list){
+  const sortP=arr=>arr.sort((a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2));
+  if(taskGroup==="timeframe")
+    return TIME_BUCKETS.map(([k,lbl,,fg])=>({label:lbl,color:fg,items:sortP(list.filter(t=>taskBucket(t)===k))})).filter(s=>s.items.length);
+  if(taskGroup==="person"){
+    const secs=roster().map(mem=>({label:mem.name,color:mem.color||"#8a8a8a",items:sortP(list.filter(t=>(t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase())))})).filter(s=>s.items.length);
+    const un=sortP(list.filter(t=>!(t.assignees&&t.assignees.length)));
+    if(un.length)secs.push({label:"Unassigned",color:"#8a8a8a",items:un});
+    return secs;
+  }
+  return CATS.map(cat=>({label:cat,color:CAT_COLOR[cat]||"#888",items:sortP(list.filter(t=>t.category===cat))})).filter(s=>s.items.length);
 }
 const initials=n=>{const p=(n||"").trim().split(/\s+/);return (p.length>1?p[0][0]+p[1][0]:(n||"?").slice(0,2)).toUpperCase();};
 const member=n=>roster().find(m=>m.name.toLowerCase()===(n||"").toLowerCase());
@@ -767,15 +799,18 @@ function renderTasks(m){
   unB.onclick=()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(UNASSIGNED)?taskPerson.delete(UNASSIGNED):taskPerson.add(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();};pf.appendChild(unB);
   if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
   m.appendChild(pf);
-  let any=false;
-  CATS.forEach(cat=>{
-    const list=DB.tasks.filter(t=>t.category===cat&&taskFilter(t)).sort((a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2));
-    if(!list.length)return;any=true;
+  // Group-by toggle — how the matching cards are split into sections.
+  const gb=document.createElement("div");gb.className="views";gb.style.margin="0 0 12px";
+  const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
+  [["category","Discipline"],["timeframe","Timeframe"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
+  m.appendChild(gb);
+  const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
+  sections.forEach(sec=>{
     const wrap=document.createElement("div");wrap.className="cat";
-    wrap.innerHTML='<div class="cat-head"><span class="dot" style="background:'+(CAT_COLOR[cat]||"#888")+'"></span><span class="cat-name">'+cat+'</span><span class="cat-count">'+list.length+'</span></div>';
-    const grid=document.createElement("div");grid.className="grid";list.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
+    wrap.innerHTML='<div class="cat-head"><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+sec.items.length+'</span></div>';
+    const grid=document.createElement("div");grid.className="grid";sec.items.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
   });
-  if(!any){const filtered=taskTime!=="all"||taskPerson;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
+  if(!sections.length){const filtered=taskTime!=="all"||taskPerson;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
