@@ -45,7 +45,7 @@
   *{box-sizing:border-box;}
   body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
   button,select,textarea,input{font-family:inherit;}
-  .app{max-width:1060px;margin:0 auto;padding:0 20px 70px;}
+  .app{max-width:1360px;margin:0 auto;padding:0 28px 70px;}
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
   .brand{display:flex;align-items:center;gap:11px;}
@@ -222,6 +222,8 @@ let identity=TEAM[0].name;
 let page="capture";
 let taskView="all";
 let roadmapView="list";      // list | timeline | kanban
+let rmSort="manual";         // manual | start | target | added | az
+let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
 let seededAreas=false;
 let seededMembers=false;
@@ -329,7 +331,8 @@ async function captureRoadmap(){
       'Each target: area (one of the list), title (short), detail (one line), phase (one of: '+(phaseNames().join(", ")||"Phase I")+'). '+
       'Existing targets (do not duplicate): '+JSON.stringify(existing)+'. Reply with ONLY a JSON array of NEW targets: [{"area","title","detail","phase"}]. '+EXTRACT_GUARD+'\nInput:\n"""'+txt+'"""';
     const text=await callClaude(p);const arr=extractJSON(text,"array");
-    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",phase:phaseNames().includes(r.phase)?r.phase:(phaseNames()[0]||""),status:"Not started",start:"",target:""}); }
+    let ord=nextRoadmapOrder();
+    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",phase:phaseNames().includes(r.phase)?r.phase:(phaseNames()[0]||""),status:"Not started",start:"",target:"",createdAt:today(),order:ord++}); }
     ta.value="";banner("Added "+arr.length+" roadmap target"+(arr.length!==1?"s":"")+".","ok");
   }catch(e){banner("Could not draft the roadmap ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
   finally{btn.disabled=false;btn.textContent="Add to roadmap";}
@@ -536,10 +539,31 @@ function rmShown(){ if(!rmActive)return DB.areas.map(a=>a.name); return DB.areas
 function rmFilteredTargets(){const shown=new Set(rmShown());return DB.roadmap.filter(r=>shown.has(r.area));}
 
 /* ---------- Roadmap ops ---------- */
+const nextRoadmapOrder=()=>DB.roadmap.reduce((mx,r)=>Math.max(mx,r.order??0),0)+1;
 async function addManualTarget(o){
-  try{await fbAdd("roadmap",{area:o.area,title:o.title,detail:o.detail||"",phase:o.phase||(phaseNames()[0]||""),status:"Not started",start:o.start||"",target:o.target||""});banner("Target added.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("roadmap",{area:o.area,title:o.title,detail:o.detail||"",phase:o.phase||(phaseNames()[0]||""),status:"Not started",start:o.start||"",target:o.target||"",createdAt:today(),order:nextRoadmapOrder()});banner("Target added.","ok");}catch(e){banner(e.message,"err");}
 }
 async function setTarget(id,patch){try{await fbUpdate("roadmap",id,patch);}catch(e){banner(e.message,"err");}}
+async function setArea(id,patch){try{await fbUpdate("areas",id,patch);}catch(e){banner(e.message,"err");}}
+// empty dates/strings sort to the end
+function cmpDateAsc(a,b){if(!a&&!b)return 0;if(!a)return 1;if(!b)return -1;return a<b?-1:a>b?1:0;}
+function sortManual(items){return items.slice().sort((a,b)=>((a.order??1e9)-(b.order??1e9))||cmpDateAsc(a.createdAt,b.createdAt));}
+function sortTargets(items){
+  if(rmSort==="start")return items.slice().sort((a,b)=>cmpDateAsc(a.start,b.start));
+  if(rmSort==="target")return items.slice().sort((a,b)=>cmpDateAsc(a.target,b.target));
+  if(rmSort==="added")return items.slice().sort((a,b)=>cmpDateAsc(a.createdAt,b.createdAt));
+  if(rmSort==="az")return items.slice().sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  return sortManual(items);
+}
+// Reorder within a manual-sorted sibling group by swapping positions and renumbering order.
+async function moveTarget(r,dir,group){
+  const arr=sortManual(group);
+  const i=arr.findIndex(x=>x.id===r.id);if(i<0)return;const j=i+dir;
+  if(j<0||j>=arr.length)return;
+  const t=arr[i];arr[i]=arr[j];arr[j]=t;
+  try{for(let k=0;k<arr.length;k++){if((arr[k].order??null)!==k)await fbUpdate("roadmap",arr[k].id,{order:k});}}
+  catch(e){banner(e.message,"err");}
+}
 async function removeTarget(r){
   try{await fbDelete("roadmap",r.id);for(const t of DB.tasks){if(t.roadmapId===r.id)await fbUpdate("tasks",t.id,{roadmapId:null});}banner("Target removed.","ok");}catch(e){banner(e.message,"err");}
 }
@@ -573,6 +597,14 @@ function targetForm(r,onDone){
   const hz=mkSelect2(phaseNames(),r?phaseOf(r):(phaseNames()[0]||""));
   const st=document.createElement("input");st.className="ctrl";st.type="date";st.value=r?(r.start||""):"";
   const tg=document.createElement("input");tg.className="ctrl";tg.type="date";tg.value=r?(r.target||""):"";
+  // Restore unsaved values if this editor was open before a re-render, and keep the draft live so the next re-render restores it too.
+  if(r){
+    const draft=rmOpenEdits.get(r.id);
+    if(draft){ti.value=draft.title;dt.value=draft.detail;ar.value=draft.area;hz.value=draft.phase;st.value=draft.start;tg.value=draft.target;}
+    const sync=()=>rmOpenEdits.set(r.id,{title:ti.value,detail:dt.value,area:ar.value,phase:hz.value,start:st.value,target:tg.value});
+    [ti,dt].forEach(el=>el.addEventListener("input",sync));
+    [ar,hz,st,tg].forEach(el=>el.addEventListener("change",sync));
+  }
   const grid=document.createElement("div");grid.className="formgrid";grid.append(mk("Area",ar),mk("Phase",hz),mk("Start date",st));
   const grid2=document.createElement("div");grid2.className="formgrid";grid2.append(mk("Target date",tg),mk("",document.createElement("span")),mk("",document.createElement("span")));
   const save=document.createElement("button");save.className="btn primary sm";save.textContent=r?"Save changes":"Add target";
@@ -580,14 +612,14 @@ function targetForm(r,onDone){
     if(!ti.value.trim()){banner("Give the target a title.","err");return;}
     if(st.value&&tg.value&&tg.value<st.value){banner("Target date is before the start date.","err");return;}
     const patch={title:ti.value.trim(),detail:dt.value.trim(),area:ar.value,phase:hz.value,start:st.value,target:tg.value};
-    if(r){await setTarget(r.id,patch);banner("Target updated.","ok");}
+    if(r){await setTarget(r.id,patch);rmOpenEdits.delete(r.id);banner("Target updated.","ok");}
     else{await addManualTarget(patch);ti.value="";dt.value="";st.value="";tg.value="";}
     if(onDone)onDone();
   };
   wrap.append(mk("Title",ti),mk("Detail",dt),grid,grid2,save);
   return wrap;
 }
-function targetCard(r){
+function targetCard(r,group){
   const el=document.createElement("div");el.className="target";
   const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
   const ac=areaColor(r.area);
@@ -601,9 +633,22 @@ function targetCard(r){
   const editB=document.createElement("button");editB.textContent="Edit";
   const taskB=document.createElement("button");taskB.textContent="Break into tasks";
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
-  acts.append(editB,taskB,delB);el.appendChild(acts);
-  const ep=document.createElement("div");ep.className="pop";ep.appendChild(targetForm(r,()=>ep.classList.remove("open")));el.appendChild(ep);
-  editB.onclick=()=>ep.classList.toggle("open");
+  acts.append(editB,taskB,delB);
+  // Manual reorder arrows — only in list view with manual sort, where "above/below" is meaningful.
+  if(group&&rmSort==="manual"){
+    const ordered=sortManual(group);const at=ordered.findIndex(x=>x.id===r.id);
+    const up=document.createElement("button");up.textContent="↑";up.title="Move up";up.onclick=()=>moveTarget(r,-1,group);if(at<=0)up.style.visibility="hidden";
+    const dn=document.createElement("button");dn.textContent="↓";dn.title="Move down";dn.onclick=()=>moveTarget(r,1,group);if(at>=ordered.length-1)dn.style.visibility="hidden";
+    acts.prepend(dn);acts.prepend(up);
+  }
+  el.appendChild(acts);
+  const ep=document.createElement("div");ep.className="pop";ep.appendChild(targetForm(r,()=>{ep.classList.remove("open");rmOpenEdits.delete(r.id);}));el.appendChild(ep);
+  if(rmOpenEdits.has(r.id))ep.classList.add("open");
+  editB.onclick=()=>{
+    const opening=!ep.classList.contains("open");ep.classList.toggle("open");
+    if(opening){if(!rmOpenEdits.has(r.id))rmOpenEdits.set(r.id,{title:r.title,detail:r.detail||"",area:r.area,phase:phaseOf(r)||"",start:r.start||"",target:r.target||""});}
+    else rmOpenEdits.delete(r.id);
+  };
   const bp=document.createElement("div");bp.className="pop";
   const bt=document.createElement("textarea");bt.className="ctrl";bt.placeholder="Optional: extra guidance for how to break this down…";
   const bb=document.createElement("button");bb.className="btn primary sm";bb.style.alignSelf="flex-start";bb.textContent="Generate tasks";
@@ -632,6 +677,7 @@ function renderRoadmap(m){
   DB.areas.forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:6px;font-size:12px;";
     chip.appendChild(document.createTextNode(a.name));
+    const sw=document.createElement("input");sw.type="color";sw.value=a.color;sw.title="Area color";sw.style.cssText="width:16px;height:16px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setArea(a.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename area";ed.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:11px;line-height:1;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:14px;line-height:1;padding:0;";
     ed.onclick=()=>{
@@ -644,7 +690,7 @@ function renderRoadmap(m){
       inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
       chip.append(inp,ok,cancel);inp.focus();inp.select();
     };
-    x.onclick=()=>removeArea(a);chip.append(ed,x);am.appendChild(chip);
+    x.onclick=()=>removeArea(a);chip.append(sw,ed,x);am.appendChild(chip);
   });
   const ai=document.createElement("input");ai.className="ctrl";ai.placeholder="New area";ai.style.cssText="padding:5px 9px;font-size:12.5px;width:130px;";
   const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
@@ -674,6 +720,14 @@ function renderRoadmap(m){
   pm.append(pi,pb);m.appendChild(pm);
   const bar=document.createElement("div");bar.className="views";bar.style.margin="14px 0 6px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
+  if(roadmapView!=="timeline"){
+    const sw=document.createElement("div");sw.style.cssText="display:flex;align-items:center;gap:7px;margin-left:auto;";
+    const sl=document.createElement("span");sl.className="cmeta";sl.textContent="Sort:";
+    const ss=document.createElement("select");ss.className="ctrl";ss.style.fontSize="12.5px";
+    [["manual","Manual (custom order)"],["start","Start date"],["target","Target date"],["added","Date added"],["az","Title A–Z"]].forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;if(rmSort===v)o.selected=true;ss.appendChild(o);});
+    ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
+    sw.append(sl,ss);bar.appendChild(sw);
+  }
   m.appendChild(bar);
   const fl=document.createElement("div");fl.style.cssText="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 14px;";
   fl.innerHTML='<span class="cmeta">Filter:</span>';
@@ -698,9 +752,10 @@ function renderRoadmapList(m){
     const items=DB.roadmap.filter(r=>r.area===area);
     const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
     if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No targets yet.</div>');return;}
-    const pl=phaseNames();
-    pl.forEach(pn=>{items.filter(r=>phaseOf(r)===pn).forEach(r=>m.appendChild(targetCard(r)));});
-    items.filter(r=>!pl.includes(phaseOf(r))).forEach(r=>m.appendChild(targetCard(r)));
+    const pl=phaseNames();const manual=rmSort==="manual";
+    pl.forEach(pn=>{const grp=sortTargets(items.filter(r=>phaseOf(r)===pn));grp.forEach(r=>m.appendChild(targetCard(r,manual?grp:null)));});
+    const un=sortTargets(items.filter(r=>!pl.includes(phaseOf(r))));
+    un.forEach(r=>m.appendChild(targetCard(r,manual?un:null)));
   });
 }
 function renderKanban(m){
@@ -714,7 +769,7 @@ function renderKanban(m){
     const items=pn==="Unassigned"?targets.filter(r=>!cols.includes(phaseOf(r))):targets.filter(r=>phaseOf(r)===pn);
     const pc=pn==="Unassigned"?"#8a8a8a":phaseColor(pn);
     col.innerHTML='<div class="kcol-head" style="color:'+pc+'">'+esc(pn)+' <span class="cat-count">'+items.length+'</span></div>';
-    items.forEach(r=>col.appendChild(targetCard(r)));
+    sortTargets(items).forEach(r=>col.appendChild(targetCard(r)));
     if(!items.length)col.insertAdjacentHTML("beforeend",'<div class="cmeta" style="padding:6px;">—</div>');
     wrap.appendChild(col);
   });
