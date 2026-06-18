@@ -131,6 +131,14 @@
   .rmtools .cmeta{font-size:14px;}
   .rmtools .btn.sm{font-size:13.5px;padding:7px 13px;}
   .rmtools .chip{gap:7px;}
+  /* keep each manager on one row: items scroll horizontally, label + add controls stay put */
+  .rmrow{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
+  .rmrow-label{flex:none;}
+  .rmrow-scroll{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:5px;scrollbar-width:thin;}
+  .rmrow-scroll>*{flex:none;}
+  .rmrow-scroll::-webkit-scrollbar{height:7px;}
+  .rmrow-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+  .rmrow-add{flex:none;display:flex;align-items:center;gap:8px;}
   .avas{display:flex;align-items:center;}
   .ava{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;margin-left:-5px;border:1.5px solid var(--surface);}
   .ava:first-child{margin-left:0;}
@@ -753,8 +761,9 @@ function renderRoadmap(m){
   addBtn.onclick=()=>{const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Add target by hand":"Close";};
   m.append(addBtn,addBox);
   const tools=document.createElement("div");tools.className="rmtools";
-  const am=document.createElement("div");am.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 2px;";
-  am.innerHTML='<span class="cmeta" style="font-weight:500;">Areas:</span>';
+  const am=document.createElement("div");am.className="rmrow";am.style.margin="6px 0 2px";
+  am.innerHTML='<span class="cmeta rmrow-label" style="font-weight:500;">Areas:</span>';
+  const amScroll=document.createElement("div");amScroll.className="rmrow-scroll";am.appendChild(amScroll);
   areasSorted().forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     chip.appendChild(document.createTextNode(a.name));
@@ -771,16 +780,18 @@ function renderRoadmap(m){
       inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
       chip.append(inp,ok,cancel);inp.focus();inp.select();
     };
-    x.onclick=()=>removeArea(a);chip.append(sw,ed,x);am.appendChild(chip);
+    x.onclick=()=>removeArea(a);chip.append(sw,ed,x);amScroll.appendChild(chip);
   });
   const ai=document.createElement("input");ai.className="ctrl";ai.placeholder="New area";ai.style.cssText="padding:7px 11px;font-size:14px;width:150px;";
   const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
   ab.onclick=()=>{if(ai.value.trim()){addArea(ai.value.trim());ai.value="";}};
   ai.addEventListener("keydown",e=>{if(e.key==="Enter"&&ai.value.trim()){addArea(ai.value.trim());ai.value="";}});
-  am.append(ai,ab);tools.appendChild(am);
+  const amAdd=document.createElement("div");amAdd.className="rmrow-add";amAdd.append(ai,ab);
+  am.appendChild(amAdd);tools.appendChild(am);
   // phases manager
-  const pm=document.createElement("div");pm.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 2px;";
-  pm.innerHTML='<span class="cmeta" style="font-weight:500;">Phases:</span>';
+  const pm=document.createElement("div");pm.className="rmrow";pm.style.margin="8px 0 2px";
+  pm.innerHTML='<span class="cmeta rmrow-label" style="font-weight:500;">Phases:</span>';
+  const pmScroll=document.createElement("div");pmScroll.className="rmrow-scroll";pm.appendChild(pmScroll);
   phasesSorted().forEach(p=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     const nm=document.createElement("span");nm.textContent=p.name;
@@ -789,13 +800,14 @@ function renderRoadmap(m){
     const x=document.createElement("button");x.textContent="×";x.title="Remove phase";x.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:18px;padding:0;";
     ed.onclick=()=>{chip.innerHTML="";const inp=document.createElement("input");inp.value=p.name;inp.style.cssText="border:1px solid "+p.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:120px;";const ok=document.createElement("button");ok.textContent="✓";ok.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:16px;padding:0;";const cn=document.createElement("button");cn.textContent="×";cn.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";const save=()=>{const v=inp.value.trim();if(!v||v===p.name){renderRoadmap();return;}renamePhase(p,v);};ok.onclick=save;cn.onclick=()=>renderRoadmap();inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});chip.append(inp,ok,cn);inp.focus();inp.select();};
     x.onclick=()=>removePhase(p);
-    chip.append(nm,sw,ed,x);pm.appendChild(chip);
+    chip.append(nm,sw,ed,x);pmScroll.appendChild(chip);
   });
   const pi=document.createElement("input");pi.className="ctrl";pi.placeholder="New phase";pi.style.cssText="padding:7px 11px;font-size:14px;width:150px;";
   const pb=document.createElement("button");pb.className="btn sm";pb.textContent="Add phase";
   pb.onclick=()=>{if(pi.value.trim()){addPhase(pi.value.trim());pi.value="";}};
   pi.addEventListener("keydown",e=>{if(e.key==="Enter"&&pi.value.trim()){addPhase(pi.value.trim());pi.value="";}});
-  pm.append(pi,pb);tools.appendChild(pm);
+  const pmAdd=document.createElement("div");pmAdd.className="rmrow-add";pmAdd.append(pi,pb);
+  pm.appendChild(pmAdd);tools.appendChild(pm);
   const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"],["plot","Plot"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
   if(roadmapView==="list"||roadmapView==="kanban"){
@@ -806,18 +818,20 @@ function renderRoadmap(m){
     ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
     sw.append(sl,ss);bar.appendChild(sw);
   }
-  const fl=document.createElement("div");fl.style.cssText="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:6px 0 4px;";
-  fl.innerHTML='<span class="cmeta">Filter:</span>';
+  const fl=document.createElement("div");fl.className="rmrow";fl.style.margin="6px 0 4px";
+  fl.innerHTML='<span class="cmeta rmrow-label">Filter:</span>';
+  const flScroll=document.createElement("div");flScroll.className="rmrow-scroll";fl.appendChild(flScroll);
   areasSorted().forEach(a=>{
     const on=rmActive.has(a.name);
     const b=document.createElement("button");b.className="btn sm";b.textContent=a.name;
     b.style.cssText="border-color:"+a.color+(on?(";background:"+a.color+"22;color:"+a.color):";opacity:.45");
     b.onclick=()=>{on?rmActive.delete(a.name):rmActive.add(a.name);renderRoadmap();};
-    fl.appendChild(b);
+    flScroll.appendChild(b);
   });
   const allB=document.createElement("button");allB.className="btn sm";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
   allB.onclick=()=>{rmActive=new Set(rmActive.size>=DB.areas.length?[]:DB.areas.map(a=>a.name));renderRoadmap();};
-  fl.appendChild(allB);tools.append(fl,bar);
+  const flAdd=document.createElement("div");flAdd.className="rmrow-add";flAdd.appendChild(allB);
+  fl.appendChild(flAdd);tools.append(fl,bar);
   m.appendChild(tools);rmStickTop();
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
