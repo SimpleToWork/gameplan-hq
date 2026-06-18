@@ -242,6 +242,7 @@ const firebaseConfig = {
 };
 // Your serverless proxy that forwards {prompt} to Anthropic and returns {text}.
 const AI_ENDPOINT = "/api/claude"; // co-located Vercel function — same-origin, no CORS
+const MEET_ENDPOINT = "/api/calendar"; // co-located Vercel function — creates Calendar events w/ Meet links
 // Only Google accounts on this Workspace domain may sign in. To use an explicit
 // email allowlist instead, set this to "" and edit the check in onAuthStateChanged.
 const ALLOWED_DOMAIN = "merchantsbi.com";
@@ -462,6 +463,11 @@ async function restoreTask(id){
 async function purgeTask(id){
   try{await fbDelete("tasks",id);banner("Task deleted permanently.","ok");}catch(e){banner(e.message,"err");}
 }
+async function emptyTrash(){
+  const ids=DB.tasks.filter(t=>t.trashed).map(t=>t.id);
+  if(!ids.length)return;
+  try{for(const id of ids)await fbDelete("tasks",id);banner("Trash emptied — "+ids.length+" task"+(ids.length!==1?"s":"")+" deleted permanently.","ok");}catch(e){banner(e.message,"err");}
+}
 async function addManualTask(title,category,priority){
   try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
 }
@@ -615,7 +621,17 @@ function renderTasks(m){
   if(taskView==="trash"){
     const trashed=DB.tasks.filter(t=>t.trashed).slice().sort((a,b)=>(b.trashedAt||"").localeCompare(a.trashedAt||""));
     if(!trashed.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">Trash is empty</div>Deleted tasks land here — restore them or delete permanently.</div>');return;}
-    m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin:2px 0 12px;">'+trashed.length+' task'+(trashed.length!==1?'s':'')+' in Trash. Restore to bring back, or delete permanently.</div>');
+    const tbar=document.createElement("div");tbar.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 12px;";
+    const tnote=document.createElement("span");tnote.className="cmeta";tnote.textContent=trashed.length+' task'+(trashed.length!==1?'s':'')+' in Trash. Restore to bring back, or delete permanently.';
+    const empty=document.createElement("button");empty.className="btn sm rm";empty.style.color="var(--danger)";empty.style.borderColor="var(--danger)";empty.textContent="Empty Trash";
+    empty.onclick=()=>{
+      empty.replaceWith((()=>{const wrap=document.createElement("span");wrap.style.cssText="display:inline-flex;align-items:center;gap:8px;";
+        const q=document.createElement("span");q.style.cssText="font-size:12px;color:var(--danger);";q.textContent="Delete all "+trashed.length+" permanently?";
+        const y=document.createElement("button");y.className="btn sm rm";y.style.color="var(--danger)";y.style.borderColor="var(--danger)";y.textContent="Yes, empty";y.onclick=()=>emptyTrash();
+        const n=document.createElement("button");n.className="btn sm";n.textContent="Cancel";n.onclick=()=>renderTasks();
+        wrap.append(q,y,n);return wrap;})());
+    };
+    tbar.append(tnote,empty);m.appendChild(tbar);
     const grid=document.createElement("div");grid.className="grid";trashed.forEach(t=>grid.appendChild(trashCard(t)));m.appendChild(grid);
     return;
   }
@@ -1107,8 +1123,9 @@ async function planMeeting(){
     const ids=(res.roadmapIds||[]).filter(id=>DB.roadmap.some(r=>r.id===id));
     let att=(res.attendees||[]).filter(n=>member(n)).map(n=>member(n).name);
     if(!att.length){const s=new Set();DB.tasks.filter(t=>!t.trashed&&ids.includes(t.roadmapId)).forEach(t=>(t.assignees||[]).forEach(n=>{if(member(n))s.add(member(n).name);}));att=[...s];}
-    await fbAdd("agendas",{title:res.title||"Meeting",date:today(),attendees:att,roadmapIds:ids,notes:""});
+    const newId=await fbAdd("agendas",{title:res.title||"Meeting",date:today(),attendees:att,roadmapIds:ids,notes:""});
     ta.value="";banner("Agenda drafted with "+ids.length+" roadmap item"+(ids.length!==1?"s":"")+".","ok");
+    createMeetForAgenda({id:newId,title:res.title||"Meeting",date:today(),attendees:att,roadmapIds:ids},true);
   }catch(e){banner("Could not plan the meeting ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
   finally{btn.disabled=false;btn.textContent="Plan meeting";}
 }
@@ -1131,8 +1148,8 @@ function agendaForm(a,onDone,onCancel){
     const date=wrap.querySelector('[data-fld="date"]').value;
     const attendees=Array.from(wrap.querySelectorAll('.agPeople input:checked')).map(x=>x.dataset.name);
     try{
-      if(a){await fbUpdate("agendas",a.id,{title,date,attendees});banner("Agenda updated.","ok");}
-      else{await fbAdd("agendas",{title,date,attendees,roadmapIds:[],notes:""});banner("Agenda created.","ok");}
+      if(a){await fbUpdate("agendas",a.id,{title,date,attendees});banner("Agenda updated.","ok");updateMeetForAgenda(Object.assign({},a,{title,date,attendees}));}
+      else{const newId=await fbAdd("agendas",{title,date,attendees,roadmapIds:[],notes:""});banner("Agenda created.","ok");createMeetForAgenda({id:newId,title,date,attendees,roadmapIds:[]},true);}
       if(onDone)onDone();
     }catch(e){banner(e.message,"err");}
   };
@@ -1164,6 +1181,17 @@ function renderAgendas(m){
     const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent="Edit";h.appendChild(editBtn);
     el.appendChild(h);
     const meta=document.createElement("div");meta.className="agmeta";meta.textContent=(a.date?a.date+" · ":"")+((a.attendees||[]).length?a.attendees.join(", "):"no attendees yet");el.appendChild(meta);
+    // Google Meet link (or a button to generate one)
+    const meet=document.createElement("div");meet.style.cssText="margin-top:6px;";
+    if(a.meetLink){
+      const join=document.createElement("a");join.className="btn primary sm";join.href=a.meetLink;join.target="_blank";join.rel="noopener";join.style.textDecoration="none";join.textContent="▸ Join Google Meet";meet.appendChild(join);
+      if(a.calendarHtmlLink){const cal=document.createElement("a");cal.className="cmeta";cal.href=a.calendarHtmlLink;cal.target="_blank";cal.rel="noopener";cal.style.marginLeft="10px";cal.textContent="open in Calendar";meet.appendChild(cal);}
+    }else{
+      const gen=document.createElement("button");gen.className="btn sm";gen.textContent="Generate Meet link";
+      gen.onclick=async()=>{gen.disabled=true;gen.textContent="Generating…";await createMeetForAgenda(a);gen.disabled=false;gen.textContent="Generate Meet link";};
+      meet.appendChild(gen);
+    }
+    el.appendChild(meet);
     // inline edit form (hidden until Edit)
     const editBox=document.createElement("div");editBox.style.cssText="display:none;margin:10px 0;";
     const closeEdit=()=>{editBox.style.display="none";editBtn.textContent="Edit";};
@@ -1198,6 +1226,44 @@ function renderAgendas(m){
   });
 }
 async function removeItemFromAgenda(agendaId,itemId){const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;try{await fbUpdate("agendas",agendaId,{roadmapIds:(a.roadmapIds||[]).filter(x=>x!==itemId)});}catch(e){banner(e.message,"err");}}
+
+/* ---------- Google Meet / Calendar (api/calendar) ---------- */
+const memberEmail=name=>{const mm=member(name);return mm&&mm.email?mm.email:"";};
+// Build the body sent to /api/calendar from an agenda.
+function meetPayload(a,extra){
+  const emails=(a.attendees||[]).map(memberEmail).filter(Boolean);
+  const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
+  const desc=(items.length?"Agenda:\n"+items.map(r=>"• "+r.title+(r.area?" ("+r.area+")":"")).join("\n"):"Planned in Gameplan HQ.")+"\n\nGameplan HQ";
+  return Object.assign({title:a.title||"Meeting",date:a.date||today(),attendees:emails,description:desc},extra||{});
+}
+async function callMeet(payload){
+  const r=await fetch(MEET_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const data=await r.json().catch(()=>({}));
+  if(r.status===501||data.needsSetup)throw new Error("Google Meet isn’t set up yet — add the service-account env vars on Vercel (see README).");
+  if(!r.ok)throw new Error(typeof data.error==="string"?data.error:"calendar error "+r.status);
+  return data;
+}
+// Create the Meet/Calendar event for an agenda and store the link on it. Best-effort.
+// `a` is the agenda object (must include id) — passed directly since the realtime
+// DB may not have the freshly-added doc yet.
+async function createMeetForAgenda(a,quiet){
+  if(!a||!a.id)return;
+  try{
+    const data=await callMeet(meetPayload(a,{action:"create"}));
+    await fbUpdate("agendas",a.id,{meetLink:data.meetLink||"",calendarEventId:data.eventId||"",calendarHtmlLink:data.htmlLink||""});
+    banner("Google Meet link added.","ok");
+  }catch(e){if(!quiet)banner(e.message,"err");console.warn("Meet create:",e.message);}
+}
+async function updateMeetForAgenda(a){
+  if(!a||!a.calendarEventId)return;
+  try{const data=await callMeet(meetPayload(a,{action:"update",eventId:a.calendarEventId}));
+    await fbUpdate("agendas",a.id,{meetLink:data.meetLink||a.meetLink||"",calendarHtmlLink:data.htmlLink||a.calendarHtmlLink||""});
+  }catch(e){console.warn("Meet update:",e.message);}
+}
+async function deleteMeetForAgenda(a){
+  if(!a||!a.calendarEventId)return;
+  try{await callMeet({action:"delete",eventId:a.calendarEventId});}catch(e){console.warn("Meet delete:",e.message);}
+}
 
 /* ---------- Team & Domains ops ---------- */
 async function addMember(name){
