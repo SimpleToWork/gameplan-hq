@@ -148,7 +148,7 @@
   <header>
     <div class="brandrow">
       <div class="brand"><b>Gameplan HQ</b><span>MerchantsBI</span></div>
-      <div class="hctrl">You are <select class="ctrl" id="identity"></select><button class="btn" id="exportBtn">Export</button></div>
+      <div class="hctrl">You are <select class="ctrl" id="identity"></select></div>
     </div>
     <div class="tabs" id="tabs">
       <button data-page="capture" class="on">Capture</button>
@@ -156,7 +156,6 @@
       <button data-page="roadmap">Roadmap</button>
       <button data-page="agendas">Agendas</button>
       <button data-page="team">Team</button>
-      <button data-page="data">Data</button>
     </div>
   </header>
   <div class="setupwarn" id="setupwarn"></div>
@@ -252,7 +251,7 @@ function subscribeAll(){
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color})); }
       if(k==="members") refreshIdentity();
-      if(page!=="capture"&&page!=="data") render();
+      if(page!=="capture") render();
     },err=>banner("Sync error: "+err.message,"err"));
   });
 }
@@ -416,7 +415,7 @@ function setPage(p){page=p;document.querySelectorAll("#tabs button").forEach(b=>
 function render(){const m=document.getElementById("main");
   if(page==="capture")renderCapture(m);else if(page==="tasks")renderTasks(m);
   else if(page==="roadmap")renderRoadmap(m);else if(page==="agendas")renderAgendas(m);
-  else if(page==="team")renderTeam(m);else renderData(m);}
+  else renderTeam(m);}
 
 function renderCapture(m){m=m||document.getElementById("main");
   m.innerHTML='<div class="hero"><h2>What are you working on?</h2>'+
@@ -895,16 +894,6 @@ function renderTeam(m){
   dr.append(di,dbtn);m.appendChild(dr);
 }
 
-function renderData(m){
-  m=m||document.getElementById("main");m.innerHTML="";
-  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Data</div><p class="pagesub">Your shared data lives in Firebase — this is the source of truth for the whole team. Export a snapshot below anytime.</p>');
-  const stats=document.createElement("div");stats.className="cmeta";stats.style.marginBottom="12px";stats.textContent=DB.tasks.length+" tasks · "+DB.roadmap.length+" roadmap targets · "+DB.agendas.length+" agendas · "+roster().length+" members · "+DB.domains.length+" domains";m.appendChild(stats);
-  const box=document.createElement("div");box.className="hero";box.style.padding="16px";
-  box.innerHTML='<div class="field"><label>Snapshot (JSON, read-only)</label><textarea class="ctrl" id="dump" style="min-height:160px;font-family:monospace;font-size:12px;" readonly>'+esc(JSON.stringify(DB,null,2))+'</textarea></div><button class="btn primary" id="copyBtn">Copy snapshot</button>';
-  m.appendChild(box);
-  document.getElementById("copyBtn").onclick=()=>{const t=document.getElementById("dump");t.select();try{navigator.clipboard.writeText(t.value);}catch(e){}banner("Snapshot copied.","ok");};
-}
-
 /* ---------- Auth gate ---------- */
 let subscribed=false, pendingAuthMsg="";
 
@@ -957,7 +946,6 @@ function init(){
   refreshIdentity();
   sel.onchange=()=>{identity=sel.value;try{localStorage.setItem("gp_identity",identity);}catch(e){}if(page==="tasks")renderTasks();};
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
-  document.getElementById("exportBtn").onclick=()=>setPage("data");
 
   if(!fbReady){
     const warn=document.getElementById("setupwarn");
