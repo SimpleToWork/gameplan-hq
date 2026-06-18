@@ -262,8 +262,10 @@ const CAT_COLOR={"AI":"#7F77DD","Dev-Ops":"#378ADD","Front-End":"#1D9E75","UI/UX
 const PRIORITIES=["Critical","High","Medium","Low"];
 const PRANK={"Critical":0,"High":1,"Medium":2,"Low":3};
 const PRI_COLOR={"Critical":["#fbe6e6","#8a2020"],"High":["#fcecec","#a32d2d"],"Medium":["#faf0db","#7a5108"],"Low":["#e9f1fb","#1f5790"]};
-const STATUSES=["Not started","Working on it","Stuck","Done"];
-const ST_COLOR={"Not started":["#eeeeec","#646b78"],"Working on it":["#fdeecf","#a86a08"],"Stuck":["#fcecec","#a32d2d"],"Done":["#e9f7ee","#1d6b45"]};
+const STATUSES=["Not started","Working on it","Stuck","Done","Archived"];
+const ST_COLOR={"Not started":["#eeeeec","#646b78"],"Working on it":["#fdeecf","#a86a08"],"Stuck":["#fcecec","#a32d2d"],"Done":["#e9f7ee","#1d6b45"],"Archived":["#eceef1","#6a7280"]};
+// A task is "open" (shows on the working board) when it's neither Done nor Archived.
+const isTaskOpen=t=>t.status!=="Done"&&t.status!=="Archived";
 const DEFAULT_AREAS=[{name:"Development",color:"#378ADD"},{name:"AI",color:"#7F77DD"},{name:"Biz-Dev",color:"#1D9E75"},{name:"Operations",color:"#C9A227"}];
 const AREA_POOL=["#378ADD","#7F77DD","#1D9E75","#C9A227","#E24B4A","#D85A30","#D4537E","#BA7517","#2DA8A8","#7A6FF0","#5B8C2A","#B5641F"];
 const HORIZONS=["Now","Next","Later"];
@@ -450,10 +452,15 @@ async function movePhase(ph,dir){
 
 /* ---------- Task ops ---------- */
 async function setTask(id,patch){try{await fbUpdate("tasks",id,patch);}catch(e){banner(e.message,"err");}}
+// Delete is a soft-delete: tasks move to Trash (trashed flag) so they can be restored.
 async function deleteTask(id){
-  try{
-    await fbDelete("tasks",id);
-  }catch(e){banner(e.message,"err");}
+  try{await fbUpdate("tasks",id,{trashed:true,trashedAt:today()});banner("Moved to Trash — restore it from the Trash tab.","ok");}catch(e){banner(e.message,"err");}
+}
+async function restoreTask(id){
+  try{await fbUpdate("tasks",id,{trashed:false,trashedAt:null});banner("Task restored.","ok");}catch(e){banner(e.message,"err");}
+}
+async function purgeTask(id){
+  try{await fbDelete("tasks",id);banner("Task deleted permanently.","ok");}catch(e){banner(e.message,"err");}
 }
 async function addManualTask(title,category,priority){
   try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
@@ -543,25 +550,49 @@ function taskCard(t){
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
   qpop.append(qt,qBtn,pbox,prow);d.appendChild(qpop);
   ask.onclick=()=>{qpop.classList.toggle("open");if(qpop.classList.contains("open"))qt.focus();};
-  // delete inline confirm
-  rmv.onclick=()=>{acts.innerHTML="";const q=document.createElement("span");q.style.cssText="font-size:11.5px;color:var(--danger);";q.textContent="Delete?";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Yes";y.onclick=()=>deleteTask(t.id);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTasks();acts.append(q,y,n);};
+  // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
+  rmv.title="Move to Trash";rmv.onclick=()=>deleteTask(t.id);
+  return d;
+}
+// Card shown in the Trash view: restore or delete permanently.
+function trashCard(t){
+  const d=document.createElement("div");d.className="card";
+  const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
+  const top=document.createElement("div");
+  top.innerHTML='<div class="chips"><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+esc(t.status)+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+esc(t.priority)+'</span><span class="chip" style="background:#f0f0ee;color:#7a7f88">'+esc(t.category)+'</span></div>'+
+    '<div class="ctitle" style="margin-top:6px;">'+esc(t.title)+'</div>'+(t.context?'<div class="cmeta" style="margin-top:3px;">'+esc(t.context)+'</div>':'')+
+    (t.trashedAt?'<div class="cmeta" style="margin-top:4px;">Trashed '+esc(t.trashedAt)+'</div>':'');
+  d.appendChild(top);
+  const acts=document.createElement("div");acts.className="acts";
+  const restore=document.createElement("button");restore.textContent="Restore";restore.title="Restore to the board";restore.onclick=()=>restoreTask(t.id);
+  const del=document.createElement("button");del.className="rm";del.textContent="Delete forever";
+  del.onclick=()=>{acts.innerHTML="";const q=document.createElement("span");q.style.cssText="font-size:11.5px;color:var(--danger);";q.textContent="Delete permanently?";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Yes";y.onclick=()=>purgeTask(t.id);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTasks();acts.append(q,y,n);};
+  acts.append(restore,del);d.appendChild(acts);
   return d;
 }
 
 function taskFilter(t){
+  if(t.trashed)return false;            // trashed tasks only appear in the Trash view
   if(taskView==="done")return t.status==="Done";
-  if(taskView==="mine")return t.status!=="Done"&&(t.assignees||[]).some(a=>a.toLowerCase()===identity.toLowerCase());
-  if(taskView==="top")return t.status!=="Done"&&(t.priority==="Critical"||t.priority==="High");
-  return t.status!=="Done";
+  if(taskView==="archived")return t.status==="Archived";
+  if(taskView==="mine")return isTaskOpen(t)&&(t.assignees||[]).some(a=>a.toLowerCase()===identity.toLowerCase());
+  if(taskView==="top")return isTaskOpen(t)&&(t.priority==="Critical"||t.priority==="High");
+  return isTaskOpen(t);
 }
 function renderTasks(m){
   m=m||document.getElementById("main");m.innerHTML="";
-  const open=DB.tasks.filter(t=>t.status!=="Done").length;
+  const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)).length;
+  const trashN=DB.tasks.filter(t=>t.trashed).length;
   const head=document.createElement("div");
   head.innerHTML='<div class="barrow"><div><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' disciplines. Edits save live for the whole team.</p></div></div>';
   m.appendChild(head);
   const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="12px 0";addBtn.textContent="+ Add task";
   const form=document.createElement("div");form.className="hero";form.style.cssText="padding:14px;display:none;margin-bottom:8px;";
+  const closeForm=()=>{form.style.display="none";addBtn.textContent="+ Add task";};
+  const fhead=document.createElement("div");fhead.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;";
+  const fttl=document.createElement("span");fttl.style.cssText="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;";fttl.textContent="New task";
+  const fx=document.createElement("button");fx.className="btn sm";fx.textContent="✕ Close";fx.title="Close without adding";fx.onclick=closeForm;
+  fhead.append(fttl,fx);
   const titleI=document.createElement("input");titleI.className="ctrl";titleI.placeholder="Task title";
   const catS=document.createElement("select");catS.className="ctrl";CATS.forEach(c=>{const o=document.createElement("option");o.textContent=c;catS.appendChild(o);});
   const priS=document.createElement("select");priS.className="ctrl";PRIORITIES.forEach(p=>{const o=document.createElement("option");o.textContent=p;if(p==="Medium")o.selected=true;priS.appendChild(o);});
@@ -571,14 +602,24 @@ function renderTasks(m){
   const c3=document.createElement("div");c3.className="field";c3.innerHTML='<label>Priority</label>';c3.appendChild(priS);
   fg.append(c1,c2,c3);
   const fAdd=document.createElement("button");fAdd.className="btn primary";fAdd.textContent="Add task";
-  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value);titleI.value="";};
-  form.append(fg,fAdd);
-  addBtn.onclick=()=>{form.style.display=form.style.display==="none"?"block":"none";};
+  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value);titleI.value="";titleI.focus();};
+  const fCancel=document.createElement("button");fCancel.className="btn";fCancel.textContent="Cancel";fCancel.onclick=closeForm;
+  const brow=document.createElement("div");brow.style.cssText="display:flex;gap:10px;align-items:center;margin-top:4px;";brow.append(fAdd,fCancel);
+  form.append(fhead,fg,brow);
+  titleI.addEventListener("keydown",e=>{if(e.key==="Escape")closeForm();});
+  addBtn.onclick=()=>{const isOpen=form.style.display!=="none";form.style.display=isOpen?"none":"block";addBtn.textContent=isOpen?"+ Add task":"Close";if(!isOpen)titleI.focus();};
   m.append(addBtn,form);
   const vb=document.createElement("div");vb.className="views";
-  [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
+  [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
   m.appendChild(vb);
-  if(!DB.tasks.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
+  if(taskView==="trash"){
+    const trashed=DB.tasks.filter(t=>t.trashed).slice().sort((a,b)=>(b.trashedAt||"").localeCompare(a.trashedAt||""));
+    if(!trashed.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">Trash is empty</div>Deleted tasks land here — restore them or delete permanently.</div>');return;}
+    m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin:2px 0 12px;">'+trashed.length+' task'+(trashed.length!==1?'s':'')+' in Trash. Restore to bring back, or delete permanently.</div>');
+    const grid=document.createElement("div");grid.className="grid";trashed.forEach(t=>grid.appendChild(trashCard(t)));m.appendChild(grid);
+    return;
+  }
+  if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
   let any=false;
   CATS.forEach(cat=>{
     const list=DB.tasks.filter(t=>t.category===cat&&taskFilter(t)).sort((a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2));
@@ -587,7 +628,7 @@ function renderTasks(m){
     wrap.innerHTML='<div class="cat-head"><span class="dot" style="background:'+(CAT_COLOR[cat]||"#888")+'"></span><span class="cat-name">'+cat+'</span><span class="cat-count">'+list.length+'</span></div>';
     const grid=document.createElement("div");grid.className="grid";list.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
   });
-  if(!any){const msg=taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+msg+'</div></div>');}
+  if(!any){const msg=taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+msg+'</div></div>');}
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
@@ -634,7 +675,7 @@ async function removeTarget(r){
 async function captureForTarget(r,extra,btn,out){
   btn.disabled=true;const lbl=btn.textContent;btn.innerHTML='<span class="spin"></span> Generating';
   try{
-    const existing=DB.tasks.filter(t=>t.roadmapId===r.id).map(t=>t.title);
+    const existing=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed).map(t=>t.title);
     const p='Break this roadmap target into concrete, actionable tasks for an internal board. '+
       'Disciplines (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). '+
@@ -688,7 +729,7 @@ function targetForm(r,onDone,onCancel){
 }
 function targetCard(r,group){
   const el=document.createElement("div");el.className="target";
-  const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
+  const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
   const ac=areaColor(r.area);
   const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
   const dates=(r.start||r.target)?('<span class="chip" style="background:#eef0f4;color:#5a6069">'+(r.start||"?")+" → "+(r.target||"?")+'</span>'):'';
@@ -908,7 +949,7 @@ function renderKanban(m){
 // (so overlapping dots stay reachable); a single nearby target falls back to a rich card.
 function plotTipEl(){let t=document.getElementById("plotTip");if(!t){t=document.createElement("div");t.id="plotTip";t.className="plottip";document.body.appendChild(t);}return t;}
 function singleTipHTML(r){
-  const linked=DB.tasks.filter(x=>x.roadmapId===r.id);const done=linked.filter(x=>x.status==="Done").length;
+  const linked=DB.tasks.filter(x=>x.roadmapId===r.id&&!x.trashed);const done=linked.filter(x=>x.status==="Done").length;
   const ac=areaColor(r.area);const pn=phaseOf(r);
   return '<div class="pt-title"><span class="pt-swatch" style="background:'+ac+'"></span>'+esc(r.title)+'</div>'+
     (r.detail?'<div class="pt-detail">'+esc(r.detail)+'</div>':'')+
@@ -935,7 +976,7 @@ function showLaneTip(area,laneItems,track,e){
     const ac=areaColor(area);
     t.innerHTML='<div class="pt-title"><span class="pt-swatch" style="background:'+ac+'"></span>'+esc(area)+'</div>'+
       '<div class="pt-count">'+near.length+' targets near here</div><div class="pt-list">'+
-      near.map(it=>{const r=it.r;const linked=DB.tasks.filter(x=>x.roadmapId===r.id);const done=linked.filter(x=>x.status==="Done").length;
+      near.map(it=>{const r=it.r;const linked=DB.tasks.filter(x=>x.roadmapId===r.id&&!x.trashed);const done=linked.filter(x=>x.status==="Done").length;
         return '<div class="pt-row"><span class="pt-pdot" style="background:'+phaseColor(phaseOf(r))+'"></span>'+
           '<span class="pt-name">'+esc(r.title)+'</span>'+
           '<span class="pt-when">'+esc(r.target)+(linked.length?" · "+done+"/"+linked.length:"")+'</span></div>';
@@ -1019,7 +1060,7 @@ function appendTimeline(m,targets,compactEmpty){
       const s=eff(r);
       const left=(toMs(s)-min)/span*100;
       const width=Math.max((toMs(r.target)-toMs(s))/span*100,1.5);
-      const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
+      const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
       const row=document.createElement("div");row.className="tl-row";
       const lbl=document.createElement("div");lbl.className="tl-label";lbl.textContent=r.title;lbl.title=r.title+" ("+r.area+")";
       const handle=document.createElement("div");handle.className="tl-handle";handle.title="Drag to widen the title column";handle.addEventListener("mousedown",startTlResize);
@@ -1065,7 +1106,7 @@ async function planMeeting(){
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const ids=(res.roadmapIds||[]).filter(id=>DB.roadmap.some(r=>r.id===id));
     let att=(res.attendees||[]).filter(n=>member(n)).map(n=>member(n).name);
-    if(!att.length){const s=new Set();DB.tasks.filter(t=>ids.includes(t.roadmapId)).forEach(t=>(t.assignees||[]).forEach(n=>{if(member(n))s.add(member(n).name);}));att=[...s];}
+    if(!att.length){const s=new Set();DB.tasks.filter(t=>!t.trashed&&ids.includes(t.roadmapId)).forEach(t=>(t.assignees||[]).forEach(n=>{if(member(n))s.add(member(n).name);}));att=[...s];}
     await fbAdd("agendas",{title:res.title||"Meeting",date:today(),attendees:att,roadmapIds:ids,notes:""});
     ta.value="";banner("Agenda drafted with "+ids.length+" roadmap item"+(ids.length!==1?"s":"")+".","ok");
   }catch(e){banner("Could not plan the meeting ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
@@ -1181,7 +1222,7 @@ function renderTeam(m){
   const grid=document.createElement("div");grid.className="grid";
   roster().forEach(mem=>{
     const owns=DB.domains.filter(d=>(d.owners||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()));
-    const open=DB.tasks.filter(t=>t.status!=="Done"&&(t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase())).length;
+    const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)&&(t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase())).length;
     const card=document.createElement("div");card.className="card";
     const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:9px;";
     head.innerHTML='<div class="ava" style="background:'+(mem.color||"#888")+';width:26px;height:26px;font-size:11px;">'+initials(mem.name)+'</div><div class="ctitle">'+esc(mem.name)+'</div>';
