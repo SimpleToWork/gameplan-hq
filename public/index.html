@@ -731,10 +731,17 @@ function renderTasks(m){
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
 function rmShown(){ const names=areasSorted().map(a=>a.name); return rmActive?names.filter(n=>rmActive.has(n)):names; }
-// A target passes the People filter if no filter is active, or one of its assignees is selected.
-function rmPersonMatch(r){return !rmPeopleActive||(r.assignees||[]).some(n=>rmPeopleActive.has(n));}
+// Sentinel used in rmPeopleActive to mean "targets with no assignees".
+const UNASSIGNED="__unassigned__";
+// A target passes the People filter if no filter is active, an assignee is selected, or (Unassigned is selected and it has none).
+function rmPersonMatch(r){
+  if(!rmPeopleActive)return true;
+  const has=(r.assignees||[]).length>0;
+  if(rmPeopleActive.has(UNASSIGNED)&&!has)return true;
+  return (r.assignees||[]).some(n=>rmPeopleActive.has(n));
+}
 function rmFilteredTargets(){const shown=new Set(rmShown());return DB.roadmap.filter(r=>shown.has(r.area)&&rmPersonMatch(r));}
-// Group targets into per-assignee buckets (+ an "Unassigned" bucket when not filtering by specific people).
+// Group targets into per-assignee buckets (+ an "Unassigned" bucket when shown by the filter).
 function groupByPerson(targets){
   const names=rmPeopleActive?roster().filter(m=>rmPeopleActive.has(m.name)).map(m=>m.name):roster().map(m=>m.name);
   const groups=[];
@@ -742,7 +749,7 @@ function groupByPerson(targets){
     const items=targets.filter(r=>(r.assignees||[]).some(n=>n.toLowerCase()===name.toLowerCase()));
     if(items.length){const mm=member(name);groups.push({name,color:mm&&mm.color?mm.color:"#8a8a8a",items});}
   });
-  if(!rmPeopleActive){const un=targets.filter(r=>!(r.assignees&&r.assignees.length));if(un.length)groups.push({name:"Unassigned",color:"#8a8a8a",items:un});}
+  if(!rmPeopleActive||rmPeopleActive.has(UNASSIGNED)){const un=targets.filter(r=>!(r.assignees&&r.assignees.length));if(un.length)groups.push({name:"Unassigned",color:"#8a8a8a",items:un});}
   return groups;
 }
 // Compact avatar cluster for a target's assignees. Returns null when unassigned (no placeholder clutter).
@@ -1047,6 +1054,11 @@ function renderRoadmap(m){
     b.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(mem.name)?rmPeopleActive.delete(mem.name):rmPeopleActive.add(mem.name);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
     pfScroll.appendChild(b);
   });
+  const unOn=!!(rmPeopleActive&&rmPeopleActive.has(UNASSIGNED));
+  const unB=document.createElement("button");unB.className="btn sm";unB.textContent="Unassigned";
+  unB.style.cssText="border-color:#8a8a8a"+(unOn?";background:#8a8a8a22;color:#6a7280":";opacity:.5");
+  unB.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(UNASSIGNED)?rmPeopleActive.delete(UNASSIGNED):rmPeopleActive.add(UNASSIGNED);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
+  pfScroll.appendChild(unB);
   const clrP=document.createElement("button");clrP.className="btn sm";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
   pfAdd.appendChild(clrP);
   // Filters toggle controls the area filter; People has its own collapse toggle.
@@ -1429,25 +1441,35 @@ function renderAgendas(m){
     }
     addItemBtn.onclick=()=>pick.classList.toggle("open");
     el.append(addItemBtn,pick);
-    // Meeting notes (Gemini) → action steps. Only once the meeting has a calendar event.
-    if(a.calendarEventId){
+    // Meeting notes → action steps. Paste manually, or pull Gemini notes if available.
+    {
       const nw=document.createElement("div");nw.style.cssText="margin-top:12px;border-top:1px solid var(--line,#e6e6e3);padding-top:10px;";
       const nh=document.createElement("div");nh.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
       nh.insertAdjacentHTML("beforeend",'<span style="font-weight:700;font-size:13px;">Meeting notes</span>');
-      const pullBtn=document.createElement("button");pullBtn.className="btn sm";pullBtn.textContent=a.notes?"Re-pull notes":"Pull meeting notes";
-      pullBtn.onclick=async()=>{pullBtn.disabled=true;pullBtn.innerHTML='<span class="spin"></span> Pulling';await pullMeetingNotes(a);pullBtn.disabled=false;pullBtn.textContent=a.notes?"Re-pull notes":"Pull meeting notes";};
-      nh.appendChild(pullBtn);
+      const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent=a.notes?"Edit notes":"Paste notes";nh.appendChild(editBtn);
+      if(a.calendarEventId){
+        const pullBtn=document.createElement("button");pullBtn.className="btn sm";pullBtn.textContent="Pull from Gemini";pullBtn.title="If your meeting used Gemini “Take notes for me”";
+        pullBtn.onclick=async()=>{pullBtn.disabled=true;pullBtn.innerHTML='<span class="spin"></span> Pulling';await pullMeetingNotes(a);pullBtn.disabled=false;pullBtn.textContent="Pull from Gemini";};
+        nh.appendChild(pullBtn);
+      }
       if(a.notesDocUrl){const dl=document.createElement("a");dl.className="cmeta";dl.href=a.notesDocUrl;dl.target="_blank";dl.rel="noopener";dl.style.marginLeft="2px";dl.textContent="open in Docs";nh.appendChild(dl);}
-      if(a.notesPulledAt){nh.insertAdjacentHTML("beforeend",'<span class="cmeta">pulled '+esc(a.notesPulledAt)+'</span>');}
+      if(a.notesPulledAt){nh.insertAdjacentHTML("beforeend",'<span class="cmeta">updated '+esc(a.notesPulledAt)+'</span>');}
       nw.appendChild(nh);
+      // manual notes editor (paste notes or a transcript)
+      const editor=document.createElement("div");editor.style.cssText="display:none;margin-top:8px;";
+      const ta=document.createElement("textarea");ta.className="ctrl";ta.style.minHeight="120px";ta.placeholder="Paste meeting notes or a transcript here…";ta.value=a.notes||"";
+      const saveN=document.createElement("button");saveN.className="btn primary sm";saveN.style.marginTop="6px";saveN.textContent="Save notes";
+      saveN.onclick=async()=>{const v=ta.value.trim();try{await fbUpdate("agendas",a.id,{notes:v,notesPulledAt:today()});banner(v?"Notes saved.":"Notes cleared.","ok");editor.style.display="none";}catch(e){banner(e.message,"err");}};
+      editor.append(ta,saveN);
+      editBtn.onclick=()=>{const open=editor.style.display!=="none";editor.style.display=open?"none":"block";if(!open)ta.focus();};
+      nw.appendChild(editor);
       if(a.notes){
         const body=document.createElement("div");body.style.cssText="white-space:pre-wrap;font-size:13px;margin-top:8px;max-height:220px;overflow:auto;background:var(--soft,#f7f7f5);border-radius:8px;padding:10px;";body.textContent=a.notes;
-        nw.appendChild(body);
         const sa=document.createElement("button");sa.className="btn primary sm";sa.style.marginTop="8px";sa.textContent="Suggest action steps";
         const proposed=document.createElement("div");proposed.style.marginTop="8px";
         sa.onclick=()=>suggestActions(a,proposed,sa);
-        nw.append(sa,proposed);
-      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet. After the meeting (with Gemini “Take notes for me” on), click Pull meeting notes.</div>');}
+        nw.append(body,sa,proposed);
+      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet — click <b>Paste notes</b> to add them'+(a.calendarEventId?', or <b>Pull from Gemini</b> if your meeting used “Take notes for me”':'')+'.</div>');}
       el.appendChild(nw);
     }
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
