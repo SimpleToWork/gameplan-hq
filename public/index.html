@@ -77,6 +77,30 @@
   .hero .row{display:flex;align-items:center;gap:12px;margin-top:11px;flex-wrap:wrap;}
   .hint{font-size:12.5px;color:var(--faint);}
   .capresult{margin-top:16px;}
+  /* Capture review: drafted tasks awaiting approval */
+  .review{margin-top:18px;border:1px solid var(--line);border-radius:16px;background:var(--canvas);padding:16px 16px 18px;}
+  .review-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .review-head .rh-title{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;}
+  .review-head .rh-count{font-size:12px;color:var(--faint);}
+  .review-sub{font-size:12.5px;color:var(--muted);margin:3px 0 14px;}
+  .draft-list{display:flex;flex-direction:column;gap:10px;}
+  .draft{display:flex;gap:13px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:12px;padding:13px 15px;transition:opacity .12s;}
+  .draft.off{opacity:.5;border-left-color:var(--line);}
+  .draft .dcheck{margin-top:3px;width:18px;height:18px;flex:none;cursor:pointer;accent-color:var(--accent);}
+  .draft .dbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;}
+  .draft .dtitle{font-size:15px;font-weight:500;color:var(--ink);border:none;background:none;padding:1px 0 4px;border-bottom:1px solid transparent;border-radius:0;width:100%;font-family:inherit;}
+  .draft .dtitle:focus{outline:none;border-bottom-color:var(--accent);}
+  .draft .dmeta{display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center;}
+  .draft .dfield{display:inline-flex;align-items:center;gap:6px;}
+  .draft .dfield > label{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;font-weight:600;}
+  .ghost-select{font-size:12.5px;border:1px solid transparent;border-radius:7px;padding:3px 22px 3px 8px;background:var(--canvas);color:var(--ink);cursor:pointer;font-weight:500;max-width:170px;
+    appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23939aa3' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 7px center;}
+  .ghost-select:hover{border-color:var(--line);}
+  .ghost-select:focus{outline:none;border-color:var(--accent);background-color:var(--surface);}
+  .draft .dctx{font-size:12.5px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:7px 9px;width:100%;resize:vertical;min-height:34px;background:var(--canvas);font-family:inherit;}
+  .draft .dctx:focus{outline:none;border-color:var(--accent);background:var(--surface);color:var(--ink);}
+  .review-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:15px;padding-top:15px;border-top:1px solid var(--line);}
+  .review-skip{font-size:12px;color:var(--faint);margin-top:11px;}
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
@@ -379,14 +403,17 @@ async function captureTasks(){
       banner("No new tasks to add.","ok");return;
     }
     // Review step — nothing is saved until the user approves.
-    const head=document.createElement("div");head.style.cssText="font-size:13.5px;font-weight:600;margin-bottom:2px;";
-    head.textContent="Review "+added.length+" drafted task"+(added.length!==1?"s":"");
-    const sub=document.createElement("div");sub.className="cmeta";sub.style.marginBottom="9px";sub.textContent="Edit anything, uncheck what you don’t want, then approve to add them to the board.";
-    out.append(head,sub);
+    const panel=document.createElement("div");panel.className="review";
+    const rhead=document.createElement("div");rhead.className="review-head";
+    rhead.innerHTML='<span class="rh-title">Review drafted tasks</span><span class="rh-count">'+added.length+' drafted'+(skipped.length?' · '+skipped.length+' skipped':'')+'</span>';
+    const sub=document.createElement("div");sub.className="review-sub";sub.textContent="Edit anything, uncheck what you don’t want, then approve to add them to the board.";
+    panel.append(rhead,sub);
+    const list=document.createElement("div");list.className="draft-list";
     const approve=document.createElement("button");approve.className="btn primary";
     const refresh=()=>{const n=added.filter(x=>x._include).length;approve.textContent="Approve & add "+n+" task"+(n!==1?"s":"");approve.disabled=!n;};
-    added.forEach(t=>out.appendChild(proposalCard(t,refresh)));
-    skipped.forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.textContent="Skipped (already on the board): "+s;out.appendChild(d);});
+    added.forEach(t=>list.appendChild(proposalCard(t,refresh)));
+    panel.appendChild(list);
+    if(skipped.length){const sk=document.createElement("div");sk.className="review-skip";sk.textContent="Skipped (already on the board): "+skipped.join(", ");panel.appendChild(sk);}
     const discard=document.createElement("button");discard.className="btn";discard.textContent="Discard";discard.onclick=()=>{out.innerHTML="";};
     approve.onclick=async()=>{
       const chosen=added.filter(t=>t._include);
@@ -397,32 +424,37 @@ async function captureTasks(){
         ta.value="";out.innerHTML="";
         const done=document.createElement("div");done.style.cssText="font-size:13.5px;font-weight:500;margin-bottom:7px;";
         done.textContent="Added "+chosen.length+" task"+(chosen.length!==1?"s":"")+" to the board.";
-        out.appendChild(done);chosen.forEach(t=>out.appendChild(miniCard(t)));
+        out.appendChild(done);const dg=document.createElement("div");dg.className="grid";chosen.forEach(t=>dg.appendChild(miniCard(t)));out.appendChild(dg);
         const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="See the board";go.onclick=()=>setPage("tasks");out.appendChild(go);
         banner("Added "+chosen.length+" task"+(chosen.length!==1?"s":"")+".","ok");
       }catch(e){approve.disabled=false;discard.disabled=false;refresh();banner("Couldn’t add tasks ("+(e.message||"error")+").","err");}
     };
-    const arow=document.createElement("div");arow.style.cssText="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;";
-    arow.append(approve,discard);out.appendChild(arow);
+    const foot=document.createElement("div");foot.className="review-foot";
+    foot.append(approve,discard);panel.appendChild(foot);
+    out.appendChild(panel);
     refresh();
   }catch(e){out.innerHTML='<div class="banner err show" style="margin:0;">Could not turn that into tasks ('+esc(e.message||"error")+'). Check AI_ENDPOINT, or retry.</div>';console.error(e);}
   finally{btn.disabled=false;btn.textContent="Draft tasks";hint.textContent="";}
 }
 function miniCard(t){const d=document.createElement("div");d.className="card";const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium;
   d.innerHTML='<div class="chips"><span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+t.category+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span></div><div class="ctitle">'+esc(t.title)+'</div>';return d;}
-// Editable preview card for a Claude-drafted task, shown for approval before anything is saved.
+// Editable preview row for a Claude-drafted task, shown for approval before anything is saved.
+function ghostSelect(options,value,onchange){const s=document.createElement("select");s.className="ghost-select";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
+function dfield(label,control){const w=document.createElement("div");w.className="dfield";const l=document.createElement("label");l.textContent=label;w.append(l,control);return w;}
 function proposalCard(t,onToggle){
-  const d=document.createElement("div");d.className="card";
-  const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:9px;";
-  const cb=document.createElement("input");cb.type="checkbox";cb.checked=t._include!==false;cb.title="Include this task";cb.style.cssText="width:17px;height:17px;flex:none;cursor:pointer;";
-  const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.flex="1";ti.oninput=()=>{t.title=ti.value;};
-  cb.onchange=()=>{t._include=cb.checked;d.style.opacity=cb.checked?"1":".5";ti.disabled=!cb.checked;if(onToggle)onToggle();};
-  head.append(cb,ti);
-  const row=document.createElement("div");row.className="crow";
-  row.append(mkSelect(CATS,t.category,v=>{t.category=v;}),mkSelect(PRIORITIES,t.priority,v=>{t.priority=v;}),
-    mkSelect(roster().map(mm=>mm.name),(t.assignees&&t.assignees[0])||identity,v=>{t.assignees=[v];}));
-  const cx=document.createElement("textarea");cx.className="ctrl";cx.style.cssText="min-height:36px;margin-top:2px;";cx.placeholder="Context / notes (optional)";cx.value=t.context||"";cx.oninput=()=>{t.context=cx.value;};
-  d.append(head,row,cx);
+  const d=document.createElement("div");d.className="draft";
+  const cb=document.createElement("input");cb.type="checkbox";cb.className="dcheck";cb.checked=t._include!==false;cb.title="Include this task";
+  const body=document.createElement("div");body.className="dbody";
+  const ti=document.createElement("input");ti.className="dtitle";ti.value=t.title;ti.placeholder="Task title";ti.oninput=()=>{t.title=ti.value;};
+  cb.onchange=()=>{t._include=cb.checked;d.classList.toggle("off",!cb.checked);body.querySelectorAll("input,select,textarea").forEach(el=>el.disabled=!cb.checked);if(onToggle)onToggle();};
+  const meta=document.createElement("div");meta.className="dmeta";
+  meta.append(
+    dfield("Discipline",ghostSelect(CATS,t.category,v=>{t.category=v;})),
+    dfield("Priority",ghostSelect(PRIORITIES,t.priority,v=>{t.priority=v;})),
+    dfield("Owner",ghostSelect(roster().map(mm=>mm.name),(t.assignees&&t.assignees[0])||identity,v=>{t.assignees=[v];})));
+  const cx=document.createElement("textarea");cx.className="dctx";cx.placeholder="Add context or notes…";cx.value=t.context||"";cx.oninput=()=>{t.context=cx.value;};
+  body.append(ti,meta,cx);
+  d.append(cb,body);
   return d;
 }
 
