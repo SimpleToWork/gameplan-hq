@@ -46,29 +46,32 @@ Environment variable (set in Vercel → Settings → Environment Variables):
 ## Google Meet / Calendar integration (optional)
 
 Each agenda can auto-create a real Google Calendar event with a Google Meet link and invite
-the attendees. This runs in `api/calendar.js` using a **service account with domain-wide
-delegation** — the service account impersonates a real Workspace user (the meeting organizer)
-so Google mints a genuine `meet.google.com` link and emails the guests. Until the env vars
+the attendees. This runs in `api/calendar.js` using **one Google account's OAuth refresh
+token** — the account that consents becomes the meeting organizer, and Google mints a genuine
+`meet.google.com` link and emails the guests. No service-account key and no domain-wide
+delegation, so org policies that block service-account keys don't apply. Until the env vars
 below are set, the app works normally and agenda cards show a "Generate Meet link" button that
 reports it isn't configured yet.
 
-**One-time Google setup (Workspace admin required):**
+**One-time setup (no admin role needed beyond your own account):**
 
-1. **Google Cloud Console** → create/pick a project → **APIs & Services → Enable APIs** →
-   enable the **Google Calendar API**.
-2. **IAM & Admin → Service Accounts** → create one → **Keys → Add key → JSON**. Download it.
-   Note the service account's `client_email` and its numeric **Unique ID** (client ID).
-3. **Admin console** (admin.google.com, super-admin) → **Security → Access and data control →
-   API controls → Domain-wide delegation → Add new**. Paste the service account's client ID and
-   authorize this scope: `https://www.googleapis.com/auth/calendar`.
-4. Pick a real mailbox in the domain to organize the meetings (e.g. `ricky@merchantsbi.com`).
+1. **Google Cloud Console** → create/pick a project → **APIs & Services → Library** → enable
+   the **Google Calendar API**.
+2. **APIs & Services → OAuth consent screen** → User type **Internal** → fill the app name and
+   your support email → save. (Internal = no Google verification needed.)
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → application type
+   **Desktop app** → create. Copy the **Client ID** and **Client secret**.
+4. Get a refresh token — run locally, signed in as the meeting organizer:
+   ```
+   node scripts/get-google-refresh-token.mjs <CLIENT_ID> <CLIENT_SECRET>
+   ```
+   It opens a consent screen; approve it, and the terminal prints `GOOGLE_REFRESH_TOKEN`.
 
-**Vercel env vars** (Settings → Environment Variables):
+**Vercel env vars** (Settings → Environment Variables, then redeploy):
 
-- `GOOGLE_SA_EMAIL` — the service account address (`…@….iam.gserviceaccount.com`).
-- `GOOGLE_SA_PRIVATE_KEY` — the `private_key` value from the JSON key. Paste it whole; the
-  literal `\n` sequences are fine (the function unescapes them).
-- `GOOGLE_IMPERSONATE_EMAIL` — the organizer mailbox from step 4.
+- `GOOGLE_CLIENT_ID` — from step 3.
+- `GOOGLE_CLIENT_SECRET` — from step 3.
+- `GOOGLE_REFRESH_TOKEN` — from step 4.
 - *(optional)* `MEET_TIMEZONE` (default `America/New_York`), `MEET_HOUR` (default `10`),
   `MEET_DURATION` minutes (default `60`).
 

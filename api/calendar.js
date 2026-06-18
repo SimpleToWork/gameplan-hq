@@ -1,19 +1,17 @@
 // Creates / updates / deletes a Google Calendar event (with a Google Meet link)
-// for a Gameplan HQ agenda. Uses a Google Cloud service account with domain-wide
-// delegation: the service account impersonates a real Workspace user (the meeting
-// organizer) so Google mints a genuine meet.google.com link and emails the guests.
+// for a Gameplan HQ agenda. Uses one Google account's OAuth refresh token — the
+// account that consented becomes the meeting organizer, and Google mints a real
+// meet.google.com link and emails the guests. No service-account key, no
+// domain-wide delegation (so org policies that block SA keys don't apply).
 //
 // Required env vars (set in Vercel → Project → Settings → Environment Variables):
-//   GOOGLE_SA_EMAIL          – service-account address (…@….iam.gserviceaccount.com)
-//   GOOGLE_SA_PRIVATE_KEY    – the SA private key (PEM). Paste it whole; literal "\n"
-//                              sequences are fine, they're unescaped below.
-//   GOOGLE_IMPERSONATE_EMAIL – a real Workspace mailbox to organize the meetings,
-//                              e.g. ricky@merchantsbi.com
+//   GOOGLE_CLIENT_ID      – OAuth client ID
+//   GOOGLE_CLIENT_SECRET  – OAuth client secret
+//   GOOGLE_REFRESH_TOKEN  – refresh token from scripts/get-google-refresh-token.mjs
 // Optional:
 //   MEET_TIMEZONE  – IANA tz for the events (default "America/New_York")
 //   MEET_HOUR      – local start hour, 0–23 (default 10)
 //   MEET_DURATION  – minutes (default 60)
-import crypto from "crypto";
 
 const ALLOWED_ORIGINS = [
   "https://www.merchantsbi-team.com",
@@ -25,45 +23,29 @@ const TZ = process.env.MEET_TIMEZONE || "America/New_York";
 const START_HOUR = Number(process.env.MEET_HOUR || 10);
 const DURATION_MIN = Number(process.env.MEET_DURATION || 60);
 
-const b64url = buf =>
-  Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-
-// Mint a short-lived Google access token via the JWT-bearer (service account) grant.
+// Trade the long-lived refresh token for a short-lived access token.
 async function getAccessToken() {
-  const email = process.env.GOOGLE_SA_EMAIL;
-  const key = (process.env.GOOGLE_SA_PRIVATE_KEY || "").replace(/\\n/g, "\n");
-  const sub = process.env.GOOGLE_IMPERSONATE_EMAIL;
-  if (!email || !key || !sub) {
+  const id = process.env.GOOGLE_CLIENT_ID;
+  const secret = process.env.GOOGLE_CLIENT_SECRET;
+  const refresh = process.env.GOOGLE_REFRESH_TOKEN;
+  if (!id || !secret || !refresh) {
     const e = new Error("Google Calendar is not configured on the server.");
     e.code = "NOT_CONFIGURED";
     throw e;
   }
-  const now = Math.floor(Date.now() / 1000);
-  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claim = b64url(JSON.stringify({
-    iss: email,
-    sub,                                   // impersonate the organizer (domain-wide delegation)
-    scope: "https://www.googleapis.com/auth/calendar",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600
-  }));
-  const signer = crypto.createSign("RSA-SHA256");
-  signer.update(`${header}.${claim}`);
-  const sig = b64url(signer.sign(key));
-  const assertion = `${header}.${claim}.${sig}`;
-
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion
+      client_id: id,
+      client_secret: secret,
+      refresh_token: refresh,
+      grant_type: "refresh_token"
     })
   });
   const data = await r.json();
   if (!r.ok) {
-    const e = new Error(data.error_description || data.error || "token request failed");
+    const e = new Error(data.error_description || data.error || "token refresh failed");
     e.detail = data;
     throw e;
   }

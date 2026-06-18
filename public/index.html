@@ -151,6 +151,11 @@
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
   .cmeta{font-size:12px;color:var(--muted);}
+  /* roadmap toolbar: collapse toggles for Areas+Phases and Filters (saves vertical space) */
+  .rmtoolbar-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;}
+  .rmtgl .tgchev{display:inline-block;transition:transform .15s;margin-right:6px;font-size:11px;}
+  .rmtgl:not(.on) .tgchev{transform:rotate(-90deg);}
+  .rmtgl.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);}
   /* roadmap toolbar: larger, easier-to-read area / phase / filter controls */
   .rmtools .cmeta{font-size:14px;}
   .rmtools .btn.sm{font-size:13.5px;padding:7px 13px;}
@@ -308,6 +313,8 @@ let taskView="all";
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=true;          // is the AI-capture prompt box on the roadmap expanded?
+let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (collapsed by default for space)
+let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
 let rmTlLabelW=170;          // width (px) of the timeline title column — draggable to read full titles
 let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area)
@@ -901,7 +908,7 @@ function renderRoadmap(m){
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Roadmap</div><p class="pagesub">The overarching plan across the business. Capture with AI or add targets by hand; give each a timeframe to see it on the timeline.</p>');
   const cap=document.createElement("div");cap.className="hero";cap.style.padding="14px 16px";
   const capHead=document.createElement("div");capHead.className="caphead"+(rmCapOpen?"":" closed");
-  capHead.innerHTML='<span class="capttl"><span class="capchev">▾</span>Capture roadmap with AI</span><span class="cmeta" id="rmCapHint">'+(rmCapOpen?"click to minimize":"click to expand")+'</span>';
+  capHead.innerHTML='<span class="capttl"><span class="capchev">▾</span>Capture roadmap with AI</span>';
   const capBody=document.createElement("div");capBody.style.cssText="margin-top:12px;display:"+(rmCapOpen?"block":"none")+";";
   capBody.innerHTML='<textarea id="rmText" class="ctrl" style="min-height:64px;" placeholder="e.g. This quarter: ship AI task-extraction to prod (AI, Now), stand up the new ETL pipeline (Development, Next), close two enterprise pilots (Biz-Dev, Next)."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;align-items:center;"><button class="btn primary" id="rmBtn">Add to roadmap</button></div>';
   capHead.onclick=()=>{rmCapOpen=!rmCapOpen;capBody.style.display=rmCapOpen?"block":"none";capHead.classList.toggle("closed",!rmCapOpen);document.getElementById("rmCapHint").textContent=rmCapOpen?"click to minimize":"click to expand";};
