@@ -1313,10 +1313,50 @@ function renderAgendas(m){
     const avail=DB.roadmap.filter(r=>!(a.roadmapIds||[]).includes(r.id));
     if(!avail.length){pick.innerHTML='<div class="cmeta">All roadmap items are already on this agenda.</div>';}
     else{
-      avail.forEach(r=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.dataset.id=r.id;l.append(cb,document.createTextNode(r.title+" ("+r.area+" · "+(r.status||"Not started")+")"));pick.appendChild(l);});
-      const apply=document.createElement("button");apply.className="btn primary sm";apply.style.alignSelf="flex-start";apply.textContent="Add selected";
-      apply.onclick=async()=>{const ids=Array.from(pick.querySelectorAll("input:checked")).map(x=>x.dataset.id);if(!ids.length){banner("Pick at least one roadmap item.","err");return;}const merged=Array.from(new Set([...(a.roadmapIds||[]),...ids]));try{await fbUpdate("agendas",a.id,{roadmapIds:merged});banner("Added "+ids.length+" item"+(ids.length!==1?"s":"")+" to “"+a.title+"”.","ok");}catch(e){banner(e.message,"err");}pick.classList.remove("open");};
-      pick.appendChild(apply);
+      const selected=new Set();
+      // group available items by area (parent), including any area present on items
+      const areasWith=areaNames().filter(an=>avail.some(r=>r.area===an));
+      avail.forEach(r=>{if(!areasWith.includes(r.area))areasWith.push(r.area);});
+      const areaColor=an=>{const ar=DB.areas.find(x=>x.name===an);return ar&&ar.color?ar.color:"#9aa0a8";};
+      // controls: search + area filter
+      const ctrl=document.createElement("div");ctrl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;";
+      const search=document.createElement("input");search.className="ctrl";search.type="search";search.placeholder="Search roadmap items…";search.style.cssText="flex:1;min-width:140px;";
+      const areaSel=mkSelect(["All areas"].concat(areasWith),"All areas",()=>renderList());
+      ctrl.append(search,areaSel);pick.appendChild(ctrl);
+      const list=document.createElement("div");list.style.cssText="max-height:320px;overflow:auto;display:flex;flex-direction:column;gap:3px;";pick.appendChild(list);
+      const bar=document.createElement("div");bar.style.cssText="display:flex;align-items:center;gap:10px;margin-top:8px;";
+      const apply=document.createElement("button");apply.className="btn primary sm";apply.textContent="Add selected";
+      const count=document.createElement("span");count.className="cmeta";
+      bar.append(apply,count);pick.appendChild(bar);
+      const updateCount=()=>{count.textContent=selected.size?selected.size+" selected":"none selected";};
+      function renderList(){
+        list.innerHTML="";
+        const q=search.value.trim().toLowerCase(),af=areaSel.value;let shown=0;
+        areasWith.filter(an=>af==="All areas"||af===an).forEach(an=>{
+          const color=areaColor(an);
+          const inArea=avail.filter(r=>r.area===an&&(!q||(r.title+" "+(r.detail||"")).toLowerCase().includes(q)));
+          if(!inArea.length)return;shown+=inArea.length;
+          // parent row: toggles all children in this area
+          const ghead=document.createElement("label");ghead.className="opt";ghead.style.cssText="font-weight:700;background:"+color+"14;border-radius:6px;";
+          const pcb=document.createElement("input");pcb.type="checkbox";const childCbs=[];
+          const syncParent=()=>{const all=inArea.every(r=>selected.has(r.id)),some=inArea.some(r=>selected.has(r.id));pcb.checked=all;pcb.indeterminate=!all&&some;};
+          pcb.onchange=()=>{inArea.forEach((r,i)=>{if(pcb.checked)selected.add(r.id);else selected.delete(r.id);childCbs[i].checked=pcb.checked;});pcb.indeterminate=false;updateCount();};
+          ghead.append(pcb);ghead.insertAdjacentHTML("beforeend",'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+color+';margin:0 6px;"></span>'+esc(an)+' <span class="cmeta" style="font-weight:400;">('+inArea.length+')</span>');
+          list.appendChild(ghead);
+          inArea.forEach((r,i)=>{
+            const l=document.createElement("label");l.className="opt";l.style.marginLeft="18px";
+            const cb=document.createElement("input");cb.type="checkbox";cb.dataset.id=r.id;cb.checked=selected.has(r.id);childCbs[i]=cb;
+            cb.onchange=()=>{if(cb.checked)selected.add(r.id);else selected.delete(r.id);syncParent();updateCount();};
+            l.append(cb);l.insertAdjacentHTML("beforeend",' '+esc(r.title)+' <span class="cmeta">('+(phaseOf(r)?esc(phaseOf(r))+' · ':'')+esc(r.status||"Not started")+')</span>');
+            list.appendChild(l);
+          });
+          syncParent();
+        });
+        if(!shown)list.innerHTML='<div class="cmeta">No matches.</div>';
+      }
+      search.addEventListener("input",renderList);
+      apply.onclick=async()=>{const ids=[...selected];if(!ids.length){banner("Pick at least one roadmap item.","err");return;}const merged=Array.from(new Set([...(a.roadmapIds||[]),...ids]));try{await fbUpdate("agendas",a.id,{roadmapIds:merged});banner("Added "+ids.length+" item"+(ids.length!==1?"s":"")+" to “"+a.title+"”.","ok");}catch(e){banner(e.message,"err");}pick.classList.remove("open");};
+      renderList();updateCount();
     }
     addItemBtn.onclick=()=>pick.classList.toggle("open");
     el.append(addItemBtn,pick);
