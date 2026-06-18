@@ -43,6 +43,38 @@ Environment variable (set in Vercel → Settings → Environment Variables):
 
 - `ANTHROPIC_API_KEY` — your Anthropic API key.
 
+## Google Meet / Calendar integration (optional)
+
+Each agenda can auto-create a real Google Calendar event with a Google Meet link and invite
+the attendees. This runs in `api/calendar.js` using a **service account with domain-wide
+delegation** — the service account impersonates a real Workspace user (the meeting organizer)
+so Google mints a genuine `meet.google.com` link and emails the guests. Until the env vars
+below are set, the app works normally and agenda cards show a "Generate Meet link" button that
+reports it isn't configured yet.
+
+**One-time Google setup (Workspace admin required):**
+
+1. **Google Cloud Console** → create/pick a project → **APIs & Services → Enable APIs** →
+   enable the **Google Calendar API**.
+2. **IAM & Admin → Service Accounts** → create one → **Keys → Add key → JSON**. Download it.
+   Note the service account's `client_email` and its numeric **Unique ID** (client ID).
+3. **Admin console** (admin.google.com, super-admin) → **Security → Access and data control →
+   API controls → Domain-wide delegation → Add new**. Paste the service account's client ID and
+   authorize this scope: `https://www.googleapis.com/auth/calendar`.
+4. Pick a real mailbox in the domain to organize the meetings (e.g. `ricky@merchantsbi.com`).
+
+**Vercel env vars** (Settings → Environment Variables):
+
+- `GOOGLE_SA_EMAIL` — the service account address (`…@….iam.gserviceaccount.com`).
+- `GOOGLE_SA_PRIVATE_KEY` — the `private_key` value from the JSON key. Paste it whole; the
+  literal `\n` sequences are fine (the function unescapes them).
+- `GOOGLE_IMPERSONATE_EMAIL` — the organizer mailbox from step 4.
+- *(optional)* `MEET_TIMEZONE` (default `America/New_York`), `MEET_HOUR` (default `10`),
+  `MEET_DURATION` minutes (default `60`).
+
+Attendee invites use each team member's **email**, set on the Team page (it degrades to a
+Meet link with no guests if emails are missing).
+
 ## Local data model
 
 - Firestore collections: `tasks`, `roadmap`, `agendas`, `areas`. They auto-create on first

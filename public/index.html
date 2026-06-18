@@ -1221,7 +1221,7 @@ function renderAgendas(m){
     addItemBtn.onclick=()=>pick.classList.toggle("open");
     el.append(addItemBtn,pick);
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
-    del.onclick=async()=>{try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
+    del.onclick=async()=>{deleteMeetForAgenda(a);try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
     el.appendChild(del);m.appendChild(el);
   });
 }
@@ -1266,12 +1266,13 @@ async function deleteMeetForAgenda(a){
 }
 
 /* ---------- Team & Domains ops ---------- */
-async function addMember(name){
+async function addMember(name,email){
   if(roster().some(m=>m.name.toLowerCase()===name.toLowerCase())){banner("That person is already on the team.","err");return;}
   const used=DB.members.map(m=>m.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.members.length%AREA_POOL.length];
-  try{await fbAdd("members",{name,color});banner("Added "+name+".","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("members",{name,email:email||"",color});banner("Added "+name+".","ok");}catch(e){banner(e.message,"err");}
 }
 async function renameMember(id,name){try{await fbUpdate("members",id,{name});banner("Renamed.","ok");}catch(e){banner(e.message,"err");}}
+async function setMember(id,patch){try{await fbUpdate("members",id,patch);banner("Saved.","ok");}catch(e){banner(e.message,"err");}}
 async function removeMember(mem){try{await fbDelete("members",mem.id);banner("Removed "+mem.name+".","ok");}catch(e){banner(e.message,"err");}}
 async function addDomain(name){
   if(DB.domains.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That domain already exists.","err");return;}
@@ -1293,30 +1294,34 @@ function renderTeam(m){
     const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:9px;";
     head.innerHTML='<div class="ava" style="background:'+(mem.color||"#888")+';width:26px;height:26px;font-size:11px;">'+initials(mem.name)+'</div><div class="ctitle">'+esc(mem.name)+'</div>';
     card.appendChild(head);
-    card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+open+' open task'+(open!==1?"s":"")+'</div>');
+    card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+open+' open task'+(open!==1?"s":"")+(mem.email?' · '+esc(mem.email):'')+'</div>');
     const dchips=document.createElement("div");dchips.className="chips";
     if(owns.length)owns.forEach(d=>{const c=document.createElement("span");c.className="chip";c.style.cssText="background:"+d.color+"22;color:"+d.color;c.textContent=d.name;dchips.appendChild(c);});
     else dchips.innerHTML='<span class="cmeta">no domains yet</span>';
     card.appendChild(dchips);
     const acts=document.createElement("div");acts.className="acts";
-    const ren=document.createElement("button");ren.textContent="Rename";
+    const ren=document.createElement("button");ren.textContent="Edit";
     const rem=document.createElement("button");rem.className="rm";rem.textContent="Remove";
     acts.append(ren,rem);card.appendChild(acts);
     const rp=document.createElement("div");rp.className="pop";
-    const ri=document.createElement("input");ri.className="ctrl";ri.value=mem.name;
+    const ri=document.createElement("input");ri.className="ctrl";ri.value=mem.name;ri.placeholder="Name";
+    const re=document.createElement("input");re.className="ctrl";re.type="email";re.value=mem.email||"";re.placeholder="email — for Meet invites";
     const rs=document.createElement("button");rs.className="btn primary sm";rs.style.alignSelf="flex-start";rs.textContent="Save";
-    rs.onclick=()=>{if(!ri.value.trim())return;if(mem.id)renameMember(mem.id,ri.value.trim());rp.classList.remove("open");};
-    rp.append(ri,rs);card.appendChild(rp);ren.onclick=()=>rp.classList.toggle("open");
+    rs.onclick=()=>{if(!ri.value.trim())return;if(mem.id)setMember(mem.id,{name:ri.value.trim(),email:re.value.trim()});rp.classList.remove("open");};
+    rp.append(ri,re,rs);card.appendChild(rp);ren.onclick=()=>rp.classList.toggle("open");
     rem.onclick=()=>{if(!mem.id){banner("Team is still seeding — try again in a moment.","err");return;}acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove "+mem.name+"?";y.onclick=()=>removeMember(mem);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     grid.appendChild(card);
   });
   m.appendChild(grid);
   const addRow=document.createElement("div");addRow.style.cssText="display:flex;gap:8px;margin:12px 0 24px;flex-wrap:wrap;";
   const ni=document.createElement("input");ni.className="ctrl";ni.placeholder="New member name";ni.style.width="200px";
+  const ne=document.createElement("input");ne.className="ctrl";ne.type="email";ne.placeholder="email (optional)";ne.style.width="220px";
   const nb=document.createElement("button");nb.className="btn";nb.textContent="+ Add member";
-  nb.onclick=()=>{if(ni.value.trim()){addMember(ni.value.trim());ni.value="";}};
-  ni.addEventListener("keydown",e=>{if(e.key==="Enter"&&ni.value.trim()){addMember(ni.value.trim());ni.value="";}});
-  addRow.append(ni,nb);m.appendChild(addRow);
+  const doAdd=()=>{if(ni.value.trim()){addMember(ni.value.trim(),ne.value.trim());ni.value="";ne.value="";}};
+  nb.onclick=doAdd;
+  ni.addEventListener("keydown",e=>{if(e.key==="Enter")doAdd();});
+  ne.addEventListener("keydown",e=>{if(e.key==="Enter")doAdd();});
+  addRow.append(ni,ne,nb);m.appendChild(addRow);
   m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm">Domains</span><span class="cat-count">'+DB.domains.length+'</span></div><p class="pagesub">Areas of expertise. Assign owners to show who has authority over that kind of development.</p>');
   if(!DB.domains.length)m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No domains yet — add one below.</div>');
   const dgrid=document.createElement("div");dgrid.className="grid";
