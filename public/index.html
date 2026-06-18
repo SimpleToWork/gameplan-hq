@@ -80,6 +80,11 @@
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .rmtools{position:sticky;top:0;background:var(--canvas);z-index:5;padding:4px 0 2px;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);}
+  .caphead{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;}
+  .caphead .capttl{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;}
+  .caphead .capchev{transition:transform .15s;color:var(--muted);}
+  .caphead.closed .capchev{transform:rotate(-90deg);}
   .cat{margin-bottom:22px;}
   .cat-head{display:flex;align-items:center;gap:9px;margin:0 0 9px;}
   .dot{width:9px;height:9px;border-radius:50%;flex:none;}
@@ -222,7 +227,8 @@ let identity=TEAM[0].name;
 let page="capture";
 let taskView="all";
 let roadmapView="list";      // list | timeline | kanban
-let rmSort="manual";         // manual | start | target | added | az
+let rmSort="manual";         // manual | start | target | added | az | za
+let rmCapOpen=true;          // is the AI-capture prompt box on the roadmap expanded?
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
 let seededAreas=false;
@@ -553,6 +559,7 @@ function sortTargets(items){
   if(rmSort==="target")return items.slice().sort((a,b)=>cmpDateAsc(a.target,b.target));
   if(rmSort==="added")return items.slice().sort((a,b)=>cmpDateAsc(a.createdAt,b.createdAt));
   if(rmSort==="az")return items.slice().sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  if(rmSort==="za")return items.slice().sort((a,b)=>(b.title||"").localeCompare(a.title||""));
   return sortManual(items);
 }
 // Reorder within a manual-sorted sibling group by swapping positions and renumbering order.
@@ -660,18 +667,26 @@ function targetCard(r,group){
   return el;
 }
 
+// Park the sticky roadmap toolbar right below the sticky page header (height varies as the header wraps).
+function rmStickTop(){const h=document.querySelector("header");const t=document.querySelector(".rmtools");if(h&&t)t.style.top=(h.offsetHeight-1)+"px";}
+if(!window.__rmStickBound){window.__rmStickBound=true;window.addEventListener("resize",rmStickTop);}
 function renderRoadmap(m){
   m=m||document.getElementById("main");m.innerHTML="";
   if(rmActive===null)rmActive=new Set(DB.areas.map(a=>a.name));
   rmActive=new Set([...rmActive].filter(n=>DB.areas.some(a=>a.name===n)));
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Roadmap</div><p class="pagesub">The overarching plan across the business. Capture with AI or add targets by hand; give each a timeframe to see it on the timeline.</p>');
-  const cap=document.createElement("div");cap.className="hero";cap.style.padding="16px";
-  cap.innerHTML='<textarea id="rmText" class="ctrl" style="min-height:64px;" placeholder="e.g. This quarter: ship AI task-extraction to prod (AI, Now), stand up the new ETL pipeline (Development, Next), close two enterprise pilots (Biz-Dev, Next)."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;align-items:center;"><button class="btn primary" id="rmBtn">Add to roadmap</button></div>';
-  m.appendChild(cap);document.getElementById("rmBtn").onclick=captureRoadmap;
+  const cap=document.createElement("div");cap.className="hero";cap.style.padding="14px 16px";
+  const capHead=document.createElement("div");capHead.className="caphead"+(rmCapOpen?"":" closed");
+  capHead.innerHTML='<span class="capttl"><span class="capchev">▾</span>Capture roadmap with AI</span><span class="cmeta" id="rmCapHint">'+(rmCapOpen?"click to minimize":"click to expand")+'</span>';
+  const capBody=document.createElement("div");capBody.style.cssText="margin-top:12px;display:"+(rmCapOpen?"block":"none")+";";
+  capBody.innerHTML='<textarea id="rmText" class="ctrl" style="min-height:64px;" placeholder="e.g. This quarter: ship AI task-extraction to prod (AI, Now), stand up the new ETL pipeline (Development, Next), close two enterprise pilots (Biz-Dev, Next)."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;align-items:center;"><button class="btn primary" id="rmBtn">Add to roadmap</button></div>';
+  capHead.onclick=()=>{rmCapOpen=!rmCapOpen;capBody.style.display=rmCapOpen?"block":"none";capHead.classList.toggle("closed",!rmCapOpen);document.getElementById("rmCapHint").textContent=rmCapOpen?"click to minimize":"click to expand";};
+  cap.append(capHead,capBody);m.appendChild(cap);document.getElementById("rmBtn").onclick=captureRoadmap;
   const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="10px 0";addBtn.textContent="+ Add target by hand";
   const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:14px;display:none;margin-bottom:8px;";addBox.appendChild(targetForm(null,()=>{}));
   addBtn.onclick=()=>{addBox.style.display=addBox.style.display==="none"?"block":"none";};
   m.append(addBtn,addBox);
+  const tools=document.createElement("div");tools.className="rmtools";
   const am=document.createElement("div");am.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 2px;";
   am.innerHTML='<span class="cmeta" style="font-weight:500;">Areas:</span>';
   DB.areas.forEach(a=>{
@@ -696,7 +711,7 @@ function renderRoadmap(m){
   const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
   ab.onclick=()=>{if(ai.value.trim()){addArea(ai.value.trim());ai.value="";}};
   ai.addEventListener("keydown",e=>{if(e.key==="Enter"&&ai.value.trim()){addArea(ai.value.trim());ai.value="";}});
-  am.append(ai,ab);m.appendChild(am);
+  am.append(ai,ab);tools.appendChild(am);
   // phases manager
   const pm=document.createElement("div");pm.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 2px;";
   pm.innerHTML='<span class="cmeta" style="font-weight:500;">Phases:</span>';
@@ -717,19 +732,18 @@ function renderRoadmap(m){
   const pb=document.createElement("button");pb.className="btn sm";pb.textContent="Add phase";
   pb.onclick=()=>{if(pi.value.trim()){addPhase(pi.value.trim());pi.value="";}};
   pi.addEventListener("keydown",e=>{if(e.key==="Enter"&&pi.value.trim()){addPhase(pi.value.trim());pi.value="";}});
-  pm.append(pi,pb);m.appendChild(pm);
-  const bar=document.createElement("div");bar.className="views";bar.style.margin="14px 0 6px";
+  pm.append(pi,pb);tools.appendChild(pm);
+  const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
   if(roadmapView!=="timeline"){
     const sw=document.createElement("div");sw.style.cssText="display:flex;align-items:center;gap:7px;margin-left:auto;";
     const sl=document.createElement("span");sl.className="cmeta";sl.textContent="Sort:";
     const ss=document.createElement("select");ss.className="ctrl";ss.style.fontSize="12.5px";
-    [["manual","Manual (custom order)"],["start","Start date"],["target","Target date"],["added","Date added"],["az","Title A–Z"]].forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;if(rmSort===v)o.selected=true;ss.appendChild(o);});
+    [["manual","Manual (custom order)"],["start","Start date"],["target","Target date"],["added","Date added"],["az","Title A–Z"],["za","Title Z–A"]].forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;if(rmSort===v)o.selected=true;ss.appendChild(o);});
     ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
     sw.append(sl,ss);bar.appendChild(sw);
   }
-  m.appendChild(bar);
-  const fl=document.createElement("div");fl.style.cssText="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 14px;";
+  const fl=document.createElement("div");fl.style.cssText="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:6px 0 4px;";
   fl.innerHTML='<span class="cmeta">Filter:</span>';
   DB.areas.forEach(a=>{
     const on=rmActive.has(a.name);
@@ -740,7 +754,8 @@ function renderRoadmap(m){
   });
   const allB=document.createElement("button");allB.className="btn sm";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
   allB.onclick=()=>{rmActive=new Set(rmActive.size>=DB.areas.length?[]:DB.areas.map(a=>a.name));renderRoadmap();};
-  fl.appendChild(allB);m.appendChild(fl);
+  fl.appendChild(allB);tools.append(fl,bar);
+  m.appendChild(tools);rmStickTop();
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
   else renderRoadmapList(m);
@@ -752,10 +767,9 @@ function renderRoadmapList(m){
     const items=DB.roadmap.filter(r=>r.area===area);
     const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
     if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No targets yet.</div>');return;}
-    const pl=phaseNames();const manual=rmSort==="manual";
-    pl.forEach(pn=>{const grp=sortTargets(items.filter(r=>phaseOf(r)===pn));grp.forEach(r=>m.appendChild(targetCard(r,manual?grp:null)));});
-    const un=sortTargets(items.filter(r=>!pl.includes(phaseOf(r))));
-    un.forEach(r=>m.appendChild(targetCard(r,manual?un:null)));
+    // One flat, sorted list per area (phase shown as a chip) so reorder/sort work across the whole area.
+    const manual=rmSort==="manual";const grp=sortTargets(items);
+    grp.forEach(r=>m.appendChild(targetCard(r,manual?grp:null)));
   });
 }
 function renderKanban(m){
@@ -776,33 +790,37 @@ function renderKanban(m){
   m.appendChild(wrap);
 }
 function renderTimeline(m){
-  const dated=rmFilteredTargets().filter(r=>r.start&&r.target);
-  const undated=rmFilteredTargets().filter(r=>!(r.start&&r.target));
-  if(!dated.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No dated targets</div>Add a start and target date to a target to plot it here.</div>');}
+  // Timeline is driven by the target (deadline) date. A start date is optional — without one a target shows as a marker at its deadline.
+  const dated=rmFilteredTargets().filter(r=>r.target);
+  const undated=rmFilteredTargets().filter(r=>!r.target);
+  if(!dated.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No dated targets</div>Add a target date to a target to plot it here.</div>');}
   else{
     const toMs=s=>Date.parse(s+"T00:00:00");
+    const eff=r=>(r.start&&toMs(r.start)<=toMs(r.target))?r.start:r.target; // effective start
     let min=Infinity,max=-Infinity;
-    dated.forEach(r=>{min=Math.min(min,toMs(r.start));max=Math.max(max,toMs(r.target));});
+    dated.forEach(r=>{min=Math.min(min,toMs(eff(r)));max=Math.max(max,toMs(r.target));});
     const span=Math.max(max-min,86400000);
     const fmt=ms=>new Date(ms).toISOString().slice(0,7);
     const tl=document.createElement("div");tl.className="timeline";
     const axis=document.createElement("div");axis.className="tl-axis";axis.innerHTML='<span>'+fmt(min)+'</span><span>'+fmt(min+span/2)+'</span><span>'+fmt(max)+'</span>';tl.appendChild(axis);
-    dated.slice().sort((a,b)=>toMs(a.start)-toMs(b.start)).forEach(r=>{
+    dated.slice().sort((a,b)=>toMs(a.target)-toMs(b.target)).forEach(r=>{
       const ac=areaColor(r.area);
-      const left=(toMs(r.start)-min)/span*100;
-      const width=Math.max((toMs(r.target)-toMs(r.start))/span*100,1.5);
+      const s=eff(r);
+      const left=(toMs(s)-min)/span*100;
+      const width=Math.max((toMs(r.target)-toMs(s))/span*100,1.5);
       const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
       const row=document.createElement("div");row.className="tl-row";
       const lbl=document.createElement("div");lbl.className="tl-label";lbl.textContent=r.title;lbl.title=r.title+" ("+r.area+")";
       const track=document.createElement("div");track.className="tl-track";
       const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";";
-      bar.title=r.title+": "+r.start+" → "+r.target;
-      bar.textContent=r.start+" → "+r.target+(linked.length?"  ("+done+"/"+linked.length+")":"");
+      const span2=r.start?(r.start+" → "+r.target):("by "+r.target);
+      bar.title=r.title+": "+span2;
+      bar.textContent=span2+(linked.length?"  ("+done+"/"+linked.length+")":"");
       track.appendChild(bar);row.append(lbl,track);tl.appendChild(row);
     });
     m.appendChild(tl);
   }
-  if(undated.length){const d=document.createElement("div");d.className="cmeta";d.style.margin="12px 0 4px";d.textContent="No dates set ("+undated.length+"): "+undated.map(r=>r.title).join(", ");m.appendChild(d);}
+  if(undated.length){const d=document.createElement("div");d.className="cmeta";d.style.margin="12px 0 4px";d.textContent="No target date ("+undated.length+"): "+undated.map(r=>r.title).join(", ");m.appendChild(d);}
 }
 
 async function planMeeting(){
