@@ -371,20 +371,60 @@ async function captureTasks(){
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
-      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",createdBy:identity,createdAt:today(),roadmapId:null}));
-    for(const t of added){ await fbAdd("tasks",t); }
-    ta.value="";
-    const head=document.createElement("div");head.style.cssText="font-size:13.5px;font-weight:500;margin-bottom:7px;";
-    head.textContent="Added "+added.length+" task"+(added.length!==1?"s":"")+(res.skipped&&res.skipped.length?" · skipped "+res.skipped.length+" already on the board":"");
-    out.appendChild(head);added.forEach(t=>out.appendChild(miniCard(t)));
-    (res.skipped||[]).forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.textContent="Already there: "+s;out.appendChild(d);});
-    const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="See the board";go.onclick=()=>setPage("tasks");out.appendChild(go);
-    banner("Added "+added.length+" task"+(added.length!==1?"s":"")+".","ok");
+      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",createdBy:identity,createdAt:today(),roadmapId:null,_include:true}));
+    const skipped=res.skipped||[];
+    if(!added.length){
+      out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
+      skipped.forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.textContent="Already there: "+s;out.appendChild(d);});
+      banner("No new tasks to add.","ok");return;
+    }
+    // Review step — nothing is saved until the user approves.
+    const head=document.createElement("div");head.style.cssText="font-size:13.5px;font-weight:600;margin-bottom:2px;";
+    head.textContent="Review "+added.length+" drafted task"+(added.length!==1?"s":"");
+    const sub=document.createElement("div");sub.className="cmeta";sub.style.marginBottom="9px";sub.textContent="Edit anything, uncheck what you don’t want, then approve to add them to the board.";
+    out.append(head,sub);
+    const approve=document.createElement("button");approve.className="btn primary";
+    const refresh=()=>{const n=added.filter(x=>x._include).length;approve.textContent="Approve & add "+n+" task"+(n!==1?"s":"");approve.disabled=!n;};
+    added.forEach(t=>out.appendChild(proposalCard(t,refresh)));
+    skipped.forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.textContent="Skipped (already on the board): "+s;out.appendChild(d);});
+    const discard=document.createElement("button");discard.className="btn";discard.textContent="Discard";discard.onclick=()=>{out.innerHTML="";};
+    approve.onclick=async()=>{
+      const chosen=added.filter(t=>t._include);
+      if(!chosen.length){banner("Tick at least one task, or discard.","err");return;}
+      approve.disabled=true;discard.disabled=true;approve.innerHTML='<span class="spin"></span> Adding';
+      try{
+        for(const t of chosen){const{_include,...clean}=t;await fbAdd("tasks",clean);}
+        ta.value="";out.innerHTML="";
+        const done=document.createElement("div");done.style.cssText="font-size:13.5px;font-weight:500;margin-bottom:7px;";
+        done.textContent="Added "+chosen.length+" task"+(chosen.length!==1?"s":"")+" to the board.";
+        out.appendChild(done);chosen.forEach(t=>out.appendChild(miniCard(t)));
+        const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="See the board";go.onclick=()=>setPage("tasks");out.appendChild(go);
+        banner("Added "+chosen.length+" task"+(chosen.length!==1?"s":"")+".","ok");
+      }catch(e){approve.disabled=false;discard.disabled=false;refresh();banner("Couldn’t add tasks ("+(e.message||"error")+").","err");}
+    };
+    const arow=document.createElement("div");arow.style.cssText="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;";
+    arow.append(approve,discard);out.appendChild(arow);
+    refresh();
   }catch(e){out.innerHTML='<div class="banner err show" style="margin:0;">Could not turn that into tasks ('+esc(e.message||"error")+'). Check AI_ENDPOINT, or retry.</div>';console.error(e);}
-  finally{btn.disabled=false;btn.textContent="Turn into tasks";hint.textContent="";}
+  finally{btn.disabled=false;btn.textContent="Draft tasks";hint.textContent="";}
 }
 function miniCard(t){const d=document.createElement("div");d.className="card";const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium;
   d.innerHTML='<div class="chips"><span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+t.category+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span></div><div class="ctitle">'+esc(t.title)+'</div>';return d;}
+// Editable preview card for a Claude-drafted task, shown for approval before anything is saved.
+function proposalCard(t,onToggle){
+  const d=document.createElement("div");d.className="card";
+  const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:9px;";
+  const cb=document.createElement("input");cb.type="checkbox";cb.checked=t._include!==false;cb.title="Include this task";cb.style.cssText="width:17px;height:17px;flex:none;cursor:pointer;";
+  const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.flex="1";ti.oninput=()=>{t.title=ti.value;};
+  cb.onchange=()=>{t._include=cb.checked;d.style.opacity=cb.checked?"1":".5";ti.disabled=!cb.checked;if(onToggle)onToggle();};
+  head.append(cb,ti);
+  const row=document.createElement("div");row.className="crow";
+  row.append(mkSelect(CATS,t.category,v=>{t.category=v;}),mkSelect(PRIORITIES,t.priority,v=>{t.priority=v;}),
+    mkSelect(roster().map(mm=>mm.name),(t.assignees&&t.assignees[0])||identity,v=>{t.assignees=[v];}));
+  const cx=document.createElement("textarea");cx.className="ctrl";cx.style.cssText="min-height:36px;margin-top:2px;";cx.placeholder="Context / notes (optional)";cx.value=t.context||"";cx.oninput=()=>{t.context=cx.value;};
+  d.append(head,row,cx);
+  return d;
+}
 
 /* ---------- Roadmap ---------- */
 async function captureRoadmap(){
@@ -496,9 +536,9 @@ function render(){const m=document.getElementById("main");
 
 function renderCapture(m){m=m||document.getElementById("main");
   m.innerHTML='<div class="hero"><h2>What are you working on?</h2>'+
-    '<p>Write it however it comes out. Claude splits it into tasks, files each under the right discipline, and skips anything already on the board. Saved live to your shared database.</p>'+
+    '<p>Write it however it comes out. Claude drafts tasks — filed under the right discipline and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
-    '<div class="row"><button class="btn primary" id="capBtn">Turn into tasks</button><span class="hint" id="capHint"></span></div>'+
+    '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button><span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
   document.getElementById("capBtn").onclick=captureTasks;}
 
