@@ -20,7 +20,7 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
 
 const PORT = 53682;
 const REDIRECT = `http://localhost:${PORT}`;
-const SCOPE = "https://www.googleapis.com/auth/calendar";
+const SCOPE = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/documents.readonly";
 const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
   client_id: CLIENT_ID,
   redirect_uri: REDIRECT,

@@ -72,6 +72,28 @@ function meetLinkFrom(ev) {
   return ep ? ep.uri : "";
 }
 
+// Flatten a Google Docs API document resource into plain text.
+function docToText(doc) {
+  const out = [];
+  const walk = content => (content || []).forEach(el => {
+    if (el.paragraph) {
+      out.push((el.paragraph.elements || []).map(e => (e.textRun ? e.textRun.content : "")).join(""));
+    } else if (el.table) {
+      (el.table.tableRows || []).forEach(row => (row.tableCells || []).forEach(c => walk(c.content)));
+    }
+  });
+  walk(doc.body && doc.body.content);
+  return out.join("").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Pick the Gemini notes Doc out of an event's attachments.
+function notesDocFrom(ev) {
+  const atts = ev.attachments || [];
+  return atts.find(a => /note/i.test(a.title || "") && a.mimeType === "application/vnd.google-apps.document")
+    || atts.find(a => a.mimeType === "application/vnd.google-apps.document")
+    || null;
+}
+
 export default async function handler(req, res) {
   const origin = req.headers.origin;
   if (ALLOWED_ORIGINS.includes(origin)) {
@@ -109,6 +131,30 @@ export default async function handler(req, res) {
         return res.status(r.status).json({ error: await r.text() });
       }
       return res.status(200).json({ ok: true });
+    }
+
+    // notes — find the Gemini "Take notes for me" Doc attached to the event and read it.
+    if (action === "notes") {
+      if (!eventId) return res.status(400).json({ error: "eventId required" });
+      const er = await fetch(`${cal}/${encodeURIComponent(eventId)}`, { headers: auth });
+      const ev = await er.json();
+      if (!er.ok) return res.status(er.status).json({ error: ev });
+      const doc = notesDocFrom(ev);
+      if (!doc) {
+        return res.status(200).json({ found: false, notes: "", message: "No notes doc attached to this meeting yet. Gemini notes appear a few minutes after the meeting ends, and 'Take notes for me' must have been on." });
+      }
+      const dr = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(doc.fileId)}`, { headers: auth });
+      const docData = await dr.json();
+      if (!dr.ok) {
+        // Most often a scope problem — the refresh token lacks documents.readonly.
+        return res.status(dr.status).json({ error: docData, message: "Couldn't read the notes Doc — the Google token may be missing the Docs scope (re-run the token script)." });
+      }
+      return res.status(200).json({
+        found: true,
+        notes: docToText(docData),
+        docUrl: doc.fileUrl || `https://docs.google.com/document/d/${doc.fileId}`,
+        docTitle: doc.title || docData.title || "Meeting notes"
+      });
     }
 
     const { start, end } = window(date);

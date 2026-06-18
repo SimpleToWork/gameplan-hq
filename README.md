@@ -78,6 +78,20 @@ reports it isn't configured yet.
 Attendee invites use each team member's **email**, set on the Team page (it degrades to a
 Meet link with no guests if emails are missing).
 
+### Meeting notes → action steps
+
+Agendas can pull the **Gemini "Take notes for me"** Doc after a meeting and turn it into
+proposed tasks. After the meeting (with Gemini note-taking on), open the agenda and click
+**Pull meeting notes** → the server reads the notes Doc attached to the calendar event and
+stores it; **Suggest action steps** then sends the notes to Claude, which proposes tasks you
+review and create (linked back to the agenda's roadmap items).
+
+Reading the notes Doc needs an extra scope (`documents.readonly`), which the
+`scripts/get-google-refresh-token.mjs` helper now requests. **Re-run that script and update
+`GOOGLE_REFRESH_TOKEN` in Vercel** so the token includes Docs read access. (If you set this up
+before the notes feature, the old token won't have the scope and Pull will report a scope
+error.)
+
 ## Local data model
 
 - Firestore collections: `tasks`, `roadmap`, `agendas`, `areas`. They auto-create on first
