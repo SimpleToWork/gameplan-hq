@@ -1333,7 +1333,7 @@ function meetPayload(a,extra){
 async function callMeet(payload){
   const r=await fetch(MEET_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
   const data=await r.json().catch(()=>({}));
-  if(r.status===501||data.needsSetup)throw new Error("Google Meet isn’t set up yet — add the service-account env vars on Vercel (see README).");
+  if(r.status===501||data.needsSetup)throw new Error("Google Meet isn’t set up yet — add the Google OAuth env vars on Vercel and redeploy (see README).");
   if(!r.ok)throw new Error(typeof data.error==="string"?data.error:"calendar error "+r.status);
   return data;
 }
