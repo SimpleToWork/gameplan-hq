@@ -913,13 +913,25 @@ function renderRoadmap(m){
   capBody.innerHTML='<textarea id="rmText" class="ctrl" style="min-height:64px;" placeholder="e.g. This quarter: ship AI task-extraction to prod (AI, Now), stand up the new ETL pipeline (Development, Next), close two enterprise pilots (Biz-Dev, Next)."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;align-items:center;"><button class="btn primary" id="rmBtn">Add to roadmap</button></div>';
   capHead.onclick=()=>{rmCapOpen=!rmCapOpen;capBody.style.display=rmCapOpen?"block":"none";capHead.classList.toggle("closed",!rmCapOpen);document.getElementById("rmCapHint").textContent=rmCapOpen?"click to minimize":"click to expand";};
   cap.append(capHead,capBody);m.appendChild(cap);document.getElementById("rmBtn").onclick=captureRoadmap;
-  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="10px 0";addBtn.textContent="+ Add target by hand";
-  const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:14px;display:none;margin-bottom:8px;";
+  // "Add target by hand" sits in the capture header row (saves a row); the form drops in below.
+  const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:14px;display:none;margin:8px 0;";
+  const addBtn=document.createElement("button");addBtn.className="btn sm";addBtn.textContent="+ Add target by hand";
   const closeAdd=()=>{addBox.style.display="none";addBtn.textContent="+ Add target by hand";};
   addBox.appendChild(targetForm(null,closeAdd,closeAdd));
-  addBtn.onclick=()=>{const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Add target by hand":"Close";};
-  m.append(addBtn,addBox);
+  addBtn.onclick=e=>{e.stopPropagation();const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Add target by hand":"Close";};
+  const capRight=document.createElement("div");capRight.style.cssText="display:flex;align-items:center;gap:12px;";
+  const capHint=document.createElement("span");capHint.className="cmeta";capHint.id="rmCapHint";capHint.textContent=rmCapOpen?"click to minimize":"click to expand";
+  capRight.append(addBtn,capHint);capHead.appendChild(capRight);
+  m.appendChild(addBox);
   const tools=document.createElement("div");tools.className="rmtools";
+  // collapse toggles: one for Areas+Phases together, one for the Filter row — frees up vertical space
+  const ctrlbar=document.createElement("div");ctrlbar.className="rmtoolbar-ctrl";
+  const mgrT=document.createElement("button");mgrT.type="button";mgrT.className="btn sm rmtgl"+(rmManageOpen?" on":"");mgrT.innerHTML='<span class="tgchev">▾</span>Areas &amp; Phases';
+  const filT=document.createElement("button");filT.type="button";filT.className="btn sm rmtgl"+(rmFilterOpen?" on":"");filT.innerHTML='<span class="tgchev">▾</span>Filters';
+  ctrlbar.append(mgrT,filT);
+  const manageWrap=document.createElement("div");manageWrap.style.display=rmManageOpen?"block":"none";
+  mgrT.onclick=()=>{rmManageOpen=!rmManageOpen;manageWrap.style.display=rmManageOpen?"block":"none";mgrT.classList.toggle("on",rmManageOpen);rmStickTop();rmUpdateArrows();};
+  tools.append(ctrlbar,manageWrap);
   const {row:am,scroll:amScroll,add:amAdd}=rmScrollRow("cmeta rmrow-label","Areas:");
   am.style.margin="6px 0 2px";
   areasSorted().forEach(a=>{
@@ -947,7 +959,7 @@ function renderRoadmap(m){
   const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
   ab.onclick=()=>{if(ai.value.trim()){addArea(ai.value.trim());ai.value="";}};
   ai.addEventListener("keydown",e=>{if(e.key==="Enter"&&ai.value.trim()){addArea(ai.value.trim());ai.value="";}});
-  amAdd.append(ai,ab);tools.appendChild(am);
+  amAdd.append(ai,ab);manageWrap.appendChild(am);
   // phases manager
   const {row:pm,scroll:pmScroll,add:pmAdd}=rmScrollRow("cmeta rmrow-label","Phases:");
   pm.style.margin="8px 0 2px";
@@ -967,7 +979,7 @@ function renderRoadmap(m){
   const pb=document.createElement("button");pb.className="btn sm";pb.textContent="Add phase";
   pb.onclick=()=>{if(pi.value.trim()){addPhase(pi.value.trim());pi.value="";}};
   pi.addEventListener("keydown",e=>{if(e.key==="Enter"&&pi.value.trim()){addPhase(pi.value.trim());pi.value="";}});
-  pmAdd.append(pi,pb);tools.appendChild(pm);
+  pmAdd.append(pi,pb);manageWrap.appendChild(pm);
   const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"],["plot","Plot"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
   if(roadmapView==="list"||roadmapView==="kanban"){
@@ -989,7 +1001,10 @@ function renderRoadmap(m){
   });
   const allB=document.createElement("button");allB.className="btn sm";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
   allB.onclick=()=>{rmActive=new Set(rmActive.size>=DB.areas.length?[]:DB.areas.map(a=>a.name));renderRoadmap();};
-  flAdd.appendChild(allB);tools.append(fl,bar);
+  flAdd.appendChild(allB);
+  fl.style.display=rmFilterOpen?"":"none";
+  filT.onclick=()=>{rmFilterOpen=!rmFilterOpen;fl.style.display=rmFilterOpen?"":"none";filT.classList.toggle("on",rmFilterOpen);rmStickTop();rmUpdateArrows();};
+  tools.append(fl,bar);
   m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
