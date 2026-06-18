@@ -95,6 +95,14 @@
   .plot-track{position:relative;flex:1;height:30px;background:#f1f2f5;border-radius:6px;min-width:260px;}
   .plot-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.15);}
   .plot-whisker{position:absolute;top:50%;transform:translateY(-50%);height:3px;border-radius:2px;opacity:.4;}
+  .plot-dot{transition:transform .1s;}
+  .plot-dot:hover{transform:translate(-50%,-50%) scale(1.4);z-index:2;}
+  .plottip{position:fixed;z-index:50;max-width:280px;background:var(--ink);color:#fff;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.28);pointer-events:none;display:none;}
+  .plottip .pt-title{font-weight:600;font-size:13px;margin-bottom:3px;display:flex;align-items:center;gap:6px;}
+  .plottip .pt-detail{opacity:.85;margin-bottom:6px;}
+  .plottip .pt-meta{display:flex;gap:6px;flex-wrap:wrap;}
+  .plottip .pt-chip{background:rgba(255,255,255,.16);border-radius:6px;padding:1px 7px;font-size:11px;}
+  .plottip .pt-swatch{width:9px;height:9px;border-radius:50%;flex:none;}
   .caphead{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;}
   .caphead .capttl{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;}
   .caphead .capchev{transition:transform .15s;color:var(--muted);}
@@ -843,8 +851,23 @@ function renderKanban(m){
     appendKanban(m,rmFilteredTargets());
   }
 }
+// Floating hover card for plot dots.
+function plotTipEl(){let t=document.getElementById("plotTip");if(!t){t=document.createElement("div");t.id="plotTip";t.className="plottip";document.body.appendChild(t);}return t;}
+function showPlotTip(r,e){
+  const t=plotTipEl();const linked=DB.tasks.filter(x=>x.roadmapId===r.id);const done=linked.filter(x=>x.status==="Done").length;
+  const ac=areaColor(r.area);const pn=phaseOf(r);
+  t.innerHTML='<div class="pt-title"><span class="pt-swatch" style="background:'+ac+'"></span>'+esc(r.title)+'</div>'+
+    (r.detail?'<div class="pt-detail">'+esc(r.detail)+'</div>':'')+
+    '<div class="pt-meta"><span class="pt-chip">'+esc(r.area)+'</span><span class="pt-chip">'+esc(pn||"—")+'</span>'+
+    '<span class="pt-chip">'+(r.start?esc(r.start)+" → ":"by ")+esc(r.target)+'</span>'+
+    (linked.length?'<span class="pt-chip">'+done+'/'+linked.length+' tasks done</span>':'<span class="pt-chip">no linked tasks</span>')+'</div>';
+  t.style.display="block";movePlotTip(e);
+}
+function movePlotTip(e){const t=document.getElementById("plotTip");if(!t||t.style.display==="none")return;const pad=14;const w=t.offsetWidth,h=t.offsetHeight;let x=e.clientX+pad,y=e.clientY+pad;if(x+w>window.innerWidth-8)x=e.clientX-w-pad;if(y+h>window.innerHeight-8)y=e.clientY-h-pad;t.style.left=Math.max(8,x)+"px";t.style.top=Math.max(8,y)+"px";}
+function hidePlotTip(){const t=document.getElementById("plotTip");if(t)t.style.display="none";}
 // Scatter plot: horizontal time axis (by target/deadline date), one lane per area. A faint whisker shows start→target when a start date exists. Basic first pass.
 function renderPlot(m){
+  hidePlotTip();
   const dated=rmFilteredTargets().filter(r=>r.target);
   if(!dated.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No dated targets</div>Add a target date to a target to plot it here.</div>');return;}
   const toMs=s=>Date.parse(s+"T00:00:00");
@@ -865,9 +888,10 @@ function renderPlot(m){
     items.forEach(r=>{
       const tx=(toMs(r.target)-min)/span*100;
       if(r.start){const sx=(toMs(r.start)-min)/span*100;const w=document.createElement("div");w.className="plot-whisker";w.style.cssText="left:"+Math.min(sx,tx)+"%;width:"+Math.abs(tx-sx)+"%;background:"+ac+";";track.appendChild(w);}
-      const linked=DB.tasks.filter(t=>t.roadmapId===r.id);const done=linked.filter(t=>t.status==="Done").length;
       const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";";
-      dot.title=r.title+" — by "+r.target+(r.start?(" (from "+r.start+")"):"")+(linked.length?("  ["+done+"/"+linked.length+" tasks]"):"");
+      dot.addEventListener("mouseenter",e=>showPlotTip(r,e));
+      dot.addEventListener("mousemove",movePlotTip);
+      dot.addEventListener("mouseleave",hidePlotTip);
       track.appendChild(dot);
     });
     lane.append(lbl,track);plot.appendChild(lane);
