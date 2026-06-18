@@ -115,9 +115,15 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   const { action = "create", title, date, description, attendees, eventId } = req.body || {};
-  const guests = (Array.isArray(attendees) ? attendees : [])
-    .filter(e => typeof e === "string" && e.includes("@"))
-    .map(email => ({ email }));
+  // Auto-invite the Fireflies notetaker bot so it joins every meeting. Override or
+  // disable via the NOTETAKER_EMAIL env var (set to "" to turn it off).
+  const NOTETAKER_EMAIL = process.env.NOTETAKER_EMAIL ?? "fred@fireflies.ai";
+  const emails = (Array.isArray(attendees) ? attendees : [])
+    .filter(e => typeof e === "string" && e.includes("@"));
+  if (NOTETAKER_EMAIL && !emails.some(e => e.toLowerCase() === NOTETAKER_EMAIL.toLowerCase())) {
+    emails.push(NOTETAKER_EMAIL);
+  }
+  const guests = emails.map(email => ({ email }));
 
   try {
     const token = await getAccessToken();
