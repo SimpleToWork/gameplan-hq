@@ -336,6 +336,16 @@ async function removeArea(area){
   if(n){banner("“"+area.name+"” has "+n+" target"+(n!==1?"s":"")+" — remove or recategorize them first.","err");return;}
   try{await fbDelete("areas",area.id);banner("Removed area “"+area.name+"”.","ok");}catch(e){banner(e.message,"err");}
 }
+async function renameArea(area,newName){
+  if(newName===area.name)return;
+  if(DB.areas.some(a=>a.id!==area.id&&a.name.toLowerCase()===newName.toLowerCase())){banner("An area with that name already exists.","err");return;}
+  try{
+    await fbUpdate("areas",area.id,{name:newName});
+    for(const r of DB.roadmap){ if(r.area===area.name) await fbUpdate("roadmap",r.id,{area:newName}); }
+    if(rmActive&&rmActive.has(area.name)){ rmActive.delete(area.name); rmActive.add(newName); }
+    banner("Renamed area to “"+newName+"”.","ok");
+  }catch(e){banner(e.message,"err");}
+}
 
 /* ---------- Task ops ---------- */
 async function setTask(id,patch){try{await fbUpdate("tasks",id,patch);}catch(e){banner(e.message,"err");}}
@@ -586,8 +596,19 @@ function renderRoadmap(m){
   DB.areas.forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:6px;font-size:12px;";
     chip.appendChild(document.createTextNode(a.name));
+    const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename area";ed.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:11px;line-height:1;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:14px;line-height:1;padding:0;";
-    x.onclick=()=>removeArea(a);chip.appendChild(x);am.appendChild(chip);
+    ed.onclick=()=>{
+      chip.innerHTML="";
+      const inp=document.createElement("input");inp.value=a.name;inp.style.cssText="border:1px solid "+a.color+";border-radius:6px;padding:2px 6px;font-size:12px;width:110px;";
+      const ok=document.createElement("button");ok.textContent="✓";ok.title="Save";ok.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:13px;padding:0;";
+      const cancel=document.createElement("button");cancel.textContent="×";cancel.title="Cancel";cancel.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0;";
+      const save=()=>{const v=inp.value.trim();if(!v||v===a.name){renderRoadmap();return;}renameArea(a,v);};
+      ok.onclick=save;cancel.onclick=()=>renderRoadmap();
+      inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
+      chip.append(inp,ok,cancel);inp.focus();inp.select();
+    };
+    x.onclick=()=>removeArea(a);chip.append(ed,x);am.appendChild(chip);
   });
   const ai=document.createElement("input");ai.className="ctrl";ai.placeholder="New area";ai.style.cssText="padding:5px 9px;font-size:12.5px;width:130px;";
   const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
