@@ -45,7 +45,7 @@
   *{box-sizing:border-box;}
   body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
   button,select,textarea,input{font-family:inherit;}
-  .app{max-width:1360px;margin:0 auto;padding:0 28px 70px;}
+  .app{max-width:1680px;margin:0 auto;padding:0 32px 70px;}
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
   .brand{display:flex;align-items:center;gap:11px;}
@@ -131,14 +131,16 @@
   .rmtools .cmeta{font-size:14px;}
   .rmtools .btn.sm{font-size:13.5px;padding:7px 13px;}
   .rmtools .chip{gap:7px;}
-  /* keep each manager on one row: items scroll horizontally, label + add controls stay put */
+  /* keep each manager on one row: items scroll horizontally (via ‹ › arrows), label + add controls stay put */
   .rmrow{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
   .rmrow-label{flex:none;}
-  .rmrow-scroll{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:5px;scrollbar-width:thin;}
+  .rmrow-scroll{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scroll-behavior:smooth;scrollbar-width:none;-ms-overflow-style:none;}
   .rmrow-scroll>*{flex:none;}
-  .rmrow-scroll::-webkit-scrollbar{height:7px;}
-  .rmrow-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+  .rmrow-scroll::-webkit-scrollbar{width:0;height:0;display:none;}
   .rmrow-add{flex:none;display:flex;align-items:center;gap:8px;}
+  .rmscroll-arrow{flex:none;width:28px;height:31px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0 0 2px;}
+  .rmscroll-arrow:hover{background:#f1f1f0;color:var(--ink);}
+  .rmscroll-arrow:disabled{opacity:.28;cursor:default;background:var(--surface);color:var(--muted);}
   .avas{display:flex;align-items:center;}
   .ava{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;margin-left:-5px;border:1.5px solid var(--surface);}
   .ava:first-child{margin-left:0;}
@@ -741,7 +743,31 @@ function targetCard(r,group){
 
 // Park the sticky roadmap toolbar right below the sticky page header (height varies as the header wraps).
 function rmStickTop(){const h=document.querySelector("header");const t=document.querySelector(".rmtools");if(h&&t)t.style.top=(h.offsetHeight-1)+"px";}
-if(!window.__rmStickBound){window.__rmStickBound=true;window.addEventListener("resize",rmStickTop);}
+// Recompute every toolbar row's ‹ › arrow enabled/visible state (called after render and on resize).
+function rmUpdateArrows(){document.querySelectorAll(".rmrow").forEach(r=>r._updArrows&&r._updArrows());}
+if(!window.__rmStickBound){window.__rmStickBound=true;window.addEventListener("resize",()=>{rmStickTop();rmUpdateArrows();});}
+// Build a one-line manager row: [label] [‹] [scrollable items] [›] [add controls]. Arrows scroll the
+// item region and hide themselves when there's nothing to scroll. Returns the pieces to fill in.
+function rmScrollRow(labelClass,labelText){
+  const row=document.createElement("div");row.className="rmrow";
+  const label=document.createElement("span");label.className=labelClass;label.textContent=labelText;
+  const left=document.createElement("button");left.type="button";left.className="rmscroll-arrow";left.tabIndex=-1;left.setAttribute("aria-label","Scroll left");left.textContent="‹";
+  const scroll=document.createElement("div");scroll.className="rmrow-scroll";
+  const right=document.createElement("button");right.type="button";right.className="rmscroll-arrow";right.tabIndex=-1;right.setAttribute("aria-label","Scroll right");right.textContent="›";
+  const add=document.createElement("div");add.className="rmrow-add";
+  row.append(label,left,scroll,right,add);
+  const upd=()=>{
+    const max=scroll.scrollWidth-scroll.clientWidth,sc=scroll.scrollLeft,has=max>2;
+    left.style.display=has?"":"none";right.style.display=has?"":"none";
+    left.disabled=sc<=1;right.disabled=sc>=max-1;
+  };
+  const step=()=>Math.max(scroll.clientWidth*0.75,160);
+  left.onclick=()=>scroll.scrollBy({left:-step(),behavior:"smooth"});
+  right.onclick=()=>scroll.scrollBy({left:step(),behavior:"smooth"});
+  scroll.addEventListener("scroll",upd);
+  row._updArrows=upd;
+  return{row,scroll,add};
+}
 function renderRoadmap(m){
   m=m||document.getElementById("main");m.innerHTML="";
   if(rmActive===null)rmActive=new Set(DB.areas.map(a=>a.name));
@@ -761,9 +787,8 @@ function renderRoadmap(m){
   addBtn.onclick=()=>{const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Add target by hand":"Close";};
   m.append(addBtn,addBox);
   const tools=document.createElement("div");tools.className="rmtools";
-  const am=document.createElement("div");am.className="rmrow";am.style.margin="6px 0 2px";
-  am.innerHTML='<span class="cmeta rmrow-label" style="font-weight:500;">Areas:</span>';
-  const amScroll=document.createElement("div");amScroll.className="rmrow-scroll";am.appendChild(amScroll);
+  const {row:am,scroll:amScroll,add:amAdd}=rmScrollRow("cmeta rmrow-label","Areas:");
+  am.style.margin="6px 0 2px";am.firstChild.style.fontWeight="500";
   areasSorted().forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     chip.appendChild(document.createTextNode(a.name));
@@ -780,18 +805,19 @@ function renderRoadmap(m){
       inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
       chip.append(inp,ok,cancel);inp.focus();inp.select();
     };
-    x.onclick=()=>removeArea(a);chip.append(sw,ed,x);amScroll.appendChild(chip);
+    const aInUse=DB.roadmap.filter(r=>r.area===a.name).length;
+    if(aInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=a.name+" has "+aInUse+" target"+(aInUse!==1?"s":"")+" — reassign or delete them before removing the area";x.onclick=()=>banner("Can’t remove “"+a.name+"”: "+aInUse+" target"+(aInUse!==1?"s are":" is")+" still assigned. Reassign or delete them first.","err");}
+    else x.onclick=()=>removeArea(a);
+    chip.append(sw,ed,x);amScroll.appendChild(chip);
   });
   const ai=document.createElement("input");ai.className="ctrl";ai.placeholder="New area";ai.style.cssText="padding:7px 11px;font-size:14px;width:150px;";
   const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
   ab.onclick=()=>{if(ai.value.trim()){addArea(ai.value.trim());ai.value="";}};
   ai.addEventListener("keydown",e=>{if(e.key==="Enter"&&ai.value.trim()){addArea(ai.value.trim());ai.value="";}});
-  const amAdd=document.createElement("div");amAdd.className="rmrow-add";amAdd.append(ai,ab);
-  am.appendChild(amAdd);tools.appendChild(am);
+  amAdd.append(ai,ab);tools.appendChild(am);
   // phases manager
-  const pm=document.createElement("div");pm.className="rmrow";pm.style.margin="8px 0 2px";
-  pm.innerHTML='<span class="cmeta rmrow-label" style="font-weight:500;">Phases:</span>';
-  const pmScroll=document.createElement("div");pmScroll.className="rmrow-scroll";pm.appendChild(pmScroll);
+  const {row:pm,scroll:pmScroll,add:pmAdd}=rmScrollRow("cmeta rmrow-label","Phases:");
+  pm.style.margin="8px 0 2px";pm.firstChild.style.fontWeight="500";
   phasesSorted().forEach(p=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     const nm=document.createElement("span");nm.textContent=p.name;
@@ -799,15 +825,16 @@ function renderRoadmap(m){
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename phase";ed.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:15px;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove phase";x.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:18px;padding:0;";
     ed.onclick=()=>{chip.innerHTML="";const inp=document.createElement("input");inp.value=p.name;inp.style.cssText="border:1px solid "+p.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:120px;";const ok=document.createElement("button");ok.textContent="✓";ok.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:16px;padding:0;";const cn=document.createElement("button");cn.textContent="×";cn.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";const save=()=>{const v=inp.value.trim();if(!v||v===p.name){renderRoadmap();return;}renamePhase(p,v);};ok.onclick=save;cn.onclick=()=>renderRoadmap();inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});chip.append(inp,ok,cn);inp.focus();inp.select();};
-    x.onclick=()=>removePhase(p);
+    const pInUse=DB.roadmap.filter(r=>phaseOf(r)===p.name).length;
+    if(pInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=p.name+" has "+pInUse+" target"+(pInUse!==1?"s":"")+" — reassign them before removing the phase";x.onclick=()=>banner("Can’t remove “"+p.name+"”: "+pInUse+" target"+(pInUse!==1?"s are":" is")+" still assigned. Reassign them first.","err");}
+    else x.onclick=()=>removePhase(p);
     chip.append(nm,sw,ed,x);pmScroll.appendChild(chip);
   });
   const pi=document.createElement("input");pi.className="ctrl";pi.placeholder="New phase";pi.style.cssText="padding:7px 11px;font-size:14px;width:150px;";
   const pb=document.createElement("button");pb.className="btn sm";pb.textContent="Add phase";
   pb.onclick=()=>{if(pi.value.trim()){addPhase(pi.value.trim());pi.value="";}};
   pi.addEventListener("keydown",e=>{if(e.key==="Enter"&&pi.value.trim()){addPhase(pi.value.trim());pi.value="";}});
-  const pmAdd=document.createElement("div");pmAdd.className="rmrow-add";pmAdd.append(pi,pb);
-  pm.appendChild(pmAdd);tools.appendChild(pm);
+  pmAdd.append(pi,pb);tools.appendChild(pm);
   const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"],["plot","Plot"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
   if(roadmapView==="list"||roadmapView==="kanban"){
@@ -818,9 +845,8 @@ function renderRoadmap(m){
     ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
     sw.append(sl,ss);bar.appendChild(sw);
   }
-  const fl=document.createElement("div");fl.className="rmrow";fl.style.margin="6px 0 4px";
-  fl.innerHTML='<span class="cmeta rmrow-label">Filter:</span>';
-  const flScroll=document.createElement("div");flScroll.className="rmrow-scroll";fl.appendChild(flScroll);
+  const {row:fl,scroll:flScroll,add:flAdd}=rmScrollRow("cmeta rmrow-label","Filter:");
+  fl.style.margin="6px 0 4px";
   areasSorted().forEach(a=>{
     const on=rmActive.has(a.name);
     const b=document.createElement("button");b.className="btn sm";b.textContent=a.name;
@@ -830,9 +856,8 @@ function renderRoadmap(m){
   });
   const allB=document.createElement("button");allB.className="btn sm";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
   allB.onclick=()=>{rmActive=new Set(rmActive.size>=DB.areas.length?[]:DB.areas.map(a=>a.name));renderRoadmap();};
-  const flAdd=document.createElement("div");flAdd.className="rmrow-add";flAdd.appendChild(allB);
-  fl.appendChild(flAdd);tools.append(fl,bar);
-  m.appendChild(tools);rmStickTop();
+  flAdd.appendChild(allB);tools.append(fl,bar);
+  m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
   else if(roadmapView==="plot")renderPlot(m);
