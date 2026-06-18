@@ -1286,6 +1286,8 @@ function renderAgendas(m){
       meet.appendChild(gen);
     }
     el.appendChild(meet);
+    const eStat=attendeeEmailStats(a);
+    if(eStat.missing.length){el.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;color:var(--danger,#a32d2d);">⚠ No email for '+esc(eStat.missing.join(", "))+' — they won’t get an invite. Add it on the Team page.</div>');}
     // inline edit form (hidden until Edit)
     const editBox=document.createElement("div");editBox.style.cssText="display:none;margin:10px 0;";
     const closeEdit=()=>{editBox.style.display="none";editBtn.textContent="Edit";};
@@ -1323,6 +1325,12 @@ async function removeItemFromAgenda(agendaId,itemId){const a=DB.agendas.find(x=>
 
 /* ---------- Google Meet / Calendar (api/calendar) ---------- */
 const memberEmail=name=>{const mm=member(name);return mm&&mm.email?mm.email:"";};
+// Who on an agenda has / lacks an email (so we can report who actually gets invited).
+function attendeeEmailStats(a){
+  const names=a.attendees||[];
+  const noEmail=names.filter(n=>!memberEmail(n));
+  return {total:names.length,invited:names.length-noEmail.length,missing:noEmail};
+}
 // Build the body sent to /api/calendar from an agenda.
 function meetPayload(a,extra){
   const emails=(a.attendees||[]).map(memberEmail).filter(Boolean);
@@ -1345,7 +1353,10 @@ async function createMeetForAgenda(a,quiet){
   try{
     const data=await callMeet(meetPayload(a,{action:"create"}));
     await fbUpdate("agendas",a.id,{meetLink:data.meetLink||"",calendarEventId:data.eventId||"",calendarHtmlLink:data.htmlLink||""});
-    banner("Google Meet link added.","ok");
+    const s=attendeeEmailStats(a);
+    let msg="Google Meet link added. Invited "+s.invited+" of "+s.total+".";
+    if(s.missing.length)msg+=" No email on file for "+s.missing.join(", ")+" — add it on the Team page to invite them.";
+    banner(msg,"ok");
   }catch(e){if(!quiet)banner(e.message,"err");console.warn("Meet create:",e.message);}
 }
 async function updateMeetForAgenda(a){
