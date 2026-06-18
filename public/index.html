@@ -317,7 +317,9 @@ let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (c
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
 let rmTlLabelW=170;          // width (px) of the timeline title column — draggable to read full titles
-let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area)
+let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area) | person (one per assignee)
+let rmPlotMode="area";       // plot lanes: area | person
+let rmPeopleActive=null;     // Set of member names to filter the roadmap by assignee; null = no people filter
 let rmDragId=null;           // id of the roadmap target currently being dragged (manual reorder)
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
@@ -728,7 +730,28 @@ function renderTasks(m){
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
 function rmShown(){ const names=areasSorted().map(a=>a.name); return rmActive?names.filter(n=>rmActive.has(n)):names; }
-function rmFilteredTargets(){const shown=new Set(rmShown());return DB.roadmap.filter(r=>shown.has(r.area));}
+// A target passes the People filter if no filter is active, or one of its assignees is selected.
+function rmPersonMatch(r){return !rmPeopleActive||(r.assignees||[]).some(n=>rmPeopleActive.has(n));}
+function rmFilteredTargets(){const shown=new Set(rmShown());return DB.roadmap.filter(r=>shown.has(r.area)&&rmPersonMatch(r));}
+// Group targets into per-assignee buckets (+ an "Unassigned" bucket when not filtering by specific people).
+function groupByPerson(targets){
+  const names=rmPeopleActive?roster().filter(m=>rmPeopleActive.has(m.name)).map(m=>m.name):roster().map(m=>m.name);
+  const groups=[];
+  names.forEach(name=>{
+    const items=targets.filter(r=>(r.assignees||[]).some(n=>n.toLowerCase()===name.toLowerCase()));
+    if(items.length){const mm=member(name);groups.push({name,color:mm&&mm.color?mm.color:"#8a8a8a",items});}
+  });
+  if(!rmPeopleActive){const un=targets.filter(r=>!(r.assignees&&r.assignees.length));if(un.length)groups.push({name:"Unassigned",color:"#8a8a8a",items:un});}
+  return groups;
+}
+// Avatar cluster for a target's assignees (— when none).
+function avatarsRow(names){
+  const ar=document.createElement("div");ar.className="avas";ar.style.marginTop="7px";
+  const list=names||[];
+  if(!list.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";a.title="Unassigned";ar.appendChild(a);return ar;}
+  list.slice(0,6).forEach(n=>{const mm=member(n);const a=document.createElement("div");a.className="ava";a.style.background=mm?mm.color:"#9aa0a8";a.textContent=initials(n);a.title=n;ar.appendChild(a);});
+  return ar;
+}
 
 /* ---------- Roadmap ops ---------- */
 const nextRoadmapOrder=()=>DB.roadmap.reduce((mx,r)=>Math.max(mx,r.order??0),0)+1;
@@ -832,15 +855,24 @@ function targetCard(r,group){
     '<div class="tf"><span class="chip" style="background:'+ac+'22;color:'+ac+'">'+esc(r.area)+'</span>'+
     '<span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span>'+dates+
     (linked.length?'<span class="linkcount">'+done+'/'+linked.length+' tasks done</span>':'<span class="cmeta">no linked tasks</span>')+'</div>';
+  el.appendChild(avatarsRow(r.assignees));
   const acts=document.createElement("div");acts.className="acts";acts.style.marginTop="8px";
   const editB=document.createElement("button");editB.textContent="Edit";
+  const asgB=document.createElement("button");asgB.textContent="Assign";
   const taskB=document.createElement("button");taskB.textContent="Break into tasks";
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
-  acts.append(editB,taskB,delB);
+  acts.append(editB,asgB,taskB,delB);
   // Drag handle affordance — only in list view with manual sort, where reordering is meaningful.
   const canDrag=!!group&&rmSort==="manual";
   if(canDrag){const grip=document.createElement("span");grip.className="grip";grip.textContent="⠿";grip.title="Drag to reorder";acts.prepend(grip);}
   el.appendChild(acts);
+  // assign popover — pick which members own this target
+  const apop=document.createElement("div");apop.className="pop";
+  roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((r.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";margin:0 5px 0 2px;";l.append(cb,sw,document.createTextNode(mem.name));apop.appendChild(l);});
+  const aApply=document.createElement("button");aApply.className="btn primary sm";aApply.style.alignSelf="flex-start";aApply.textContent="Apply";
+  aApply.onclick=()=>{setTarget(r.id,{assignees:Array.from(apop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});apop.classList.remove("open");};
+  apop.appendChild(aApply);el.appendChild(apop);
+  asgB.onclick=()=>apop.classList.toggle("open");
   const ep=document.createElement("div");ep.className="pop";ep.appendChild(targetForm(r,()=>{ep.classList.remove("open");rmOpenEdits.delete(r.id);}));el.appendChild(ep);
   if(rmOpenEdits.has(r.id))ep.classList.add("open");
   editB.onclick=()=>{
@@ -859,9 +891,10 @@ function targetCard(r,group){
   // Drag-and-drop reorder. The whole card is draggable, but not while an editor is open (so its inputs stay usable).
   if(canDrag){
     el.classList.add("draggable");
-    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open");};
+    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open")&&!apop.classList.contains("open");};
     syncDrag();
     editB.addEventListener("click",()=>setTimeout(syncDrag,0));
+    asgB.addEventListener("click",()=>setTimeout(syncDrag,0));
     taskB.addEventListener("click",()=>setTimeout(syncDrag,0));
     const clearMark=()=>document.querySelectorAll(".target.drop-before,.target.drop-after").forEach(n=>n.classList.remove("drop-before","drop-after"));
     el.addEventListener("dragstart",e=>{if(!el.draggable){e.preventDefault();return;}rmDragId=r.id;e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",r.id);}catch(_){}el.classList.add("dragging");});
@@ -1002,9 +1035,21 @@ function renderRoadmap(m){
   const allB=document.createElement("button");allB.className="btn sm";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
   allB.onclick=()=>{rmActive=new Set(rmActive.size>=DB.areas.length?[]:DB.areas.map(a=>a.name));renderRoadmap();};
   flAdd.appendChild(allB);
-  fl.style.display=rmFilterOpen?"":"none";
-  filT.onclick=()=>{rmFilterOpen=!rmFilterOpen;fl.style.display=rmFilterOpen?"":"none";filT.classList.toggle("on",rmFilterOpen);rmStickTop();rmUpdateArrows();};
-  tools.append(fl,bar);
+  // People filter row — opt-in (off by default); selecting members shows only their assigned targets.
+  const {row:pf,scroll:pfScroll,add:pfAdd}=rmScrollRow("cmeta rmrow-label","People:");
+  pf.style.margin="6px 0 4px";
+  roster().forEach(mem=>{
+    const on=!!(rmPeopleActive&&rmPeopleActive.has(mem.name));
+    const b=document.createElement("button");b.className="btn sm";b.textContent=mem.name;
+    b.style.cssText="border-color:"+mem.color+(on?(";background:"+mem.color+"22;color:"+mem.color):";opacity:.5");
+    b.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(mem.name)?rmPeopleActive.delete(mem.name):rmPeopleActive.add(mem.name);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
+    pfScroll.appendChild(b);
+  });
+  const clrP=document.createElement("button");clrP.className="btn sm";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
+  pfAdd.appendChild(clrP);
+  const filterWrap=document.createElement("div");filterWrap.style.display=rmFilterOpen?"":"none";filterWrap.append(fl,pf);
+  filT.onclick=()=>{rmFilterOpen=!rmFilterOpen;filterWrap.style.display=rmFilterOpen?"":"none";filT.classList.toggle("on",rmFilterOpen);rmStickTop();rmUpdateArrows();};
+  tools.append(filterWrap,bar);
   m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
@@ -1015,9 +1060,9 @@ function renderRoadmapList(m){
   if(!DB.roadmap.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No targets yet</div>Capture above, or add one by hand.</div>');return;}
   rmShown().forEach(area=>{
     const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
-    const items=DB.roadmap.filter(r=>r.area===area);
+    const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
     const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
-    if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No targets yet.</div>');return;}
+    if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">'+(rmPeopleActive?"No targets for the selected people.":"No targets yet.")+'</div>');return;}
     // One flat, sorted list per area (phase shown as a chip) so reorder/sort work across the whole area.
     const manual=rmSort==="manual";const grp=sortTargets(items);
     grp.forEach(r=>m.appendChild(targetCard(r,manual?grp:null)));
@@ -1042,14 +1087,21 @@ function appendKanban(m,targets){
 }
 function renderKanban(m){
   const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
-  [["all","Combined"],["area","By area"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmKbMode===k)b.classList.add("on");b.onclick=()=>{rmKbMode=k;renderRoadmap();};tb.appendChild(b);});
+  [["all","Combined"],["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmKbMode===k)b.classList.add("on");b.onclick=()=>{rmKbMode=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
   if(rmKbMode==="area"){
     rmShown().forEach(area=>{
       const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
-      const items=DB.roadmap.filter(r=>r.area===area);
+      const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
       const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
       appendKanban(m,items);
+    });
+  }else if(rmKbMode==="person"){
+    const groups=groupByPerson(rmFilteredTargets());
+    if(!groups.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No assigned targets</div>Assign people to targets (Assign on a card) to see them grouped here.</div>');return;}
+    groups.forEach(g=>{
+      const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+g.color+'"></span><span class="nm">'+esc(g.name)+'</span><span class="cat-count">'+g.items.length+'</span>';m.appendChild(head);
+      appendKanban(m,g.items);
     });
   }else{
     appendKanban(m,rmFilteredTargets());
@@ -1068,7 +1120,7 @@ function singleTipHTML(r){
     (linked.length?'<span class="pt-chip">'+done+'/'+linked.length+' tasks done</span>':'<span class="pt-chip">no linked tasks</span>')+'</div>';
 }
 // Show the targets in a lane whose dots sit near the cursor; highlight those dots.
-function showLaneTip(area,laneItems,track,e){
+function showLaneTip(label,color,laneItems,track,e){
   const rect=track.getBoundingClientRect();
   const px=(e.clientX-rect.left)/rect.width*100;
   const thr=Math.max(22/rect.width*100,2.5);   // ~22px reach, but at least 2.5% on narrow tracks
@@ -1083,8 +1135,7 @@ function showLaneTip(area,laneItems,track,e){
   if(near.length===1){t.innerHTML=singleTipHTML(near[0].r);}
   else{
     near.sort((a,b)=>a.tx-b.tx);
-    const ac=areaColor(area);
-    t.innerHTML='<div class="pt-title"><span class="pt-swatch" style="background:'+ac+'"></span>'+esc(area)+'</div>'+
+    t.innerHTML='<div class="pt-title"><span class="pt-swatch" style="background:'+color+'"></span>'+esc(label)+'</div>'+
       '<div class="pt-count">'+near.length+' targets near here</div><div class="pt-list">'+
       near.map(it=>{const r=it.r;const linked=DB.tasks.filter(x=>x.roadmapId===r.id&&!x.trashed);const done=linked.filter(x=>x.status==="Done").length;
         return '<div class="pt-row"><span class="pt-pdot" style="background:'+phaseColor(phaseOf(r))+'"></span>'+
@@ -1099,6 +1150,9 @@ function hidePlotTip(){const t=document.getElementById("plotTip");if(t)t.style.d
 // Scatter plot: horizontal time axis (by target/deadline date), one lane per area. A faint whisker shows start→target when a start date exists. Basic first pass.
 function renderPlot(m){
   hidePlotTip();
+  const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
+  [["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmPlotMode===k)b.classList.add("on");b.onclick=()=>{rmPlotMode=k;renderRoadmap();};tb.appendChild(b);});
+  m.appendChild(tb);
   const dated=rmFilteredTargets().filter(r=>r.target);
   if(!dated.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No dated targets</div>Add a target date to a target to plot it here.</div>');return;}
   const toMs=s=>Date.parse(s+"T00:00:00");
@@ -1107,30 +1161,32 @@ function renderPlot(m){
   const pad=Math.max((max-min)*0.05,86400000*3);min-=pad;max+=pad;
   const span=Math.max(max-min,86400000);
   const fmt=ms=>new Date(ms).toISOString().slice(0,7);
+  // lanes are areas or people depending on the mode; dot color always reflects the area.
+  let lanes;
+  if(rmPlotMode==="person")lanes=groupByPerson(dated).map(g=>({label:g.name,color:g.color,items:g.items}));
+  else lanes=rmShown().map(area=>({label:area,color:areaColor(area),items:dated.filter(r=>r.area===area)})).filter(L=>L.items.length);
+  if(!lanes.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No assigned dated targets</div>Assign people to dated targets to plot them by person.</div>');return;}
   const plot=document.createElement("div");plot.className="plot";
   const axis=document.createElement("div");axis.className="plot-axis";axis.innerHTML='<span>'+fmt(min)+'</span><span>'+fmt(min+span/4)+'</span><span>'+fmt(min+span/2)+'</span><span>'+fmt(min+span*3/4)+'</span><span>'+fmt(max)+'</span>';plot.appendChild(axis);
-  rmShown().forEach(area=>{
-    const items=dated.filter(r=>r.area===area);
-    if(!items.length)return;
-    const ac=areaColor(area);
+  lanes.forEach(L=>{
     const lane=document.createElement("div");lane.className="plot-lane";
-    const lbl=document.createElement("div");lbl.className="plot-lane-label";lbl.textContent=area;lbl.title=area+" ("+items.length+")";lbl.style.color=ac;
+    const lbl=document.createElement("div");lbl.className="plot-lane-label";lbl.textContent=L.label;lbl.title=L.label+" ("+L.items.length+")";lbl.style.color=L.color;
     const track=document.createElement("div");track.className="plot-track";
     const laneItems=[];
-    items.forEach(r=>{
+    L.items.forEach(r=>{
+      const ac=areaColor(r.area);
       const tx=(toMs(r.target)-min)/span*100;
       if(r.start){const sx=(toMs(r.start)-min)/span*100;const w=document.createElement("div");w.className="plot-whisker";w.style.cssText="left:"+Math.min(sx,tx)+"%;width:"+Math.abs(tx-sx)+"%;background:"+ac+";";track.appendChild(w);}
       const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";";
       track.appendChild(dot);
       laneItems.push({r,tx,dot});
     });
-    // Hover anywhere on the lane: surface the targets near the cursor (handles overlapping dots).
-    track.addEventListener("mousemove",e=>showLaneTip(area,laneItems,track,e));
+    track.addEventListener("mousemove",e=>showLaneTip(L.label,L.color,laneItems,track,e));
     track.addEventListener("mouseleave",()=>{hidePlotTip();laneItems.forEach(it=>it.dot.classList.remove("near"));});
     lane.append(lbl,track);plot.appendChild(lane);
   });
   m.appendChild(plot);
-  m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:10px;">Each dot is a target at its deadline; lanes are areas, time runs left → right. The faint bar shows start → target. Hover anywhere along a lane to see the targets near the cursor.</div>');
+  m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:10px;">Each dot is a target at its deadline; lanes are '+(rmPlotMode==="person"?"people":"areas")+', time runs left → right. Dot color = area; the faint bar shows start → target. Hover anywhere along a lane to see the targets near the cursor.</div>');
 }
 // Drag the seam between the title column and the track to resize all timeline frames live.
 function startTlResize(e){
@@ -1190,14 +1246,21 @@ function appendTimeline(m,targets,compactEmpty){
 }
 function renderTimeline(m){
   const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
-  [["all","Combined"],["area","By area"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
+  [["all","Combined"],["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
       const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
-      const items=DB.roadmap.filter(r=>r.area===area);
+      const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
       const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
       appendTimeline(m,items,true);
+    });
+  }else if(rmTlMode==="person"){
+    const groups=groupByPerson(rmFilteredTargets());
+    if(!groups.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No assigned targets</div>Assign people to targets (Assign on a card) to see them grouped here.</div>');return;}
+    groups.forEach(g=>{
+      const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+g.color+'"></span><span class="nm">'+esc(g.name)+'</span><span class="cat-count">'+g.items.length+'</span>';m.appendChild(head);
+      appendTimeline(m,g.items,true);
     });
   }else{
     appendTimeline(m,rmFilteredTargets(),false);
@@ -1361,6 +1424,27 @@ function renderAgendas(m){
     }
     addItemBtn.onclick=()=>pick.classList.toggle("open");
     el.append(addItemBtn,pick);
+    // Meeting notes (Gemini) → action steps. Only once the meeting has a calendar event.
+    if(a.calendarEventId){
+      const nw=document.createElement("div");nw.style.cssText="margin-top:12px;border-top:1px solid var(--line,#e6e6e3);padding-top:10px;";
+      const nh=document.createElement("div");nh.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+      nh.insertAdjacentHTML("beforeend",'<span style="font-weight:700;font-size:13px;">Meeting notes</span>');
+      const pullBtn=document.createElement("button");pullBtn.className="btn sm";pullBtn.textContent=a.notes?"Re-pull notes":"Pull meeting notes";
+      pullBtn.onclick=async()=>{pullBtn.disabled=true;pullBtn.innerHTML='<span class="spin"></span> Pulling';await pullMeetingNotes(a);pullBtn.disabled=false;pullBtn.textContent=a.notes?"Re-pull notes":"Pull meeting notes";};
+      nh.appendChild(pullBtn);
+      if(a.notesDocUrl){const dl=document.createElement("a");dl.className="cmeta";dl.href=a.notesDocUrl;dl.target="_blank";dl.rel="noopener";dl.style.marginLeft="2px";dl.textContent="open in Docs";nh.appendChild(dl);}
+      if(a.notesPulledAt){nh.insertAdjacentHTML("beforeend",'<span class="cmeta">pulled '+esc(a.notesPulledAt)+'</span>');}
+      nw.appendChild(nh);
+      if(a.notes){
+        const body=document.createElement("div");body.style.cssText="white-space:pre-wrap;font-size:13px;margin-top:8px;max-height:220px;overflow:auto;background:var(--soft,#f7f7f5);border-radius:8px;padding:10px;";body.textContent=a.notes;
+        nw.appendChild(body);
+        const sa=document.createElement("button");sa.className="btn primary sm";sa.style.marginTop="8px";sa.textContent="Suggest action steps";
+        const proposed=document.createElement("div");proposed.style.marginTop="8px";
+        sa.onclick=()=>suggestActions(a,proposed,sa);
+        nw.append(sa,proposed);
+      }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet. After the meeting (with Gemini “Take notes for me” on), click Pull meeting notes.</div>');}
+      el.appendChild(nw);
+    }
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
     del.onclick=async()=>{deleteMeetForAgenda(a);try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
     el.appendChild(del);m.appendChild(el);
@@ -1422,6 +1506,74 @@ async function updateMeetForAgenda(a){
 async function deleteMeetForAgenda(a){
   if(!a||!a.calendarEventId)return;
   try{await callMeet({action:"delete",eventId:a.calendarEventId});}catch(e){console.warn("Meet delete:",e.message);}
+}
+// Pull the Gemini "Take notes for me" Doc for this meeting and store it on the agenda.
+async function pullMeetingNotes(a){
+  if(!a.calendarEventId){banner("This meeting has no calendar event yet.","err");return;}
+  try{
+    const data=await callMeet({action:"notes",eventId:a.calendarEventId});
+    if(!data.found||!data.notes){banner(data.message||"No meeting notes found yet.","err");return;}
+    await fbUpdate("agendas",a.id,{notes:data.notes,notesDocUrl:data.docUrl||"",notesPulledAt:today()});
+    banner("Pulled meeting notes.","ok");
+  }catch(e){banner(e.message,"err");}
+}
+// Ask Claude to turn the stored notes into proposed action-step tasks, then render a review panel.
+async function suggestActions(a,container,btn){
+  if(!a.notes){banner("Pull the meeting notes first.","err");return;}
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span> Thinking';
+  try{
+    const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean).map(r=>({id:r.id,title:r.title,area:r.area}));
+    const p='From these meeting notes, extract the concrete action steps as tasks for an internal task board. Only real, actionable follow-ups — skip discussion and recap. '+
+      'Roadmap items discussed (set roadmapId to one when a task clearly relates, else null): '+JSON.stringify(items)+'. '+
+      'Allowed categories: '+CATS.join(", ")+'. Allowed priorities: '+PRIORITIES.join(", ")+'. Team members: '+JSON.stringify(roster().map(m=>m.name))+'. '+
+      'Reply with ONLY JSON: {"tasks":[{"title":"...","category":"...","priority":"...","assignees":["name"],"context":"one line of context","roadmapId":"id-or-null"}]}. '+EXTRACT_GUARD+'\nNotes:\n"""'+a.notes+'"""';
+    const text=await callClaude(p);const res=extractJSON(text,"object");
+    const tasks=(res.tasks||[]).map(t=>({
+      title:((t.title||"").trim())||"Task",
+      category:CATS.includes(t.category)?t.category:"Admin",
+      priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",
+      assignees:(t.assignees||[]).filter(n=>member(n)).map(n=>member(n).name),
+      context:(t.context||"").trim(),
+      roadmapId:items.some(it=>it.id===t.roadmapId)?t.roadmapId:null
+    }));
+    renderProposedTasks(a,tasks,container);
+  }catch(e){banner("Could not suggest actions ("+(e.message||"error")+").","err");console.error(e);}
+  finally{btn.disabled=false;btn.textContent="Suggest action steps";}
+}
+// Review panel: editable proposed tasks with include checkboxes; create the chosen ones.
+function renderProposedTasks(a,tasks,container){
+  container.innerHTML="";
+  if(!tasks.length){container.innerHTML='<div class="cmeta">No action steps found in the notes.</div>';return;}
+  container.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">Review and pick which to create as tasks:</div>');
+  const rows=[];
+  tasks.forEach(t=>{
+    const row=document.createElement("div");row.className="opt";row.style.cssText="display:block;padding:8px;";
+    const top=document.createElement("div");top.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=true;
+    const title=document.createElement("input");title.className="ctrl";title.value=t.title;title.style.cssText="flex:1;min-width:200px;";
+    const cat=mkSelect2(CATS,t.category);cat.style.width="auto";
+    const pri=mkSelect2(PRIORITIES,t.priority);pri.style.width="auto";
+    top.append(cb,title,cat,pri);row.appendChild(top);
+    const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
+    const sub=(t.assignees.length?"→ "+t.assignees.join(", "):"→ unassigned ("+identity+")")+(rm?" · ▸ "+rm.title:"")+(t.context?" · "+t.context:"");
+    row.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+esc(sub)+'</div>');
+    container.appendChild(row);
+    rows.push({cb,title,cat,pri,assignees:t.assignees,context:t.context,roadmapId:t.roadmapId});
+  });
+  const create=document.createElement("button");create.className="btn primary sm";create.style.marginTop="8px";create.textContent="Create selected tasks";
+  create.onclick=async()=>{
+    const chosen=rows.filter(r=>r.cb.checked&&r.title.value.trim());
+    if(!chosen.length){banner("Pick at least one action step.","err");return;}
+    create.disabled=true;create.innerHTML='<span class="spin"></span> Creating';
+    let n=0;
+    for(const r of chosen){
+      try{await fbAdd("tasks",{title:r.title.value.trim(),category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,createdBy:identity,createdAt:today(),roadmapId:r.roadmapId});n++;}
+      catch(e){banner(e.message,"err");}
+    }
+    banner("Created "+n+" task"+(n!==1?"s":"")+" from the notes.","ok");
+    container.innerHTML='<div class="cmeta">Created '+n+' task'+(n!==1?'s':'')+' — see the Tasks page.</div>';
+  };
+  container.appendChild(create);
 }
 
 /* ---------- Team & Domains ops ---------- */
