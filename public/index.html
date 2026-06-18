@@ -133,7 +133,7 @@
   .rmtools .chip{gap:7px;}
   /* keep each manager on one row: items scroll horizontally (via ‹ › arrows), label + add controls stay put */
   .rmrow{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
-  .rmrow-label{flex:none;}
+  .rmrow-label{flex:none;width:64px;font-weight:500;white-space:nowrap;}
   .rmrow-scroll{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scroll-behavior:smooth;scrollbar-width:none;-ms-overflow-style:none;}
   .rmrow-scroll>*{flex:none;}
   .rmrow-scroll::-webkit-scrollbar{width:0;height:0;display:none;}
@@ -758,7 +758,8 @@ function rmScrollRow(labelClass,labelText){
   row.append(label,left,scroll,right,add);
   const upd=()=>{
     const max=scroll.scrollWidth-scroll.clientWidth,sc=scroll.scrollLeft,has=max>2;
-    left.style.display=has?"":"none";right.style.display=has?"":"none";
+    // keep the arrows' space reserved (visibility, not display) so the add controls stay column-aligned across rows
+    left.style.visibility=has?"visible":"hidden";right.style.visibility=has?"visible":"hidden";
     left.disabled=sc<=1;right.disabled=sc>=max-1;
   };
   const step=()=>Math.max(scroll.clientWidth*0.75,160);
@@ -788,7 +789,7 @@ function renderRoadmap(m){
   m.append(addBtn,addBox);
   const tools=document.createElement("div");tools.className="rmtools";
   const {row:am,scroll:amScroll,add:amAdd}=rmScrollRow("cmeta rmrow-label","Areas:");
-  am.style.margin="6px 0 2px";am.firstChild.style.fontWeight="500";
+  am.style.margin="6px 0 2px";
   areasSorted().forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     chip.appendChild(document.createTextNode(a.name));
@@ -817,7 +818,7 @@ function renderRoadmap(m){
   amAdd.append(ai,ab);tools.appendChild(am);
   // phases manager
   const {row:pm,scroll:pmScroll,add:pmAdd}=rmScrollRow("cmeta rmrow-label","Phases:");
-  pm.style.margin="8px 0 2px";pm.firstChild.style.fontWeight="500";
+  pm.style.margin="8px 0 2px";
   phasesSorted().forEach(p=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     const nm=document.createElement("span");nm.textContent=p.name;
