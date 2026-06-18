@@ -453,13 +453,7 @@ async function setTask(id,patch){try{await fbUpdate("tasks",id,patch);}catch(e){
 async function deleteTask(id){
   try{
     await fbDelete("tasks",id);
-    for(const a of DB.agendas){ if((a.taskIds||[]).includes(id)) await fbUpdate("agendas",a.id,{taskIds:a.taskIds.filter(x=>x!==id)}); }
   }catch(e){banner(e.message,"err");}
-}
-async function addTaskToAgenda(taskId,agendaId){
-  const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;
-  const ids=Array.from(new Set([...(a.taskIds||[]),taskId]));
-  try{await fbUpdate("agendas",agendaId,{taskIds:ids});banner("Added to “"+a.title+"”.","ok");}catch(e){banner(e.message,"err");}
 }
 async function addManualTask(title,category,priority){
   try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
@@ -512,7 +506,6 @@ function taskCard(t){
   const crow=document.createElement("div");crow.className="crow";
   crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),
     mkSelect(["— roadmap —"].concat(DB.roadmap.map(r=>r.title)),rm?rm.title:"— roadmap —",v=>{const tgt=DB.roadmap.find(r=>r.title===v);setTask(t.id,{roadmapId:tgt?tgt.id:null});}));
-  if(DB.agendas.length){const ag=mkSelect(["+ agenda"].concat(DB.agendas.map(a=>a.title)),"+ agenda",v=>{const a=DB.agendas.find(x=>x.title===v);if(a)addTaskToAgenda(t.id,a.id);ag.value="+ agenda";});crow.append(ag);}
   d.appendChild(crow);
   const acts=document.createElement("div");acts.className="acts";
   const asg=document.createElement("button");asg.textContent="Assign";
@@ -1065,65 +1058,105 @@ async function planMeeting(){
   if(!txt){banner("Describe what the meeting is about first.","err");return;}
   const btn=document.getElementById("planBtn");btn.disabled=true;btn.innerHTML='<span class="spin"></span> Planning';
   try{
-    const open=DB.tasks.filter(t=>t.status!=="Done").map(t=>({id:t.id,title:t.title,discipline:t.category,priority:t.priority,assignees:t.assignees}));
-    const p='Plan a meeting from this request, choosing which existing open tasks belong on the agenda and who should attend (use the assignees of the chosen tasks). '+
-      'Open tasks: '+JSON.stringify(open)+'. Team members: '+JSON.stringify(roster().map(m=>m.name))+'. '+
-      'Reply with ONLY JSON: {"title": short meeting title, "taskIds": [ids of chosen tasks], "attendees": [names]}. '+EXTRACT_GUARD+'\nRequest:\n"""'+txt+'"""';
+    const open=DB.roadmap.filter(r=>r.status!=="Done").map(r=>({id:r.id,title:r.title,area:r.area,phase:phaseOf(r),detail:r.detail||""}));
+    const p='Plan a meeting from this request, choosing which existing roadmap items belong on the agenda and who should attend. '+
+      'Roadmap items: '+JSON.stringify(open)+'. Team members: '+JSON.stringify(roster().map(m=>m.name))+'. '+
+      'Reply with ONLY JSON: {"title": short meeting title, "roadmapIds": [ids of chosen items], "attendees": [names]}. '+EXTRACT_GUARD+'\nRequest:\n"""'+txt+'"""';
     const text=await callClaude(p);const res=extractJSON(text,"object");
-    const ids=(res.taskIds||[]).filter(id=>DB.tasks.some(t=>t.id===id));
-    const att=(res.attendees||[]).filter(n=>member(n));
-    await fbAdd("agendas",{title:res.title||"Meeting",date:today(),attendees:att,taskIds:ids,notes:""});
-    ta.value="";banner("Agenda drafted with "+ids.length+" task"+(ids.length!==1?"s":"")+".","ok");
+    const ids=(res.roadmapIds||[]).filter(id=>DB.roadmap.some(r=>r.id===id));
+    let att=(res.attendees||[]).filter(n=>member(n)).map(n=>member(n).name);
+    if(!att.length){const s=new Set();DB.tasks.filter(t=>ids.includes(t.roadmapId)).forEach(t=>(t.assignees||[]).forEach(n=>{if(member(n))s.add(member(n).name);}));att=[...s];}
+    await fbAdd("agendas",{title:res.title||"Meeting",date:today(),attendees:att,roadmapIds:ids,notes:""});
+    ta.value="";banner("Agenda drafted with "+ids.length+" roadmap item"+(ids.length!==1?"s":"")+".","ok");
   }catch(e){banner("Could not plan the meeting ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
   finally{btn.disabled=false;btn.textContent="Plan meeting";}
 }
 
+// Build/edit form for an agenda. a=null → create mode. onDone/onCancel are optional callbacks.
+function agendaForm(a,onDone,onCancel){
+  const wrap=document.createElement("div");
+  const att=new Set(a&&a.attendees?a.attendees:[]);
+  wrap.innerHTML='<div class="field"><label>Meeting title</label><input class="ctrl" data-fld="title" placeholder="e.g. Cache rollout review"></div>'+
+    '<div class="field"><label>Date</label><input class="ctrl" data-fld="date" type="date"></div>'+
+    '<div class="field"><label>Attendees</label><div class="agPeople" style="display:flex;flex-wrap:wrap;gap:10px;">'+
+      roster().map(mem=>'<label class="opt"><input type="checkbox" data-name="'+esc(mem.name)+'"'+(att.has(mem.name)?" checked":"")+'> '+esc(mem.name)+'</label>').join("")+'</div></div>';
+  wrap.querySelector('[data-fld="title"]').value=a?a.title||"":"";
+  wrap.querySelector('[data-fld="date"]').value=a?a.date||"":"";
+  const btns=document.createElement("div");btns.style.cssText="display:flex;gap:8px;margin-top:4px;";
+  const save=document.createElement("button");save.className="btn primary";save.textContent=a?"Save changes":"Create agenda";
+  save.onclick=async()=>{
+    const title=wrap.querySelector('[data-fld="title"]').value.trim();
+    if(!title){banner("Give the meeting a title.","err");return;}
+    const date=wrap.querySelector('[data-fld="date"]').value;
+    const attendees=Array.from(wrap.querySelectorAll('.agPeople input:checked')).map(x=>x.dataset.name);
+    try{
+      if(a){await fbUpdate("agendas",a.id,{title,date,attendees});banner("Agenda updated.","ok");}
+      else{await fbAdd("agendas",{title,date,attendees,roadmapIds:[],notes:""});banner("Agenda created.","ok");}
+      if(onDone)onDone();
+    }catch(e){banner(e.message,"err");}
+  };
+  btns.appendChild(save);
+  if(onCancel){const c=document.createElement("button");c.className="btn sm";c.textContent="Cancel";c.onclick=onCancel;btns.appendChild(c);}
+  wrap.appendChild(btns);
+  return wrap;
+}
+
 function renderAgendas(m){
   m=m||document.getElementById("main");m.innerHTML="";
-  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agendas</div><p class="pagesub">Plan a meeting around tasks. Describe it and Claude drafts the agenda from open tasks, or build one by hand.</p>');
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agendas</div><p class="pagesub">Plan a meeting around roadmap items. Describe it and Claude drafts the agenda from open roadmap items, or build one by hand.</p>');
   const plan=document.createElement("div");plan.className="hero";plan.style.padding="16px";
-  plan.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Plan a meeting</h2><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open tasks and attendees.</span></div>';
+  plan.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Plan a meeting</h2><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open roadmap items and attendees.</span></div>';
   m.appendChild(plan);document.getElementById("planBtn").onclick=planMeeting;
-  const f=document.createElement("div");f.className="hero";f.style.cssText="padding:16px;margin-top:10px;";
-  f.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Or create by hand</h2><div class="field"><label>Meeting title</label><input class="ctrl" id="agTitle" placeholder="e.g. Cache rollout review"></div><div class="field"><label>Date</label><input class="ctrl" id="agDate" type="date"></div><div class="field"><label>Attendees</label><div id="agPeople" style="display:flex;flex-wrap:wrap;gap:10px;">'+roster().map(mem=>'<label class="opt"><input type="checkbox" data-name="'+mem.name+'"> '+mem.name+'</label>').join("")+'</div></div><button class="btn" id="agAdd">Create agenda</button>';
-  m.appendChild(f);
-  document.getElementById("agAdd").onclick=async()=>{const title=document.getElementById("agTitle").value.trim();if(!title){banner("Give the meeting a title.","err");return;}
-    const date=document.getElementById("agDate").value;const attendees=Array.from(document.querySelectorAll("#agPeople input:checked")).map(x=>x.dataset.name);
-    try{await fbAdd("agendas",{title,date,attendees,taskIds:[],notes:""});banner("Agenda created.","ok");}catch(e){banner(e.message,"err");}};
-  if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach tasks from the Tasks page.</div>');return;}
+  // Create by hand — collapsible
+  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="10px 0";addBtn.textContent="+ Create agenda by hand";
+  const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:16px;display:none;margin-bottom:8px;";
+  const closeAdd=()=>{addBox.style.display="none";addBtn.textContent="+ Create agenda by hand";};
+  addBox.appendChild(agendaForm(null,closeAdd,closeAdd));
+  addBtn.onclick=()=>{const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Create agenda by hand":"Close";};
+  m.append(addBtn,addBox);
+  if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach roadmap items.</div>');return;}
   DB.agendas.forEach(a=>{
-    const tasks=(a.taskIds||[]).map(id=>DB.tasks.find(t=>t.id===id)).filter(Boolean);
+    const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
     const el=document.createElement("div");el.className="ag";
-    const h=document.createElement("h3");h.textContent=a.title;el.appendChild(h);
+    const h=document.createElement("h3");h.style.cssText="display:flex;align-items:center;gap:8px;";
+    const ttl=document.createElement("span");ttl.textContent=a.title;ttl.style.flex="1";h.appendChild(ttl);
+    const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent="Edit";h.appendChild(editBtn);
+    el.appendChild(h);
     const meta=document.createElement("div");meta.className="agmeta";meta.textContent=(a.date?a.date+" · ":"")+((a.attendees||[]).length?a.attendees.join(", "):"no attendees yet");el.appendChild(meta);
-    if(tasks.length){
+    // inline edit form (hidden until Edit)
+    const editBox=document.createElement("div");editBox.style.cssText="display:none;margin:10px 0;";
+    const closeEdit=()=>{editBox.style.display="none";editBtn.textContent="Edit";};
+    editBox.appendChild(agendaForm(a,closeEdit,closeEdit));
+    editBtn.onclick=()=>{const open=editBox.style.display!=="none";editBox.style.display=open?"none":"block";editBtn.textContent=open?"Edit":"Close";};
+    el.appendChild(editBox);
+    if(items.length){
       const ul=document.createElement("ul");
-      tasks.forEach(t=>{
+      items.forEach(r=>{
         const li=document.createElement("li");
-        li.innerHTML=esc(t.title)+' <span class="cmeta">('+t.category+' · '+t.priority+' · '+t.status+')</span>';
+        li.innerHTML=esc(r.title)+' <span class="cmeta">('+esc(r.area)+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')</span>';
         const x=document.createElement("button");x.className="rm";x.textContent="remove";x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;margin-left:8px;";
-        x.onclick=()=>removeTaskFromAgenda(a.id,t.id);li.appendChild(x);ul.appendChild(li);
+        x.onclick=()=>removeItemFromAgenda(a.id,r.id);li.appendChild(x);ul.appendChild(li);
       });
       el.appendChild(ul);
-    }else{el.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:8px;">No tasks attached yet.</div>');}
-    const addBtn=document.createElement("button");addBtn.className="btn sm";addBtn.style.marginTop="10px";addBtn.textContent="+ Add tasks";
+    }else{el.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:8px;">No roadmap items attached yet.</div>');}
+    const addItemBtn=document.createElement("button");addItemBtn.className="btn sm";addItemBtn.style.marginTop="10px";addItemBtn.textContent="+ Add roadmap items";
     const pick=document.createElement("div");pick.className="pop";
-    const avail=DB.tasks.filter(t=>!(a.taskIds||[]).includes(t.id));
-    if(!avail.length){pick.innerHTML='<div class="cmeta">All tasks are already on this agenda.</div>';}
+    const avail=DB.roadmap.filter(r=>!(a.roadmapIds||[]).includes(r.id));
+    if(!avail.length){pick.innerHTML='<div class="cmeta">All roadmap items are already on this agenda.</div>';}
     else{
-      avail.forEach(t=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.dataset.id=t.id;l.append(cb,document.createTextNode(t.title+" ("+t.category+" · "+t.status+")"));pick.appendChild(l);});
+      avail.forEach(r=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.dataset.id=r.id;l.append(cb,document.createTextNode(r.title+" ("+r.area+" · "+(r.status||"Not started")+")"));pick.appendChild(l);});
       const apply=document.createElement("button");apply.className="btn primary sm";apply.style.alignSelf="flex-start";apply.textContent="Add selected";
-      apply.onclick=async()=>{const ids=Array.from(pick.querySelectorAll("input:checked")).map(x=>x.dataset.id);if(!ids.length){banner("Pick at least one task.","err");return;}const merged=Array.from(new Set([...(a.taskIds||[]),...ids]));try{await fbUpdate("agendas",a.id,{taskIds:merged});banner("Added "+ids.length+" task"+(ids.length!==1?"s":"")+" to “"+a.title+"”.","ok");}catch(e){banner(e.message,"err");}pick.classList.remove("open");};
+      apply.onclick=async()=>{const ids=Array.from(pick.querySelectorAll("input:checked")).map(x=>x.dataset.id);if(!ids.length){banner("Pick at least one roadmap item.","err");return;}const merged=Array.from(new Set([...(a.roadmapIds||[]),...ids]));try{await fbUpdate("agendas",a.id,{roadmapIds:merged});banner("Added "+ids.length+" item"+(ids.length!==1?"s":"")+" to “"+a.title+"”.","ok");}catch(e){banner(e.message,"err");}pick.classList.remove("open");};
       pick.appendChild(apply);
     }
-    addBtn.onclick=()=>pick.classList.toggle("open");
-    el.append(addBtn,pick);
+    addItemBtn.onclick=()=>pick.classList.toggle("open");
+    el.append(addItemBtn,pick);
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
     del.onclick=async()=>{try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
     el.appendChild(del);m.appendChild(el);
   });
 }
-async function removeTaskFromAgenda(agendaId,taskId){const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;try{await fbUpdate("agendas",agendaId,{taskIds:(a.taskIds||[]).filter(x=>x!==taskId)});}catch(e){banner(e.message,"err");}}
+async function removeItemFromAgenda(agendaId,itemId){const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;try{await fbUpdate("agendas",agendaId,{roadmapIds:(a.roadmapIds||[]).filter(x=>x!==itemId)});}catch(e){banner(e.message,"err");}}
 
 /* ---------- Team & Domains ops ---------- */
 async function addMember(name){
