@@ -956,7 +956,15 @@ function taskFilter(t){
 // mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
 function goToTask(id){
   focusTaskId=id;
-  taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskCollapsed.delete(id);
+  taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
+  setPage("tasks");
+}
+// Navigate to the Tasks board filtered to one roadmap target's tasks (all statuses/assignees), with the
+// Roadmap filter group expanded so the active filter is obvious. Used by the roadmap "Go to tasks" buttons.
+function goToRoadmapTasks(r){
+  taskCatDefaulted=true;
+  taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
+  taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
   setPage("tasks");
 }
 function renderTasks(m){
@@ -1216,7 +1224,7 @@ function openRoadmapModal(r){
   if(linked.length){
     const go=document.createElement("button");go.className="btn sm";go.style.marginLeft="auto";
     go.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";
-    go.onclick=()=>{close();goToTask(linked[0].id);};
+    go.onclick=()=>{close();goToRoadmapTasks(r);};
     foot.appendChild(go);
   }
   card.appendChild(foot);
@@ -1358,7 +1366,7 @@ function targetCard(r,group){
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
   acts.append(editB,asgB,taskB);
   // Direct "Go to task(s)" action when this target has linked tasks — jumps to them on the Tasks board.
-  if(linked.length){const goB=document.createElement("button");goB.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";goB.title="Open the linked task(s) on the Tasks board";goB.onclick=()=>goToTask(linked[0].id);acts.append(goB);}
+  if(linked.length){const goB=document.createElement("button");goB.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";goB.title="Filter the Tasks board to this target's tasks";goB.onclick=()=>goToRoadmapTasks(r);acts.append(goB);}
   acts.append(delB);
   // Drag handle affordance — only in list view with manual sort, where reordering is meaningful.
   const canDrag=!!group&&rmSort==="manual";
