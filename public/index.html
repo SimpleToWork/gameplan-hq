@@ -2083,13 +2083,20 @@ function renderTeam(m){
     head.innerHTML='<div class="ava" style="background:'+(mem.color||"#888")+';width:26px;height:26px;font-size:11px;">'+initials(mem.name)+'</div><div class="ctitle">'+esc(mem.name)+'</div>';
     card.appendChild(head);
     card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+open+' open task'+(open!==1?"s":"")+(mem.email?' · '+esc(mem.email):'')+'</div>');
-    const dchips=document.createElement("div");dchips.className="chips";
+    // Domains row — owned areas of authority. Labelled + shown as FILLED chips.
+    const dchips=document.createElement("div");dchips.className="chips";dchips.style.alignItems="center";
+    dchips.insertAdjacentHTML("beforeend",'<span class="cmeta" style="margin-right:5px;font-weight:600;">Domains</span>');
     if(owns.length)owns.forEach(d=>{const c=document.createElement("span");c.className="chip";c.style.cssText="background:"+d.color+"22;color:"+d.color;c.textContent=d.name;dchips.appendChild(c);});
-    else dchips.innerHTML='<span class="cmeta">no domains yet</span>';
+    else dchips.insertAdjacentHTML("beforeend",'<span class="cmeta">none</span>');
     card.appendChild(dchips);
-    // Default disciplines — separate from domains; used to pre-seed the Capture discipline picker for this member.
+    // Disciplines row — profile disciplines (pre-seed the Capture picker), distinct from domains. Labelled +
+    // shown as OUTLINED chips so a glance tells them apart from the filled domain chips above.
     const mdisc=Array.isArray(mem.disciplines)?mem.disciplines.filter(c=>CATS.includes(c)):[];
-    if(mdisc.length){const dd=document.createElement("div");dd.className="chips";dd.style.marginTop="4px";mdisc.forEach(c=>{const ch=document.createElement("span");ch.className="chip";ch.style.cssText="background:"+(CAT_COLOR[c]||"#888")+"22;color:"+(CAT_COLOR[c]||"#888");ch.textContent=c;dd.appendChild(ch);});card.appendChild(dd);}
+    const dd=document.createElement("div");dd.className="chips";dd.style.cssText="margin-top:4px;align-items:center;";
+    dd.insertAdjacentHTML("beforeend",'<span class="cmeta" style="margin-right:5px;font-weight:600;">Disciplines</span>');
+    if(mdisc.length)mdisc.forEach(c=>{const col=CAT_COLOR[c]||"#888";const ch=document.createElement("span");ch.className="chip";ch.style.cssText="background:transparent;color:"+col+";border:1px solid "+col+";";ch.textContent=c;dd.appendChild(ch);});
+    else dd.insertAdjacentHTML("beforeend",'<span class="cmeta">none</span>');
+    card.appendChild(dd);
     const acts=document.createElement("div");acts.className="acts";
     const ren=document.createElement("button");ren.textContent="Edit";
     const rem=document.createElement("button");rem.className="rm";rem.textContent="Remove";
