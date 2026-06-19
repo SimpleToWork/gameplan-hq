@@ -1381,12 +1381,14 @@ async function captureForTarget(r,extra,btn,out){
       'Roadmap target: "'+r.title+'"'+(r.detail?' — '+r.detail:'')+' [area: '+r.area+', phase: '+(phaseOf(r)||"—")+']. '+
       'These tasks already exist for this target — do NOT duplicate: '+JSON.stringify(existing)+'. '+
       (extra?'Extra guidance from the user: "'+extra+'". ':'')+
-      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}]}. '+EXTRACT_GUARD;
+      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}],"skipped":["existing title it duplicated"]}. '+EXTRACT_GUARD;
     const text=await callClaude(p);const res=extractJSON(text,"object");
-    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:r.id}));
-    for(const t of added)await fbAdd("tasks",t);
-    banner("Added "+added.length+" task"+(added.length!==1?"s":"")+" to “"+r.title+"”.","ok");
-    if(out)out.textContent=added.length?("Added: "+added.map(t=>t.title).join(", ")):"No new tasks suggested.";
+    // Mirror the Capture flow: draft → review → approve. Tasks carry roadmapId so approved ones link to this target.
+    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:r.id,_include:true}));
+    const skipped=res.skipped||[];
+    if(!added.length){if(out)out.textContent=skipped.length?("All "+skipped.length+" matched tasks already on this target."):"No new tasks suggested.";banner("No new tasks to add.","ok");return;}
+    if(out)out.textContent="";
+    openBreakdownReview(added,skipped,r);
   }catch(e){banner("Could not generate tasks ("+(e.message||"error")+").","err");console.error(e);}
   finally{btn.disabled=false;btn.textContent=lbl;}
 }
