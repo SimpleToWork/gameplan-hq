@@ -309,6 +309,7 @@ const areaNames=()=>areasSorted().map(a=>a.name);
 let DB={tasks:[],roadmap:[],agendas:[],areas:[],members:[],domains:[],phases:[]};
 let identity=TEAM[0].name;
 let page="capture";
+let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
 let taskView="all";
 let taskTime="all";          // timeframe filter on due date: all | today | week | month | past | next | future
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
@@ -463,7 +464,7 @@ async function captureTasks(){
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
-      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",createdBy:identity,createdAt:today(),roadmapId:null,_include:true}));
+      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:null,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
@@ -489,7 +490,7 @@ async function captureTasks(){
       approve.disabled=true;discard.disabled=true;approve.innerHTML='<span class="spin"></span> Adding';
       try{
         for(const t of chosen){const{_include,...clean}=t;await fbAdd("tasks",clean);}
-        ta.value="";out.innerHTML="";
+        ta.value="";captureText="";out.innerHTML="";
         const done=document.createElement("div");done.style.cssText="font-size:13.5px;font-weight:500;margin-bottom:7px;";
         done.textContent="Added "+chosen.length+" task"+(chosen.length!==1?"s":"")+" to the board.";
         out.appendChild(done);const dg=document.createElement("div");dg.className="grid";chosen.forEach(t=>dg.appendChild(miniCard(t)));out.appendChild(dg);
@@ -614,7 +615,7 @@ async function emptyTrash(){
   try{for(const id of ids)await fbDelete("tasks",id);banner("Trash emptied — "+ids.length+" task"+(ids.length!==1?"s":"")+" deleted permanently.","ok");}catch(e){banner(e.message,"err");}
 }
 async function addManualTask(title,category,priority,due){
-  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||"",createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||today(),createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
 }
 
 /* ---------- Task "Ask" => copy-paste prompt for claude.ai ---------- */
@@ -645,7 +646,9 @@ function renderCapture(m){m=m||document.getElementById("main");
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
     '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button><span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
-  document.getElementById("capBtn").onclick=captureTasks;}
+  document.getElementById("capBtn").onclick=captureTasks;
+  // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
+  const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});}
 
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
@@ -969,7 +972,7 @@ async function captureForTarget(r,extra,btn,out){
       (extra?'Extra guidance from the user: "'+extra+'". ':'')+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}]}. '+EXTRACT_GUARD;
     const text=await callClaude(p);const res=extractJSON(text,"object");
-    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",createdBy:identity,createdAt:today(),roadmapId:r.id}));
+    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:r.id}));
     for(const t of added)await fbAdd("tasks",t);
     banner("Added "+added.length+" task"+(added.length!==1?"s":"")+" to “"+r.title+"”.","ok");
     if(out)out.textContent=added.length?("Added: "+added.map(t=>t.title).join(", ")):"No new tasks suggested.";
@@ -1738,7 +1741,7 @@ function renderProposedTasks(a,tasks,container){
     create.disabled=true;create.innerHTML='<span class="spin"></span> Creating';
     let n=0;
     for(const r of chosen){
-      try{await fbAdd("tasks",{title:r.title.value.trim(),category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,createdBy:identity,createdAt:today(),roadmapId:r.roadmapId});n++;}
+      try{await fbAdd("tasks",{title:r.title.value.trim(),category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,due:today(),createdBy:identity,createdAt:today(),roadmapId:r.roadmapId});n++;}
       catch(e){banner(e.message,"err");}
     }
     banner("Created "+n+" task"+(n!==1?"s":"")+" from the notes.","ok");
