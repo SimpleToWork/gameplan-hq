@@ -965,15 +965,16 @@ function renderTasks(m){
     tgl.onclick=()=>{const n=row.style.display==="none";row.style.display=n?"":"none";tgl.classList.toggle("on",n);setOpen(n);};
     return tgl;
   };
-  // Timeframe group = Date-type toggle (parent) + Timeframe sub-row, wrapped together.
-  const timeRow=document.createElement("div");
-  const df=document.createElement("div");df.className="views";df.style.margin="0 0 4px";
+  // Timeframe group = Date-type toggle + Timeframe controls, laid out on a single wrapping row (divider between the two sub-groups).
+  const timeRow=document.createElement("div");timeRow.className="views";timeRow.style.margin="0 0 10px";
+  const df=document.createElement("div");df.className="views";df.style.margin="0";
   const dflab=document.createElement("span");dflab.className="cmeta";dflab.style.cssText="align-self:center;margin-right:4px;";dflab.textContent="Date:";df.appendChild(dflab);
   [["due","Due date"],["entry","Entry date"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskDateField===k)b.classList.add("on");b.onclick=()=>{taskDateField=k;renderTasks();};df.appendChild(b);});
-  const tf=document.createElement("div");tf.className="views";tf.style.cssText="margin:0 0 10px 20px;padding-left:10px;border-left:2px solid var(--line,#e6e6e3);";
+  const tf=document.createElement("div");tf.className="views";tf.style.margin="0";
   const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="Timeframe:";tf.appendChild(tflab);
   TIME_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
-  timeRow.append(df,tf);
+  const tdiv=document.createElement("span");tdiv.style.cssText="border-left:1px solid var(--line,#e6e6e3);align-self:stretch;margin:2px 2px;";
+  timeRow.append(df,tdiv,tf);
   // Who group (by assignee) — buttons carry each member's colour.
   const pf=document.createElement("div");pf.className="views";pf.style.margin="0 0 12px";
   const plab=document.createElement("span");plab.className="cmeta";plab.style.cssText="align-self:center;margin-right:4px;";plab.textContent="Who:";pf.appendChild(plab);
@@ -1004,7 +1005,7 @@ function renderTasks(m){
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory;
-  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.marginLeft="auto";clearAll.textContent="Clear all filters";
+  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:auto;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
   clearAll.onclick=()=>{taskView="all";taskTime="all";taskPerson=null;taskCategory=null;renderTasks();};
   // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
