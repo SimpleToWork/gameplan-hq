@@ -237,7 +237,7 @@
   <header>
     <div class="brandrow">
       <div class="brand"><img class="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>Gameplan HQ</b><span>MerchantsBI</span></span></div>
-      <div class="hctrl">You are <select class="ctrl" id="identity"></select></div>
+      <div class="hctrl">You are <span id="identity" style="font-weight:600;"></span></div>
     </div>
     <div class="tabs" id="tabs">
       <button data-page="capture" class="on">Capture</button>
@@ -282,10 +282,15 @@ try{
   if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); auth=getAuth(app); fbReady=true; }
 }catch(e){ console.error("Firebase init failed",e); }
 
+// `email` binds a Google login to a roster member (see resolveIdentity). Ricky's is confirmed;
+// the other five are best-guess stubs — VERIFY/correct these to each teammate's real @merchantsbi.com login.
 const TEAM=[
-  {name:"Ricky Schweky",color:"#7F77DD"},{name:"Joe Harari",color:"#378ADD"},
-  {name:"Gabe Lesser",color:"#1D9E75"},{name:"yoni",color:"#BA7517"},
-  {name:"Nathan Mosseri",color:"#D4537E"},{name:"Harel Baruchi",color:"#D85A30"}
+  {name:"Ricky Schweky",color:"#7F77DD",email:"ricky@merchantsbi.com"},
+  {name:"Joe Harari",color:"#378ADD",email:"joe@merchantsbi.com"},          // TODO verify
+  {name:"Gabe Lesser",color:"#1D9E75",email:"gabe@merchantsbi.com"},        // TODO verify
+  {name:"yoni",color:"#BA7517",email:"yoni@merchantsbi.com"},               // TODO verify
+  {name:"Nathan Mosseri",color:"#D4537E",email:"nathan@merchantsbi.com"},   // TODO verify
+  {name:"Harel Baruchi",color:"#D85A30",email:"harel@merchantsbi.com"}      // TODO verify
 ];
 const CATS=["AI","Dev-Ops","Front-End","UI/UX","ETL","Back-End","Sales","Operations","Admin"];
 const CAT_COLOR={"AI":"#7F77DD","Dev-Ops":"#378ADD","Front-End":"#1D9E75","UI/UX":"#D4537E","ETL":"#BA7517","Back-End":"#D85A30","Sales":"#E24B4A","Operations":"#C9A227","Admin":"#888780"};
@@ -307,7 +312,9 @@ const areasSorted=()=>DB.areas.slice().sort((a,b)=>a.name.localeCompare(b.name))
 const areaNames=()=>areasSorted().map(a=>a.name);
 
 let DB={tasks:[],roadmap:[],agendas:[],areas:[],members:[],domains:[],phases:[]};
-let identity=TEAM[0].name;
+let identity=TEAM[0].name; // bound to the signed-in user by resolveIdentity(); no longer user-switchable
+let authUser=null;         // the current Firebase auth user, kept so identity can re-resolve once the roster loads
+let identityUnknown=false; // true when the signed-in account isn't in the roster (identity falls back to their own name)
 let page="capture";
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
 let taskView="all";
@@ -335,6 +342,22 @@ let seededMembers=false;
 let seededPhases=false;
 // Live roster: the Firestore members collection once seeded, else the hardcoded TEAM seed.
 const roster=()=>DB.members.length?DB.members:TEAM;
+// Find a roster member by login email. Checks the live roster first, then the TEAM seed
+// (Firestore member docs may predate the email field, so the seed is the reliable mapping).
+function memberByEmail(email){
+  if(!email)return null;
+  const e=email.toLowerCase();
+  return roster().find(m=>m.email&&m.email.toLowerCase()===e)||TEAM.find(m=>m.email&&m.email.toLowerCase()===e)||null;
+}
+// Bind `identity` to the signed-in user. Resolve by email to a roster member's NAME (the key all
+// data uses). If unmatched, fall back to the user's OWN name — never another member — and flag it.
+function resolveIdentity(user){
+  authUser=user||null;
+  if(!user){identity=TEAM[0].name;identityUnknown=false;return;}
+  const m=memberByEmail(user.email);
+  if(m){identity=m.name;identityUnknown=false;}
+  else{identity=user.displayName||user.email||"You";identityUnknown=true;}
+}
 // Roadmap phases (ordered). phaseOf() reads the new `phase` field, falling back to the legacy `horizon`.
 const phasesSorted=()=>DB.phases.slice().sort((a,b)=>a.name.localeCompare(b.name));
 const phaseNames=()=>phasesSorted().map(p=>p.name);
@@ -416,20 +439,22 @@ function subscribeAll(){
       DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
-      if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color})); }
-      if(k==="members") refreshIdentity();
+      if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color,email:mem.email||""})); }
+      if(k==="members"){ resolveIdentity(authUser); refreshIdentity(); } // roster changed — re-bind identity, then repaint the label
       // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
       if(page!=="capture"){ const y=window.scrollY; render(); window.scrollTo(0,y); }
     },err=>banner("Sync error: "+err.message,"err"));
   });
 }
+// Paint the (read-only) identity label from the bound identity. No longer a switcher.
 function refreshIdentity(){
-  const sel=document.getElementById("identity");if(!sel)return;
-  const cur=sel.value||identity;
-  sel.innerHTML="";
-  roster().forEach(mem=>{const o=document.createElement("option");o.value=mem.name;o.textContent=mem.name;sel.appendChild(o);});
-  if(roster().some(m=>m.name===cur))identity=cur;else if(roster()[0])identity=roster()[0].name;
-  sel.value=identity;
+  const el=document.getElementById("identity");if(!el)return;
+  const mm=member(identity);
+  el.textContent=identity;
+  el.style.color=mm&&mm.color?mm.color:"";
+  el.title=authUser?("Signed in as "+authUser.email):"";
+  // Flag a signed-in account that isn't on the roster, so attribution issues are visible (and emails get fixed).
+  if(identityUnknown&&authUser){el.textContent=identity+" (not on roster)";el.style.color="var(--danger)";}
 }
 
 /* ---------- Claude API (Capture / Roadmap / Agendas) ---------- */
@@ -866,14 +891,14 @@ function renderTasks(m){
   const panel=document.createElement("div");panel.style.display=taskFiltersOpen?"":"none";
   filtT.onclick=()=>{taskFiltersOpen=!taskFiltersOpen;panel.style.display=taskFiltersOpen?"":"none";filtT.classList.toggle("on",taskFiltersOpen);};
   m.append(filtT,panel);
-  // Date-type toggle — whether the When filter and Timeframe grouping key off due date or entry date.
-  const df=document.createElement("div");df.className="views";df.style.margin="0 0 10px";
+  // Date-type toggle — parent of the Timeframe sub-row; sets which date (due/entry) it filters by.
+  const df=document.createElement("div");df.className="views";df.style.margin="0 0 4px";
   const dflab=document.createElement("span");dflab.className="cmeta";dflab.style.cssText="align-self:center;margin-right:4px;";dflab.textContent="Date:";df.appendChild(dflab);
   [["due","Due date"],["entry","Entry date"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskDateField===k)b.classList.add("on");b.onclick=()=>{taskDateField=k;renderTasks();};df.appendChild(b);});
   panel.appendChild(df);
-  // Timeframe filter (by the chosen date type above) — layered on top of the status view.
-  const tf=document.createElement("div");tf.className="views";tf.style.margin="0 0 10px";
-  const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="When:";tf.appendChild(tflab);
+  // Timeframe filter — a sub-level row under the Date toggle (indented + left rule), filtering by the chosen date type.
+  const tf=document.createElement("div");tf.className="views";tf.style.cssText="margin:0 0 10px 20px;padding-left:10px;border-left:2px solid var(--line,#e6e6e3);";
+  const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="Timeframe:";tf.appendChild(tflab);
   [["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
   panel.appendChild(tf);
   // People filter (by assignee) — opt-in; selecting members shows only their tasks.
@@ -1887,16 +1912,19 @@ function startApp(user){
   document.getElementById("tabs").style.display="";
   document.querySelector(".hctrl").style.display="";
   showUserChip(user);
+  resolveIdentity(user);   // bind "You are" to the login (re-resolved once the roster loads, in subscribeAll)
+  refreshIdentity();
+  if(identityUnknown)banner("Your login ("+user.email+") isn't on the roster — actions are tagged to your account name. Add your @"+ALLOWED_DOMAIN+" email to the team roster to fix attribution.","err");
   render();
   if(fbReady&&!subscribed){subscribed=true;subscribeAll();}
 }
 
 /* ---------- Init ---------- */
 function init(){
-  const sel=document.getElementById("identity");
-  try{const saved=localStorage.getItem("gp_identity");if(saved&&member(saved))identity=saved;}catch(e){}
+  // Identity is bound to the authenticated user (see resolveIdentity), not chosen here.
+  // Drop any stale manually-saved pick so it can't override the real login.
+  try{localStorage.removeItem("gp_identity");}catch(e){}
   refreshIdentity();
-  sel.onchange=()=>{identity=sel.value;try{localStorage.setItem("gp_identity",identity);}catch(e){}if(page==="tasks")renderTasks();};
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
 
   if(!fbReady){
