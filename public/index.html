@@ -150,6 +150,10 @@
   .chips{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
+  /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers and context. */
+  .card.collapsed .avas,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .pop,.card.collapsed .cmeta{display:none;}
+  .ccollapse{margin-left:auto;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;}
+  .ccollapse:hover{color:var(--ink,#2a2f38);}
   .cmeta{font-size:12px;color:var(--muted);}
   /* roadmap toolbar: collapse toggles for Areas+Phases and Filters (saves vertical space) */
   .rmtoolbar-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;}
@@ -282,8 +286,10 @@ try{
   if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); auth=getAuth(app); fbReady=true; }
 }catch(e){ console.error("Firebase init failed",e); }
 
-// `email` binds a Google login to a roster member (see resolveIdentity). Ricky's is confirmed;
-// the other five are best-guess stubs — VERIFY/correct these to each teammate's real @merchantsbi.com login.
+// `email` binds a Google login to a roster member (see resolveIdentity). The AUTHORITATIVE emails
+// live on each member's Firestore profile (edited on the Team page); memberByEmail() checks the live
+// roster first, so these seed values only matter for a fresh/offline DB and are overridden by the
+// real profile emails. Keep Ricky's correct; the rest are placeholders.
 const TEAM=[
   {name:"Ricky Schweky",color:"#7F77DD",email:"ricky@merchantsbi.com"},
   {name:"Joe Harari",color:"#378ADD",email:"joe@merchantsbi.com"},          // TODO verify
@@ -321,8 +327,10 @@ let taskView="all";
 let taskTime="all";          // timeframe filter: all | today | week | month | past | next | future
 let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
+let taskCategory=null;       // Set of disciplines (categories) to filter tasks by; null = no discipline filter
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskFiltersOpen=false;   // is the When/Who/Group-by filter panel expanded? (collapsed by default)
+let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
@@ -389,6 +397,11 @@ function taskPersonMatch(t){
   const has=(t.assignees||[]).length>0;
   if(taskPerson.has(UNASSIGNED)&&!has)return true;
   return (t.assignees||[]).some(n=>taskPerson.has(n));
+}
+// Discipline filter: a task matches if its category is among the selected disciplines (null = off).
+function taskCategoryMatch(t){
+  if(!taskCategory)return true;
+  return taskCategory.has(t.category);
 }
 // Timeframe grouping: place a task in exactly one due-date bucket. Order = most urgent first.
 const TIME_BUCKETS=[
@@ -681,7 +694,7 @@ function renderCapture(m){m=m||document.getElementById("main");
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
 function taskCard(t){
-  const d=document.createElement("div");d.className="card";
+  const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"");
   const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
   const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
   const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -690,6 +703,12 @@ function taskCard(t){
   top.innerHTML='<div class="chips"><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+t.status+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span>'+dueChip+(rm?'<span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span>':'')+'</div>'+
     '<div class="ctitle" style="margin-top:6px;">'+esc(t.title)+'</div>'+(t.context?'<div class="cmeta" style="margin-top:3px;">'+esc(t.context)+'</div>':'');
   d.appendChild(top);
+  // Per-card collapse toggle — flips just this card instantly (no full re-render) and records state in taskCollapsed.
+  const chev=document.createElement("button");chev.className="ccollapse";chev.type="button";
+  const setChev=()=>{const on=d.classList.contains("collapsed");chev.textContent=on?"▸":"▾";chev.title=on?"Expand card":"Collapse card";};
+  setChev();
+  chev.onclick=e=>{e.stopPropagation();const on=d.classList.toggle("collapsed");on?taskCollapsed.add(t.id):taskCollapsed.delete(t.id);setChev();};
+  const chipsRow=top.querySelector(".chips");if(chipsRow)chipsRow.appendChild(chev);
   const ar=document.createElement("div");ar.className="avas";ar.style.marginTop="2px";
   (t.assignees&&t.assignees.length?t.assignees:[]).slice(0,4).forEach(n=>{const mm=member(n);const a=document.createElement("div");a.className="ava";a.style.background=mm?mm.color:"#9aa0a8";a.textContent=initials(n);a.title=n;ar.appendChild(a);});
   if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
@@ -829,7 +848,7 @@ function taskViewMatch(t){
 }
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
-  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t);
+  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t);
 }
 function renderTasks(m){
   m=m||document.getElementById("main");m.innerHTML="";
@@ -885,12 +904,21 @@ function renderTasks(m){
   }
   if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
   // Collapsible filter/grouping panel — keeps the board uncluttered; state survives live re-renders via taskFiltersOpen.
-  const activeN=(taskTime!=="all"?1:0)+(taskDateField!=="due"?1:0)+(taskPerson?taskPerson.size:0)+(taskGroup!=="category"?1:0);
+  // Active *filter* count - only things that narrow which tasks show (status view, timeframe, people). Grouping/date-type are display options, not filters.
+  const activeN=(taskView!=="all"?1:0)+(taskTime!=="all"?1:0)+(taskPerson?taskPerson.size:0);
   const filtT=document.createElement("button");filtT.type="button";filtT.className="btn sm rmtgl"+(taskFiltersOpen?" on":"");filtT.style.margin="0 0 10px";
-  filtT.innerHTML='<span class="tgchev">▾</span>Filters &amp; grouping'+(activeN?' ('+activeN+')':'');
+  filtT.innerHTML='<span class="tgchev">▾</span>Filters &amp; grouping'+(activeN?' · '+activeN+' active':'');
   const panel=document.createElement("div");panel.style.display=taskFiltersOpen?"":"none";
   filtT.onclick=()=>{taskFiltersOpen=!taskFiltersOpen;panel.style.display=taskFiltersOpen?"":"none";filtT.classList.toggle("on",taskFiltersOpen);};
-  m.append(filtT,panel);
+  // Toolbar row: filter-panel toggle + global collapse/expand. "All" = the currently-filtered (visible) cards.
+  const trow=document.createElement("div");trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;";
+  const collAll=document.createElement("button");collAll.className="btn sm";collAll.textContent="Collapse all";
+  collAll.onclick=()=>{DB.tasks.filter(t=>taskFilter(t)).forEach(t=>taskCollapsed.add(t.id));renderTasks();};
+  const expAll=document.createElement("button");expAll.className="btn sm";expAll.textContent="Expand all";
+  expAll.onclick=()=>{taskCollapsed.clear();renderTasks();};
+  filtT.style.margin="0";
+  trow.append(filtT,collAll,expAll);
+  m.append(trow,panel);
   // Date-type toggle — parent of the Timeframe sub-row; sets which date (due/entry) it filters by.
   const df=document.createElement("div");df.className="views";df.style.margin="0 0 4px";
   const dflab=document.createElement("span");dflab.className="cmeta";dflab.style.cssText="align-self:center;margin-right:4px;";dflab.textContent="Date:";df.appendChild(dflab);
