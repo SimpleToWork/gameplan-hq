@@ -335,11 +335,13 @@ let taskTime="today";        // timeframe filter: all | today | week | month | p
 let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
 let taskCategory=null;       // Set of disciplines (categories) to filter tasks by; null = no discipline filter
+let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
 let taskWhoOpen=false;
 let taskCatOpen=false;
+let taskStageOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
@@ -386,7 +388,10 @@ function applyDomainDefault(){
   if(taskCatDefaulted||identityUnknown||!authUser)return;
   if(!DB.members.length||!DB.domains.length)return;     // wait until both roster and domains have loaded
   const owned=DB.domains.filter(d=>(d.owners||[]).some(n=>(n||"").toLowerCase()===identity.toLowerCase()));
-  const cats=CATS.filter(c=>owned.some(d=>(d.name||"").toLowerCase()===c.toLowerCase()));
+  // Match a domain to a discipline tolerantly: normalise away case/spacing/punctuation, then accept an exact
+  // match or a domain that starts/ends with the discipline (so "Back-End Dev" -> Back-End, "Front End Dev" -> Front-End).
+  const norm=s=>(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const cats=CATS.filter(c=>{const cn=norm(c);return owned.some(d=>{const dn=norm(d.name);return dn===cn||dn.startsWith(cn)||dn.endsWith(cn);});});
   if(cats.length)taskCategory=new Set(cats);
   taskCatDefaulted=true;                                // roster + domains are present: apply once and stop, match or not
 }
@@ -426,6 +431,12 @@ function taskPersonMatch(t){
 function taskCategoryMatch(t){
   if(!taskCategory)return true;
   return taskCategory.has(t.category);
+}
+// Stage filter only covers the actively-working statuses (Done/Archived live on their own views).
+const ACTIVE_STAGES=STATUSES.filter(s=>s!=="Done"&&s!=="Archived");
+function taskStageMatch(t){
+  if(!taskStage)return true;
+  return taskStage.has(t.status);
 }
 // Timeframe grouping: place a task in exactly one due-date bucket. Order = most urgent first.
 const TIME_BUCKETS=[
@@ -900,7 +911,7 @@ function taskViewMatch(t){
 }
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
-  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t);
+  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t);
 }
 // Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
 // mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
@@ -1009,6 +1020,12 @@ function renderTasks(m){
   CATS.forEach(cat=>{const on=!!(taskCategory&&taskCategory.has(cat));
     cf.appendChild(colorTgl(cat,CAT_COLOR[cat]||"#888",on,()=>{taskCatDefaulted=true;if(!taskCategory)taskCategory=new Set();taskCategory.has(cat)?taskCategory.delete(cat):taskCategory.add(cat);if(!taskCategory.size)taskCategory=null;renderTasks();}));});
   if(taskCategory){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskCatDefaulted=true;taskCategory=null;renderTasks();};cf.appendChild(clr);}
+  // Stage group (by status) — only the actively-working stages; Done/Archived have their own status views.
+  const sf=document.createElement("div");sf.className="views";sf.style.margin="0 0 12px";
+  const slab=document.createElement("span");slab.className="cmeta";slab.style.cssText="align-self:center;margin-right:4px;";slab.textContent="Stage:";sf.appendChild(slab);
+  ACTIVE_STAGES.forEach(st=>{const on=!!(taskStage&&taskStage.has(st));const col=(ST_COLOR[st]||["#eee","#888"])[1];
+    sf.appendChild(colorTgl(st,col,on,()=>{if(!taskStage)taskStage=new Set();taskStage.has(st)?taskStage.delete(st):taskStage.add(st);if(!taskStage.size)taskStage=null;renderTasks();}));});
+  if(taskStage){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskStage=null;renderTasks();};sf.appendChild(clr);}
   // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
   const gb=document.createElement("div");gb.className="views";gb.style.cssText="margin:0;margin-left:auto;";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
@@ -1018,25 +1035,27 @@ function renderTasks(m){
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
   const whoT=mkGroup("Who",()=>taskWhoOpen,v=>{taskWhoOpen=v;},(whoN?' ('+whoN+')':''),pf);
   const catT=mkGroup("Discipline",()=>taskCatOpen,v=>{taskCatOpen=v;},(catN?' ('+catN+')':''),cf);
+  const stageN=taskStage?taskStage.size:0;
+  const stageT=mkGroup("Stage",()=>taskStageOpen,v=>{taskStageOpen=v;},(stageN?' ('+stageN+')':''),sf);
   const trow=document.createElement("div");
   // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
   trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   const hdr=document.querySelector("header");trow.style.top=(hdr?hdr.offsetHeight-1:0)+"px";
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
-  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory;
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage;
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:auto;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;renderTasks();};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;renderTasks();};
   // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
   const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
   const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft=anyFilter?"0":"auto";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  trow.append(timeT,whoT,catT);
+  trow.append(timeT,whoT,catT,stageT);
   if(anyFilter)trow.append(clearAll);
   trow.append(collExp);
-  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf);
+  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf);
   m.append(trow,panelWrap);
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   sections.forEach(sec=>{
