@@ -349,6 +349,7 @@ let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (c
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmPeopleOpen=false;      // is the People filter row expanded? (collapsed by default)
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
+let rmColorBy="area";        // timeline bar colour: area (discipline) | phase | person
 let rmTlLabelW=170;          // width (px) of the timeline title column — draggable to read full titles
 let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area) | person (one per assignee)
 let rmPlotMode="area";       // plot lanes: area | person
@@ -594,10 +595,12 @@ async function captureRoadmap(){
     const existing=DB.roadmap.map(r=>r.area+": "+r.title);
     const p='You maintain a company roadmap across these areas: '+areaNames().join(", ")+'. Turn this input into roadmap targets. '+
       'Each target: area (one of the list), title (short), detail (one line), phase (one of: '+(phaseNames().join(", ")||"Phase I")+'). '+
-      'Existing targets (do not duplicate): '+JSON.stringify(existing)+'. Reply with ONLY a JSON array of NEW targets: [{"area","title","detail","phase"}]. '+EXTRACT_GUARD+'\nInput:\n"""'+txt+'"""';
+      'Also include start and target dates as "YYYY-MM-DD" ONLY when the input clearly states them (e.g. "by Aug 30", "starting next week"); otherwise use "" — never invent dates. Today is '+today()+'. '+
+      'Existing targets (do not duplicate): '+JSON.stringify(existing)+'. Reply with ONLY a JSON array of NEW targets: [{"area","title","detail","phase","start","target"}]. '+EXTRACT_GUARD+'\nInput:\n"""'+txt+'"""';
     const text=await callClaude(p);const arr=extractJSON(text,"array");
+    const ymd=s=>(typeof s==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(s))?s:"";
     let ord=nextRoadmapOrder();
-    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",phase:phaseNames().includes(r.phase)?r.phase:(phaseNames()[0]||""),status:"Not started",start:"",target:"",createdAt:today(),order:ord++}); }
+    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",phase:phaseNames().includes(r.phase)?r.phase:(phaseNames()[0]||""),status:"Not started",start:ymd(r.start),target:ymd(r.target),createdAt:today(),order:ord++}); }
     ta.value="";banner("Added "+arr.length+" roadmap target"+(arr.length!==1?"s":"")+".","ok");
   }catch(e){banner("Could not draft the roadmap ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
   finally{btn.disabled=false;btn.textContent="Add to roadmap";}
@@ -1035,6 +1038,12 @@ function renderTasks(m){
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
+// Colour for a timeline bar per the rmColorBy toggle. Person = first assignee's colour (grey if none/unknown).
+function rmBarColor(r){
+  if(rmColorBy==="phase")return phaseColor(phaseOf(r));
+  if(rmColorBy==="person"){const a=r.assignees||[];if(!a.length)return "#8a8a8a";const mm=member(a[0]);return mm&&mm.color?mm.color:"#8a8a8a";}
+  return areaColor(r.area);
+}
 function rmShown(){ const names=areasSorted().map(a=>a.name); return rmActive?names.filter(n=>rmActive.has(n)):names; }
 // Sentinel used in rmPeopleActive to mean "targets with no assignees".
 const UNASSIGNED="__unassigned__";
@@ -1072,6 +1081,43 @@ async function addManualTarget(o){
   try{await fbAdd("roadmap",{area:o.area,title:o.title,detail:o.detail||"",phase:o.phase||(phaseNames()[0]||""),status:"Not started",start:o.start||"",target:o.target||"",createdAt:today(),order:nextRoadmapOrder()});banner("Target added.","ok");}catch(e){banner(e.message,"err");}
 }
 async function setTarget(id,patch){try{await fbUpdate("roadmap",id,patch);}catch(e){banner(e.message,"err");}}
+// Roadmap item modal (opened by clicking a timeline bar / plot dot): shows the item and lets you reassign
+// its containers — area + phase. Fully self-contained: no global state, closes on ×, backdrop, or Esc.
+function openRoadmapModal(r){
+  document.querySelectorAll(".rm-modal-ov").forEach(el=>el.remove()); // never stack modals
+  const ov=document.createElement("div");ov.className="rm-modal-ov";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(20,23,31,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px;";
+  const card=document.createElement("div");
+  card.style.cssText="background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:16px;width:100%;max-width:430px;max-height:85vh;overflow:auto;padding:20px 20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.32);";
+  const close=()=>{document.removeEventListener("keydown",onKey);ov.remove();};
+  const onKey=e=>{if(e.key==="Escape"){e.preventDefault();close();}};
+  document.addEventListener("keydown",onKey);
+  ov.addEventListener("click",e=>{if(e.target===ov)close();});
+  const ac=areaColor(r.area);
+  const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
+  const head=document.createElement("div");head.style.cssText="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;";
+  head.innerHTML='<span style="flex-shrink:0;width:11px;height:11px;border-radius:50%;background:'+ac+';margin-top:5px;"></span><div style="font-weight:700;font-size:16px;line-height:1.3;flex:1;">'+esc(r.title)+'</div>';
+  const xb=document.createElement("button");xb.textContent="×";xb.title="Close";xb.style.cssText="border:none;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0 2px;";xb.onclick=close;
+  head.appendChild(xb);card.appendChild(head);
+  if(r.detail){const d=document.createElement("div");d.className="cmeta";d.style.cssText="margin:2px 0 10px;font-size:13px;";d.textContent=r.detail;card.appendChild(d);}
+  const meta=document.createElement("div");meta.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;";
+  const chip=txt=>{const c=document.createElement("span");c.className="chip";c.style.cssText="background:#eef0f4;color:#5a6069;font-size:12px;";c.textContent=txt;return c;};
+  meta.appendChild(chip(r.status||"Not started"));
+  if(r.start||r.target)meta.appendChild(chip((r.start||"?")+" → "+(r.target||"?")));
+  if(linked.length)meta.appendChild(chip(done+"/"+linked.length+" tasks done"));
+  card.appendChild(meta);
+  const lbl=t=>{const l=document.createElement("div");l.className="cmeta";l.style.cssText="font-weight:600;margin:0 0 4px;";l.textContent=t;return l;};
+  const areaSel=mkSelect2(areaNames(),r.area);areaSel.style.width="100%";areaSel.style.marginBottom="10px";
+  const phaseSel=mkSelect2(phaseNames(),phaseOf(r));phaseSel.style.width="100%";
+  card.appendChild(lbl("Area (container)"));card.appendChild(areaSel);
+  card.appendChild(lbl("Phase"));card.appendChild(phaseSel);
+  const foot=document.createElement("div");foot.style.cssText="display:flex;gap:8px;margin-top:16px;";
+  const save=document.createElement("button");save.className="btn primary sm";save.textContent="Save";
+  save.onclick=async()=>{await setTarget(r.id,{area:areaSel.value,phase:phaseSel.value});close();renderRoadmap();banner("Updated “"+r.title+"”.","ok");};
+  const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
+  foot.append(save,cancel);card.appendChild(foot);
+  ov.appendChild(card);document.body.appendChild(ov);
+}
 async function setArea(id,patch){try{await fbUpdate("areas",id,patch);}catch(e){banner(e.message,"err");}}
 // empty dates/strings sort to the end
 function cmpDateAsc(a,b){if(!a&&!b)return 0;if(!a)return 1;if(!b)return -1;return a<b?-1:a>b?1:0;}
@@ -1283,7 +1329,7 @@ function renderRoadmap(m){
   am.style.margin="6px 0 2px";
   areasSorted().forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
-    chip.appendChild(document.createTextNode(a.name));
+    const anm=document.createElement("span");anm.textContent=a.name;anm.style.cursor="pointer";anm.title="Click to rename area";chip.appendChild(anm);
     const sw=document.createElement("input");sw.type="color";sw.value=a.color;sw.title="Area color";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setArea(a.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename area";ed.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:15px;line-height:1;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:18px;line-height:1;padding:0;";
@@ -1297,6 +1343,7 @@ function renderRoadmap(m){
       inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
       chip.append(inp,ok,cancel);inp.focus();inp.select();
     };
+    anm.onclick=ed.onclick; // clicking the container (area) name toggles it into rename/edit mode
     const aInUse=DB.roadmap.filter(r=>r.area===a.name).length;
     if(aInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=a.name+" has "+aInUse+" target"+(aInUse!==1?"s":"")+" — reassign or delete them before removing the area";x.onclick=()=>banner("Can’t remove “"+a.name+"”: "+aInUse+" target"+(aInUse!==1?"s are":" is")+" still assigned. Reassign or delete them first.","err");}
     else x.onclick=()=>removeArea(a);
@@ -1312,11 +1359,12 @@ function renderRoadmap(m){
   pm.style.margin="8px 0 2px";
   phasesSorted().forEach(p=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
-    const nm=document.createElement("span");nm.textContent=p.name;
+    const nm=document.createElement("span");nm.textContent=p.name;nm.style.cursor="pointer";nm.title="Click to rename phase";
     const sw=document.createElement("input");sw.type="color";sw.value=p.color;sw.title="Phase color";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setPhase(p.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename phase";ed.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:15px;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove phase";x.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:18px;padding:0;";
     ed.onclick=()=>{chip.innerHTML="";const inp=document.createElement("input");inp.value=p.name;inp.style.cssText="border:1px solid "+p.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:120px;";const ok=document.createElement("button");ok.textContent="✓";ok.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:16px;padding:0;";const cn=document.createElement("button");cn.textContent="×";cn.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";const save=()=>{const v=inp.value.trim();if(!v||v===p.name){renderRoadmap();return;}renamePhase(p,v);};ok.onclick=save;cn.onclick=()=>renderRoadmap();inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});chip.append(inp,ok,cn);inp.focus();inp.select();};
+    nm.onclick=ed.onclick; // clicking the container (phase) name toggles it into rename/edit mode
     const pInUse=DB.roadmap.filter(r=>phaseOf(r)===p.name).length;
     if(pInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=p.name+" has "+pInUse+" target"+(pInUse!==1?"s":"")+" — reassign them before removing the phase";x.onclick=()=>banner("Can’t remove “"+p.name+"”: "+pInUse+" target"+(pInUse!==1?"s are":" is")+" still assigned. Reassign them first.","err");}
     else x.onclick=()=>removePhase(p);
@@ -1499,7 +1547,7 @@ function renderPlot(m){
       const ac=areaColor(r.area);
       const tx=(toMs(r.target)-min)/span*100;
       if(r.start){const sx=(toMs(r.start)-min)/span*100;const w=document.createElement("div");w.className="plot-whisker";w.style.cssText="left:"+Math.min(sx,tx)+"%;width:"+Math.abs(tx-sx)+"%;background:"+ac+";";track.appendChild(w);}
-      const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";";
+      const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";cursor:pointer;";dot.addEventListener("click",e=>{e.stopPropagation();openRoadmapModal(r);});
       track.appendChild(dot);
       laneItems.push({r,tx,dot});
     });
@@ -1544,7 +1592,7 @@ function appendTimeline(m,targets,compactEmpty){
     const tl=document.createElement("div");tl.className="timeline";tl.style.setProperty("--tlw",rmTlLabelW+"px");
     const axis=document.createElement("div");axis.className="tl-axis";axis.innerHTML='<span>'+fmt(min)+'</span><span>'+fmt(min+span/2)+'</span><span>'+fmt(max)+'</span>';tl.appendChild(axis);
     dated.slice().sort((a,b)=>toMs(a.target)-toMs(b.target)).forEach(r=>{
-      const ac=areaColor(r.area);
+      const ac=rmBarColor(r);
       const s=eff(r);
       const left=(toMs(s)-min)/span*100;
       const width=Math.max((toMs(r.target)-toMs(s))/span*100,1.5);
@@ -1553,7 +1601,7 @@ function appendTimeline(m,targets,compactEmpty){
       const lbl=document.createElement("div");lbl.className="tl-label";lbl.textContent=r.title;lbl.title=r.title+" ("+r.area+")";
       const handle=document.createElement("div");handle.className="tl-handle";handle.title="Drag to widen the title column";handle.addEventListener("mousedown",startTlResize);
       const track=document.createElement("div");track.className="tl-track";
-      const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";";
+      const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";cursor:pointer;";bar.addEventListener("click",()=>openRoadmapModal(r));
       const span2=r.start?(r.start+" → "+r.target):("by "+r.target);
       bar.textContent=span2+(linked.length?"  ("+done+"/"+linked.length+")":"");
       // Same rich hover card as the Plot view.
@@ -1568,7 +1616,11 @@ function appendTimeline(m,targets,compactEmpty){
 }
 function renderTimeline(m){
   const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
+  const lglab=document.createElement("span");lglab.className="cmeta";lglab.style.cssText="align-self:center;margin-right:4px;";lglab.textContent="Layout:";tb.appendChild(lglab);
   [["all","Combined"],["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
+  // Bar colour-coding — independent of the layout grouping above.
+  const cblab=document.createElement("span");cblab.className="cmeta";cblab.style.cssText="align-self:center;margin:0 4px 0 14px;";cblab.textContent="Colour by:";tb.appendChild(cblab);
+  [["area","Discipline"],["phase","Phase"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
