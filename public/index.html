@@ -329,8 +329,7 @@ let authUser=null;         // the current Firebase auth user, kept so identity c
 let identityUnknown=false; // true when the signed-in account isn't in the roster (identity falls back to their own name)
 let page="capture";
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
-let captureDefaultOn=false;  // Capture: when on, force one discipline on every drafted task (overrides Claude's per-task guess)
-let captureDefaultCat="Admin"; // Capture: which discipline captureDefaultOn applies (must be in CATS)
+let captureCats=null;        // Capture: Set of disciplines the AI may pick from when drafting tasks; null/empty = all disciplines
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
 let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
@@ -508,14 +507,17 @@ async function captureTasks(){
   const out=document.getElementById("capResult");out.innerHTML="";
   try{
     const existing=DB.tasks.map(t=>t.title);
+    // Disciplines the AI may choose from: the user-selected subset, or all when nothing is selected.
+    const cats=(captureCats&&captureCats.size)?CATS.filter(c=>captureCats.has(c)):CATS;
+    const catFallback=(captureCats&&captureCats.size)?cats[0]:"Admin";
     const p='Convert this team member’s plain-language plan into structured tasks for an internal board. '+
-      'Disciplines (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
+      'Disciplines (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'. '+
       'These tasks already exist — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":["existing title it duplicated"]}. '+
       'assignee = a named person if explicitly named for that task, otherwise "'+identity+'". '+EXTRACT_GUARD+'\nPlan:\n"""'+txt+'"""';
     const text=await callClaude(p);const res=extractJSON(text,"object");
-    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:captureDefaultOn?captureDefaultCat:(CATS.includes(t.category)?t.category:"Admin"),
+    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
       assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:null,_include:true}));
     const skipped=res.skipped||[];
@@ -704,15 +706,17 @@ function renderCapture(m){m=m||document.getElementById("main");
     '<span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
   document.getElementById("capBtn").onclick=captureTasks;
-  // Default-discipline picker — a colour-toggle row (like the Tasks filters): pick one discipline to force on
-  // every drafted task, or "Unassigned" to let Claude choose per task. State persists across tab-switch re-renders.
+  // Discipline picker — a multi-select colour-toggle row (like the Tasks filters): the AI may assign drafted
+  // tasks ONLY to the selected disciplines (one per task). "All disciplines" = no limit. Persists across tab switches.
   const dRow=document.createElement("div");dRow.className="views";dRow.style.margin="10px 0 0";
-  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.textContent="Default discipline:";dRow.appendChild(dLab);
+  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.title="Limit which disciplines the AI may assign to drafted tasks";dLab.textContent="Disciplines:";dRow.appendChild(dLab);
   const ctgl=(label,color,on,onClick)=>{const b=document.createElement("button");b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";b.onclick=onClick;return b;};
   const rebuildD=()=>{
     while(dRow.children.length>1)dRow.removeChild(dRow.lastChild);
-    dRow.appendChild(ctgl("Unassigned","#8a8a8a",!captureDefaultOn,()=>{captureDefaultOn=false;rebuildD();}));
-    CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",captureDefaultOn&&captureDefaultCat===c,()=>{captureDefaultOn=true;captureDefaultCat=c;rebuildD();})));
+    // Multi-select: each discipline toggles independently; the AI picks one per task ONLY from the selected set.
+    // "All disciplines" (no selection) lets Claude choose from every discipline.
+    dRow.appendChild(ctgl("All disciplines","#8a8a8a",!(captureCats&&captureCats.size),()=>{captureCats=null;rebuildD();}));
+    CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",!!(captureCats&&captureCats.has(c)),()=>{if(!captureCats)captureCats=new Set();captureCats.has(c)?captureCats.delete(c):captureCats.add(c);if(!captureCats.size)captureCats=null;rebuildD();})));
   };
   rebuildD();
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
