@@ -349,6 +349,7 @@ let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (c
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmPeopleOpen=false;      // is the People filter row expanded? (collapsed by default)
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
+let rmColorBy="area";        // timeline bar colour: area (discipline) | phase | person
 let rmTlLabelW=170;          // width (px) of the timeline title column — draggable to read full titles
 let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area) | person (one per assignee)
 let rmPlotMode="area";       // plot lanes: area | person
@@ -1037,6 +1038,12 @@ function renderTasks(m){
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
+// Colour for a timeline bar per the rmColorBy toggle. Person = first assignee's colour (grey if none/unknown).
+function rmBarColor(r){
+  if(rmColorBy==="phase")return phaseColor(phaseOf(r));
+  if(rmColorBy==="person"){const a=r.assignees||[];if(!a.length)return "#8a8a8a";const mm=member(a[0]);return mm&&mm.color?mm.color:"#8a8a8a";}
+  return areaColor(r.area);
+}
 function rmShown(){ const names=areasSorted().map(a=>a.name); return rmActive?names.filter(n=>rmActive.has(n)):names; }
 // Sentinel used in rmPeopleActive to mean "targets with no assignees".
 const UNASSIGNED="__unassigned__";
@@ -1548,7 +1555,7 @@ function appendTimeline(m,targets,compactEmpty){
     const tl=document.createElement("div");tl.className="timeline";tl.style.setProperty("--tlw",rmTlLabelW+"px");
     const axis=document.createElement("div");axis.className="tl-axis";axis.innerHTML='<span>'+fmt(min)+'</span><span>'+fmt(min+span/2)+'</span><span>'+fmt(max)+'</span>';tl.appendChild(axis);
     dated.slice().sort((a,b)=>toMs(a.target)-toMs(b.target)).forEach(r=>{
-      const ac=areaColor(r.area);
+      const ac=rmBarColor(r);
       const s=eff(r);
       const left=(toMs(s)-min)/span*100;
       const width=Math.max((toMs(r.target)-toMs(s))/span*100,1.5);
@@ -1572,7 +1579,11 @@ function appendTimeline(m,targets,compactEmpty){
 }
 function renderTimeline(m){
   const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
+  const lglab=document.createElement("span");lglab.className="cmeta";lglab.style.cssText="align-self:center;margin-right:4px;";lglab.textContent="Layout:";tb.appendChild(lglab);
   [["all","Combined"],["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
+  // Bar colour-coding — independent of the layout grouping above.
+  const cblab=document.createElement("span");cblab.className="cmeta";cblab.style.cssText="align-self:center;margin:0 4px 0 14px;";cblab.textContent="Colour by:";tb.appendChild(cblab);
+  [["area","Discipline"],["phase","Phase"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
