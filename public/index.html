@@ -152,6 +152,8 @@
   .ctitle{font-size:14px;font-weight:500;}
   /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers and context. */
   .card.collapsed .avas,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .pop,.card.collapsed .cmeta{display:none;}
+  /* Don't let a lone collapsed card stretch to its grid row's height (set by taller expanded neighbors). */
+  .card.collapsed{align-self:start;}
   .ccollapse{margin-left:auto;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;}
   .ccollapse:hover{color:var(--ink,#2a2f38);}
   .cmeta{font-size:12px;color:var(--muted);}
