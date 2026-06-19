@@ -335,7 +335,10 @@ let taskDateField="due";     // which date the timeframe filter + grouping use: 
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
 let taskCategory=null;       // Set of disciplines (categories) to filter tasks by; null = no discipline filter
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
-let taskFiltersOpen=false;   // is the When/Who/Group-by filter panel expanded? (collapsed by default)
+let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
+let taskWhoOpen=false;
+let taskCatOpen=false;
+let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
@@ -872,10 +875,10 @@ function renderTasks(m){
   const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)).length;
   const trashN=DB.tasks.filter(t=>t.trashed).length;
   const head=document.createElement("div");
-  head.innerHTML='<div class="barrow"><div><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' disciplines. Edits save live for the whole team.</p></div></div>';
+  head.innerHTML='<div class="barrow"><div style="flex:1 1 auto;min-width:0;"><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' disciplines. Edits save live for the whole team.</p></div></div>';
   m.appendChild(head);
-  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="0";addBtn.textContent="+ Add task";
-  // Sit the Add-task button flush-right in the title row (.barrow is a space-between flex row).
+  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.cssText="margin:0;flex:0 0 auto;white-space:nowrap;";addBtn.textContent="+ Add task";
+  // Sit the Add-task button flush-right in the title row: the title block grows (flex:1), the button never shrinks/wraps.
   head.querySelector(".barrow").appendChild(addBtn);
   const form=document.createElement("div");form.className="hero";form.style.cssText="padding:14px;display:none;margin-bottom:8px;";
   const closeForm=()=>{form.style.display="none";addBtn.textContent="+ Add task";};
@@ -922,38 +925,37 @@ function renderTasks(m){
     return;
   }
   if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
-  // Collapsible filter/grouping panel — keeps the board uncluttered; state survives live re-renders via taskFiltersOpen.
-  // Active *filter* count - only things that narrow which tasks show (status view, timeframe, people). Grouping/date-type are display options, not filters.
-  const activeN=(taskView!=="all"?1:0)+(taskTime!=="all"?1:0)+(taskPerson?taskPerson.size:0)+(taskCategory?taskCategory.size:0);
-  const filtT=document.createElement("button");filtT.type="button";filtT.className="btn sm rmtgl"+(taskFiltersOpen?" on":"");filtT.style.margin="0 0 10px";
-  filtT.innerHTML='<span class="tgchev">▾</span>Filters &amp; grouping'+(activeN?' · '+activeN+' active':'');
-  const panel=document.createElement("div");panel.style.display=taskFiltersOpen?"":"none";
-  filtT.onclick=()=>{taskFiltersOpen=!taskFiltersOpen;panel.style.display=taskFiltersOpen?"":"none";filtT.classList.toggle("on",taskFiltersOpen);};
-  // Toolbar row: filter-panel toggle + global collapse/expand. "All" = the currently-filtered (visible) cards.
-  const trow=document.createElement("div");trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;";
-  const collAll=document.createElement("button");collAll.className="btn sm";collAll.textContent="Collapse all";
-  collAll.onclick=()=>{DB.tasks.filter(t=>taskFilter(t)).forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  const expAll=document.createElement("button");expAll.className="btn sm";expAll.textContent="Expand all";
-  expAll.onclick=()=>{taskCollapsed.clear();renderTasks();};
-  filtT.style.margin="0";
-  trow.append(filtT,collAll,expAll);
-  m.append(trow,panel);
-  // Date-type toggle — parent of the Timeframe sub-row; sets which date (due/entry) it filters by.
-  const df=document.createElement("div");df.className="views";df.style.margin="0 0 4px";
-  const dflab=document.createElement("span");dflab.className="cmeta";dflab.style.cssText="align-self:center;margin-right:4px;";dflab.textContent="Date:";df.appendChild(dflab);
-  [["due","Due date"],["entry","Entry date"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskDateField===k)b.classList.add("on");b.onclick=()=>{taskDateField=k;renderTasks();};df.appendChild(b);});
-  panel.appendChild(df);
-  // Timeframe filter — a sub-level row under the Date toggle (indented + left rule), filtering by the chosen date type.
-  const tf=document.createElement("div");tf.className="views";tf.style.cssText="margin:0 0 10px 20px;padding-left:10px;border-left:2px solid var(--line,#e6e6e3);";
-  const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="Timeframe:";tf.appendChild(tflab);
-  [["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
-  panel.appendChild(tf);
-  // Colour-coded toggle: filled with the entity's colour when active, neutral with a colour dot when not.
+  // Per-group collapsible filter/grouping toolbar (roadmap-style): Timeframe / Who / Discipline / Group by
+  // each toggle independently. Filters and the grouping option are decoupled into separate groups; open
+  // state survives live re-renders via the task*Open vars, and collapsed groups show an active marker.
+  const TIME_OPTS=[["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]];
+  const GROUP_OPTS=[["category","Discipline"],["timeframe","Timeframe"],["person","Person"]];
+  const labelOf=(opts,k)=>{const o=opts.find(x=>x[0]===k);return o?o[1]:k;};
+  const whoN=taskPerson?taskPerson.size:0, catN=taskCategory?taskCategory.size:0;
+  // Colour-coded filter chip: filled with the entity's colour when active, neutral with a colour dot when not.
   const colorTgl=(label,color,on,onClick)=>{const b=document.createElement("button");
     b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);
     if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";
     b.onclick=onClick;return b;};
-  // People filter (by assignee) — opt-in; selecting members shows only their tasks. Buttons carry each member's colour.
+  // A collapsible group: a toolbar toggle (chevron + label + active marker) paired with its row of controls.
+  // The toggle flips only its own row's visibility — no full re-render; the controls inside re-render on change.
+  const mkGroup=(label,getOpen,setOpen,activeSuffix,row)=>{
+    const tgl=document.createElement("button");tgl.type="button";tgl.className="btn sm rmtgl"+(getOpen()?" on":"");
+    tgl.innerHTML='<span class="tgchev">▾</span>'+label+(activeSuffix||"");
+    row.style.display=getOpen()?"":"none";
+    tgl.onclick=()=>{const n=row.style.display==="none";row.style.display=n?"":"none";tgl.classList.toggle("on",n);setOpen(n);};
+    return tgl;
+  };
+  // Timeframe group = Date-type toggle (parent) + Timeframe sub-row, wrapped together.
+  const timeRow=document.createElement("div");
+  const df=document.createElement("div");df.className="views";df.style.margin="0 0 4px";
+  const dflab=document.createElement("span");dflab.className="cmeta";dflab.style.cssText="align-self:center;margin-right:4px;";dflab.textContent="Date:";df.appendChild(dflab);
+  [["due","Due date"],["entry","Entry date"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskDateField===k)b.classList.add("on");b.onclick=()=>{taskDateField=k;renderTasks();};df.appendChild(b);});
+  const tf=document.createElement("div");tf.className="views";tf.style.cssText="margin:0 0 10px 20px;padding-left:10px;border-left:2px solid var(--line,#e6e6e3);";
+  const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="Timeframe:";tf.appendChild(tflab);
+  TIME_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
+  timeRow.append(df,tf);
+  // Who group (by assignee) — buttons carry each member's colour.
   const pf=document.createElement("div");pf.className="views";pf.style.margin="0 0 12px";
   const plab=document.createElement("span");plab.className="cmeta";plab.style.cssText="align-self:center;margin-right:4px;";plab.textContent="Who:";pf.appendChild(plab);
   roster().forEach(mem=>{const on=!!(taskPerson&&taskPerson.has(mem.name));
@@ -961,19 +963,29 @@ function renderTasks(m){
   const unOn=!!(taskPerson&&taskPerson.has(UNASSIGNED));
   pf.appendChild(colorTgl("Unassigned","#8a8a8a",unOn,()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(UNASSIGNED)?taskPerson.delete(UNASSIGNED):taskPerson.add(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();}));
   if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
-  panel.appendChild(pf);
-  // Discipline filter (by category) — opt-in; buttons carry each discipline's colour from CAT_COLOR.
+  // Discipline group (by category) — buttons carry each discipline's colour from CAT_COLOR.
   const cf=document.createElement("div");cf.className="views";cf.style.margin="0 0 12px";
   const clab=document.createElement("span");clab.className="cmeta";clab.style.cssText="align-self:center;margin-right:4px;";clab.textContent="Discipline:";cf.appendChild(clab);
   CATS.forEach(cat=>{const on=!!(taskCategory&&taskCategory.has(cat));
     cf.appendChild(colorTgl(cat,CAT_COLOR[cat]||"#888",on,()=>{if(!taskCategory)taskCategory=new Set();taskCategory.has(cat)?taskCategory.delete(cat):taskCategory.add(cat);if(!taskCategory.size)taskCategory=null;renderTasks();}));});
   if(taskCategory){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskCategory=null;renderTasks();};cf.appendChild(clr);}
-  panel.appendChild(cf);
-  // Group-by toggle — how the matching cards are split into sections.
+  // Group-by group — display option, decoupled from the filters above.
   const gb=document.createElement("div");gb.className="views";gb.style.margin="0 0 4px";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
-  [["category","Discipline"],["timeframe","Timeframe"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
-  panel.appendChild(gb);
+  GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
+  // Toolbar: one collapse toggle per group + global card collapse/expand.
+  const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
+  const whoT=mkGroup("Who",()=>taskWhoOpen,v=>{taskWhoOpen=v;},(whoN?' ('+whoN+')':''),pf);
+  const catT=mkGroup("Discipline",()=>taskCatOpen,v=>{taskCatOpen=v;},(catN?' ('+catN+')':''),cf);
+  const grpT=mkGroup("Group by",()=>taskGroupOpen,v=>{taskGroupOpen=v;},' · '+labelOf(GROUP_OPTS,taskGroup),gb);
+  const trow=document.createElement("div");trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;";
+  const collAll=document.createElement("button");collAll.className="btn sm";collAll.textContent="Collapse all";
+  collAll.onclick=()=>{DB.tasks.filter(t=>taskFilter(t)).forEach(t=>taskCollapsed.add(t.id));renderTasks();};
+  const expAll=document.createElement("button");expAll.className="btn sm";expAll.textContent="Expand all";
+  expAll.onclick=()=>{taskCollapsed.clear();renderTasks();};
+  trow.append(timeT,whoT,catT,grpT,collAll,expAll);
+  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,gb);
+  m.append(trow,panelWrap);
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   sections.forEach(sec=>{
     const wrap=document.createElement("div");wrap.className="cat";
