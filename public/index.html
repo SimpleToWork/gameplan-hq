@@ -639,7 +639,7 @@ function openBreakdownReview(added,skipped,r){
   const old=document.getElementById("bdReview");if(old)old.remove();
   const bd=document.createElement("div");bd.id="bdReview";bd.style.cssText="position:fixed;inset:0;background:rgba(20,22,28,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:40px 16px;overflow:auto;";
   bd.onclick=e=>{if(e.target===bd)bd.remove();};
-  const mo=document.createElement("div");mo.style.cssText="background:var(--surface,#fff);border:1px solid var(--line,#e6e6e3);border-radius:12px;max-width:560px;width:100%;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.25);";
+  const mo=document.createElement("div");mo.style.cssText="background:var(--surface,#fff);border:1px solid var(--line,#e6e6e3);border-radius:12px;max-width:880px;width:100%;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.25);";
   const h=document.createElement("div");h.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;";
   h.innerHTML='<span style="font-family:\'Space Grotesk\',sans-serif;font-weight:600;font-size:15px;">Break “'+esc(r.title)+'” into tasks</span>';
   const x=document.createElement("button");x.textContent="×";x.title="Close";x.style.cssText="border:none;background:none;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 6px;";x.onclick=()=>bd.remove();
@@ -829,8 +829,14 @@ function renderCapture(m){m=m||document.getElementById("main");
     const row=cta.closest(".hero").querySelector(".row");
     const mic=document.createElement("button");mic.type="button";mic.className="btn sm";mic.id="capMic";mic.textContent="\uD83C\uDFA4 Dictate";mic.title="Dictate with your voice";
     const listening=()=>{mic.style.cssText="background:#c23b3b;border-color:#c23b3b;color:#fff;";mic.textContent="\u25CF Listening\u2026 (click to stop)";};
-    mic.onclick=()=>{
+    mic.onclick=async()=>{
       if(speechRec){stopSpeech();return;}
+      // Force the standard mic permission chooser — Web Speech alone can silently fail when the choice is
+      // undecided; getUserMedia reliably surfaces the Allow/Block prompt. (If already blocked, reset it in site settings.)
+      if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+        try{const s=await navigator.mediaDevices.getUserMedia({audio:true});s.getTracks().forEach(tr=>tr.stop());}
+        catch(err){hint.textContent="Mic blocked \u2014 tap the lock/tune icon \u2192 Permissions \u2192 Microphone \u2192 Allow, then reload. Or use your keyboard\u2019s mic key.";return;}
+      }
       const rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;
       rec.onresult=e=>{let interim="";
         for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];
@@ -1375,11 +1381,12 @@ async function captureForTarget(r,extra,btn,out){
   btn.disabled=true;const lbl=btn.textContent;btn.innerHTML='<span class="spin"></span> Generating';
   try{
     const existing=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed).map(t=>t.title);
-    const p='Break this roadmap target into concrete, actionable tasks for an internal board. '+
+    const p='Turn this roadmap target into a short list of concrete tasks for an internal board — only the tasks genuinely needed to move it forward. '+
+      'Be conservative, like a careful planner: prefer a few substantial tasks over many granular ones; do NOT pad, over-decompose, or invent busywork, and if the target is already well covered, return few or none. '+
       'Disciplines (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). '+
       'Roadmap target: "'+r.title+'"'+(r.detail?' — '+r.detail:'')+' [area: '+r.area+', phase: '+(phaseOf(r)||"—")+']. '+
-      'These tasks already exist for this target — do NOT duplicate: '+JSON.stringify(existing)+'. '+
+      'These tasks already exist for this target — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
       (extra?'Extra guidance from the user: "'+extra+'". ':'')+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}],"skipped":["existing title it duplicated"]}. '+EXTRACT_GUARD;
     const text=await callClaude(p);const res=extractJSON(text,"object");
