@@ -714,7 +714,11 @@ function taskCard(t){
   if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
   d.appendChild(ar);
   const crow=document.createElement("div");crow.className="crow";
-  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),mkSelect(CATS,t.category,v=>setTask(t.id,{category:v})));
+  // Discipline select is tinted with its discipline colour so the category reads at a glance.
+  const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));
+  const catCol=CAT_COLOR[t.category]||"#888";
+  catSel.style.cssText+=";background:"+catCol+"22;color:"+catCol+";border-color:"+catCol+"55;font-weight:600;";
+  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),catSel);
   d.appendChild(crow);
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
@@ -938,6 +942,13 @@ function renderTasks(m){
   unB.onclick=()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(UNASSIGNED)?taskPerson.delete(UNASSIGNED):taskPerson.add(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();};pf.appendChild(unB);
   if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
   panel.appendChild(pf);
+  // Discipline filter (by category) — opt-in; selecting disciplines shows only tasks in them.
+  const cf=document.createElement("div");cf.className="views";cf.style.margin="0 0 12px";
+  const clab=document.createElement("span");clab.className="cmeta";clab.style.cssText="align-self:center;margin-right:4px;";clab.textContent="Discipline:";cf.appendChild(clab);
+  CATS.forEach(cat=>{const b=document.createElement("button");b.textContent=cat;if(taskCategory&&taskCategory.has(cat))b.classList.add("on");
+    b.onclick=()=>{if(!taskCategory)taskCategory=new Set();taskCategory.has(cat)?taskCategory.delete(cat):taskCategory.add(cat);if(!taskCategory.size)taskCategory=null;renderTasks();};cf.appendChild(b);});
+  if(taskCategory){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskCategory=null;renderTasks();};cf.appendChild(clr);}
+  panel.appendChild(cf);
   // Group-by toggle — how the matching cards are split into sections.
   const gb=document.createElement("div");gb.className="views";gb.style.margin="0 0 4px";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
@@ -949,7 +960,7 @@ function renderTasks(m){
     wrap.innerHTML='<div class="cat-head"><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+sec.items.length+'</span></div>';
     const grid=document.createElement("div");grid.className="grid";sec.items.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
   });
-  if(!sections.length){const filtered=taskTime!=="all"||taskPerson;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
+  if(!sections.length){const filtered=taskTime!=="all"||taskPerson||taskCategory;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
