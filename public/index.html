@@ -910,7 +910,7 @@ function renderTasks(m){
   titleI.addEventListener("keydown",e=>{if(e.key==="Escape")closeForm();});
   addBtn.onclick=()=>{const isOpen=form.style.display!=="none";form.style.display=isOpen?"none":"block";addBtn.textContent=isOpen?"+ Add task":"Close";if(!isOpen)titleI.focus();};
   m.append(form);
-  const vb=document.createElement("div");vb.className="views";
+  const vb=document.createElement("div");vb.className="views";vb.style.marginTop="16px";  // breathing room between the page description and the status-view buttons (scoped to this row, not shared .views)
   [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
   m.appendChild(vb);
   if(taskView==="trash"){
