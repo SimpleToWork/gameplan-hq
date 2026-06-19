@@ -695,15 +695,21 @@ function renderCapture(m){m=m||document.getElementById("main");
     '<p>Write it however it comes out. Claude drafts tasks — filed under the right discipline and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
     '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button>'+
-    '<label class="capdefault" title="Force one discipline on every drafted task"><input type="checkbox" id="capDefaultOn"'+(captureDefaultOn?' checked':'')+'> Default discipline</label>'+
-    '<select id="capDefaultCat" class="mini"'+(captureDefaultOn?'':' disabled')+'>'+CATS.map(c=>'<option'+(c===captureDefaultCat?' selected':'')+'>'+c+'</option>').join('')+'</select>'+
     '<span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
   document.getElementById("capBtn").onclick=captureTasks;
-  // Default-discipline toggle — persisted in module state so it survives tab-switch re-renders (like captureText).
-  const dOn=document.getElementById("capDefaultOn"),dCat=document.getElementById("capDefaultCat");
-  dOn.addEventListener("change",()=>{captureDefaultOn=dOn.checked;dCat.disabled=!dOn.checked;});
-  dCat.addEventListener("change",()=>{captureDefaultCat=dCat.value;});
+  // Default-discipline picker — a colour-toggle row (like the Tasks filters): pick one discipline to force on
+  // every drafted task, or "Unassigned" to let Claude choose per task. State persists across tab-switch re-renders.
+  const dRow=document.createElement("div");dRow.className="views";dRow.style.margin="10px 0 0";
+  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.textContent="Default discipline:";dRow.appendChild(dLab);
+  const ctgl=(label,color,on,onClick)=>{const b=document.createElement("button");b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";b.onclick=onClick;return b;};
+  const rebuildD=()=>{
+    while(dRow.children.length>1)dRow.removeChild(dRow.lastChild);
+    dRow.appendChild(ctgl("Unassigned","#8a8a8a",!captureDefaultOn,()=>{captureDefaultOn=false;rebuildD();}));
+    CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",captureDefaultOn&&captureDefaultCat===c,()=>{captureDefaultOn=true;captureDefaultCat=c;rebuildD();})));
+  };
+  rebuildD();
+  const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});}
 
