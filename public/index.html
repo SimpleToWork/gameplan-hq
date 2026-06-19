@@ -1146,7 +1146,7 @@ function renderTasks(m){
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecCollapsed.
   if(sections.length){
     const allCol=sections.every(s=>taskSecCollapsed.has(s.label));
-    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-end;margin:0 0 6px;";
+    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-start;margin:0 0 6px;";
     const sa=document.createElement("button");sa.className="btn sm";sa.style.fontFamily="monospace";sa.textContent=allCol?"<>  Expand all":"><  Collapse all";sa.title=allCol?"Expand all sections":"Collapse all sections";
     sa.onclick=()=>{if(allCol)taskSecCollapsed.clear();else sections.forEach(s=>taskSecCollapsed.add(s.label));renderTasks();};
     sb.appendChild(sa);m.appendChild(sb);
@@ -1605,7 +1605,7 @@ function renderRoadmapList(m){
   const areasList=rmShown();
   if(areasList.length){
     const allCol=areasList.every(a=>rmCollapsed.has("area:"+a));
-    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-start;margin:26px 0 6px;";
+    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-start;margin:20px 0 6px;";
     const sa=document.createElement("button");sa.className="btn sm";sa.style.fontFamily="monospace";sa.textContent=allCol?"<>  Expand all":"><  Collapse all";sa.title=allCol?"Expand all sections":"Collapse all sections";
     sa.onclick=()=>{if(allCol)areasList.forEach(a=>rmCollapsed.delete("area:"+a));else areasList.forEach(a=>rmCollapsed.add("area:"+a));renderRoadmap();};
     sb.appendChild(sa);m.appendChild(sb);
