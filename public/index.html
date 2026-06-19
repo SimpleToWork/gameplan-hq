@@ -826,6 +826,8 @@ function renderCapture(m){m=m||document.getElementById("main");
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(SR){
     const hint=document.getElementById("capHint");
+    const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
+    const blockedMsg="Microphone blocked. Open this site\u2019s settings (the lock/site-info icon in the address bar) \u2192 Microphone \u2192 Allow, then reload."+(isMobile?" Or use your keyboard\u2019s mic key.":"");
     const row=cta.closest(".hero").querySelector(".row");
     const mic=document.createElement("button");mic.type="button";mic.className="btn sm";mic.id="capMic";mic.textContent="\uD83C\uDFA4 Dictate";mic.title="Dictate with your voice";
     const listening=()=>{mic.style.cssText="background:#c23b3b;border-color:#c23b3b;color:#fff;";mic.textContent="\u25CF Listening\u2026 (click to stop)";};
@@ -835,7 +837,7 @@ function renderCapture(m){m=m||document.getElementById("main");
       // undecided; getUserMedia reliably surfaces the Allow/Block prompt. (If already blocked, reset it in site settings.)
       if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
         try{const s=await navigator.mediaDevices.getUserMedia({audio:true});s.getTracks().forEach(tr=>tr.stop());}
-        catch(err){hint.textContent="Mic blocked \u2014 tap the lock/tune icon \u2192 Permissions \u2192 Microphone \u2192 Allow, then reload. Or use your keyboard\u2019s mic key.";return;}
+        catch(err){hint.textContent=blockedMsg;return;}
       }
       const rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;
       rec.onresult=e=>{let interim="";
@@ -843,7 +845,7 @@ function renderCapture(m){m=m||document.getElementById("main");
           if(r.isFinal){const txt=r[0].transcript.trim();if(txt){cta.value=(cta.value.trim()?cta.value.replace(/\s+$/,"")+" ":"")+txt+" ";captureText=cta.value;}}
           else interim+=r[0].transcript;}
         hint.textContent=interim?("\u2026"+interim):"Listening\u2026";};
-      rec.onerror=ev=>{hint.textContent=ev.error==="not-allowed"?"Mic blocked \u2014 allow the microphone for this site, or use your keyboard\u2019s mic key to dictate.":"Voice input error: "+ev.error;stopSpeech();};
+      rec.onerror=ev=>{hint.textContent=ev.error==="not-allowed"?blockedMsg:"Voice input error: "+ev.error;stopSpeech();};
       rec.onend=()=>{stopSpeech();};
       speechRec=rec;try{rec.start();listening();}catch(e){hint.textContent="Couldn\u2019t start voice input.";speechRec=null;}
     };
