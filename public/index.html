@@ -385,23 +385,26 @@ function resolveIdentity(user){
 // On first login, default the discipline filter to the signed-in member's profile disciplines (the same field
 // that seeds the Capture picker). Applies once, after the roster has synced; never overrides a manual change —
 // taskCatDefaulted is also set whenever the user touches the discipline filter. (Domains are a separate concept.)
+// Returns true on the one-shot pass where it actually seeds, so the caller can force a render (incl. on Capture).
 function applyDomainDefault(){
-  if(taskCatDefaulted||identityUnknown||!authUser)return;
-  if(!DB.members.length)return;                         // wait until the roster has loaded
+  if(taskCatDefaulted||identityUnknown||!authUser)return false;
+  if(!DB.members.length)return false;                   // wait until the roster has loaded
   const mm=member(identity);
   const cats=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];
   if(cats.length)taskCategory=new Set(cats);
   taskCatDefaulted=true;                                // roster is present: apply once and stop, match or not
+  return true;
 }
 // On first login, pre-populate the Capture discipline picker from the signed-in member's profile disciplines
 // (independent of domains). Applies once after the roster syncs; never overrides a manual change to the picker.
 function applyCaptureCatsDefault(){
-  if(captureCatsDefaulted||identityUnknown||!authUser)return;
-  if(!DB.members.length)return;                         // wait until the roster has loaded
+  if(captureCatsDefaulted||identityUnknown||!authUser)return false;
+  if(!DB.members.length)return false;                   // wait until the roster has loaded
   const mm=member(identity);
   const cats=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];
   if(cats.length)captureCats=new Set(cats);
   captureCatsDefaulted=true;                            // roster is present: apply once and stop, match or not
+  return true;
 }
 // Reset the Tasks filters to the same state a fresh page load produces: My tasks (or All for off-roster),
 // Today, Due date, no people/stage filter, and the discipline default re-seeded from the user's owned domains.
@@ -506,10 +509,11 @@ function subscribeAll(){
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color,email:mem.email||""})); }
       if(k==="members"){ resolveIdentity(authUser); refreshIdentity(); } // roster changed — re-bind identity, then repaint the label
-      applyDomainDefault(); // once the roster has synced, seed the discipline filter from the user's profile disciplines
-      applyCaptureCatsDefault(); // once the roster has synced, seed the Capture discipline picker from the user's profile disciplines
+      // Seed the discipline defaults from the user's profile disciplines once the roster syncs. Each returns true on
+      // the pass it actually seeds, so we force a render even on Capture (which is otherwise skipped) to paint the default.
+      const seededDefault=applyDomainDefault()|applyCaptureCatsDefault();
       // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
-      if(page!=="capture"){ const y=window.scrollY; render(); window.scrollTo(0,y); }
+      if(page!=="capture"||seededDefault){ const y=window.scrollY; render(); window.scrollTo(0,y); }
     },err=>banner("Sync error: "+err.message,"err"));
   });
 }
@@ -1306,6 +1310,8 @@ function targetCard(r,group){
     '<div class="tf"><span class="chip" style="background:'+ac+'22;color:'+ac+'">'+esc(r.area)+'</span>'+
     '<span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span>'+dates+
     (linked.length?'<span class="linkcount">'+done+'/'+linked.length+' tasks done</span>':'<span class="cmeta">no linked tasks</span>')+'</div>';
+  // Click the title to open the item modal (area/phase + Go to task) — reachable for every target, dated or not.
+  const ttEl=el.querySelector(".tt");if(ttEl){ttEl.style.cursor="pointer";ttEl.title="Open details";ttEl.onclick=()=>openRoadmapModal(r);}
   {const av=avatarsRow(r.assignees);if(av)el.appendChild(av);}
   const acts=document.createElement("div");acts.className="acts";acts.style.marginTop="8px";
   const editB=document.createElement("button");editB.textContent="Edit";
