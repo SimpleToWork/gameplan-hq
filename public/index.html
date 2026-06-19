@@ -325,6 +325,8 @@ let authUser=null;         // the current Firebase auth user, kept so identity c
 let identityUnknown=false; // true when the signed-in account isn't in the roster (identity falls back to their own name)
 let page="capture";
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
+let captureDefaultOn=false;  // Capture: when on, force one discipline on every drafted task (overrides Claude's per-task guess)
+let captureDefaultCat="Admin"; // Capture: which discipline captureDefaultOn applies (must be in CATS)
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
 let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
@@ -505,7 +507,7 @@ async function captureTasks(){
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":["existing title it duplicated"]}. '+
       'assignee = a named person if explicitly named for that task, otherwise "'+identity+'". '+EXTRACT_GUARD+'\nPlan:\n"""'+txt+'"""';
     const text=await callClaude(p);const res=extractJSON(text,"object");
-    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",
+    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:captureDefaultOn?captureDefaultCat:(CATS.includes(t.category)?t.category:"Admin"),
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
       assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:null,_include:true}));
     const skipped=res.skipped||[];
@@ -687,9 +689,16 @@ function renderCapture(m){m=m||document.getElementById("main");
   m.innerHTML='<div class="hero"><h2>What are you working on?</h2>'+
     '<p>Write it however it comes out. Claude drafts tasks — filed under the right discipline and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
-    '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button><span class="hint" id="capHint"></span></div>'+
+    '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button>'+
+    '<label class="capdefault" title="Force one discipline on every drafted task"><input type="checkbox" id="capDefaultOn"'+(captureDefaultOn?' checked':'')+'> Default discipline</label>'+
+    '<select id="capDefaultCat" class="mini"'+(captureDefaultOn?'':' disabled')+'>'+CATS.map(c=>'<option'+(c===captureDefaultCat?' selected':'')+'>'+c+'</option>').join('')+'</select>'+
+    '<span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
   document.getElementById("capBtn").onclick=captureTasks;
+  // Default-discipline toggle — persisted in module state so it survives tab-switch re-renders (like captureText).
+  const dOn=document.getElementById("capDefaultOn"),dCat=document.getElementById("capDefaultCat");
+  dOn.addEventListener("change",()=>{captureDefaultOn=dOn.checked;dCat.disabled=!dOn.checked;});
+  dCat.addEventListener("change",()=>{captureDefaultCat=dCat.value;});
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});}
 
@@ -863,7 +872,9 @@ function renderTasks(m){
   const head=document.createElement("div");
   head.innerHTML='<div class="barrow"><div><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' disciplines. Edits save live for the whole team.</p></div></div>';
   m.appendChild(head);
-  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="12px 0";addBtn.textContent="+ Add task";
+  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="0";addBtn.textContent="+ Add task";
+  // Sit the Add-task button flush-right in the title row (.barrow is a space-between flex row).
+  head.querySelector(".barrow").appendChild(addBtn);
   const form=document.createElement("div");form.className="hero";form.style.cssText="padding:14px;display:none;margin-bottom:8px;";
   const closeForm=()=>{form.style.display="none";addBtn.textContent="+ Add task";};
   const fhead=document.createElement("div");fhead.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;";
@@ -887,7 +898,7 @@ function renderTasks(m){
   form.append(fhead,fg,brow);
   titleI.addEventListener("keydown",e=>{if(e.key==="Escape")closeForm();});
   addBtn.onclick=()=>{const isOpen=form.style.display!=="none";form.style.display=isOpen?"none":"block";addBtn.textContent=isOpen?"+ Add task":"Close";if(!isOpen)titleI.focus();};
-  m.append(addBtn,form);
+  m.append(form);
   const vb=document.createElement("div");vb.className="views";
   [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
   m.appendChild(vb);
