@@ -905,7 +905,7 @@ function renderTasks(m){
   if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
   // Collapsible filter/grouping panel — keeps the board uncluttered; state survives live re-renders via taskFiltersOpen.
   // Active *filter* count - only things that narrow which tasks show (status view, timeframe, people). Grouping/date-type are display options, not filters.
-  const activeN=(taskView!=="all"?1:0)+(taskTime!=="all"?1:0)+(taskPerson?taskPerson.size:0);
+  const activeN=(taskView!=="all"?1:0)+(taskTime!=="all"?1:0)+(taskPerson?taskPerson.size:0)+(taskCategory?taskCategory.size:0);
   const filtT=document.createElement("button");filtT.type="button";filtT.className="btn sm rmtgl"+(taskFiltersOpen?" on":"");filtT.style.margin="0 0 10px";
   filtT.innerHTML='<span class="tgchev">▾</span>Filters &amp; grouping'+(activeN?' · '+activeN+' active':'');
   const panel=document.createElement("div");panel.style.display=taskFiltersOpen?"":"none";
