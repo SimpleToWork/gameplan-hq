@@ -311,7 +311,8 @@ let identity=TEAM[0].name;
 let page="capture";
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
 let taskView="all";
-let taskTime="all";          // timeframe filter on due date: all | today | week | month | past | next | future
+let taskTime="all";          // timeframe filter: all | today | week | month | past | next | future
+let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskFiltersOpen=false;   // is the When/Who/Group-by filter panel expanded? (collapsed by default)
