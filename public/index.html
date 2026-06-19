@@ -1081,6 +1081,43 @@ async function addManualTarget(o){
   try{await fbAdd("roadmap",{area:o.area,title:o.title,detail:o.detail||"",phase:o.phase||(phaseNames()[0]||""),status:"Not started",start:o.start||"",target:o.target||"",createdAt:today(),order:nextRoadmapOrder()});banner("Target added.","ok");}catch(e){banner(e.message,"err");}
 }
 async function setTarget(id,patch){try{await fbUpdate("roadmap",id,patch);}catch(e){banner(e.message,"err");}}
+// Roadmap item modal (opened by clicking a timeline bar / plot dot): shows the item and lets you reassign
+// its containers — area + phase. Fully self-contained: no global state, closes on ×, backdrop, or Esc.
+function openRoadmapModal(r){
+  document.querySelectorAll(".rm-modal-ov").forEach(el=>el.remove()); // never stack modals
+  const ov=document.createElement("div");ov.className="rm-modal-ov";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(20,23,31,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px;";
+  const card=document.createElement("div");
+  card.style.cssText="background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:16px;width:100%;max-width:430px;max-height:85vh;overflow:auto;padding:20px 20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.32);";
+  const close=()=>{document.removeEventListener("keydown",onKey);ov.remove();};
+  const onKey=e=>{if(e.key==="Escape"){e.preventDefault();close();}};
+  document.addEventListener("keydown",onKey);
+  ov.addEventListener("click",e=>{if(e.target===ov)close();});
+  const ac=areaColor(r.area);
+  const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
+  const head=document.createElement("div");head.style.cssText="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;";
+  head.innerHTML='<span style="flex-shrink:0;width:11px;height:11px;border-radius:50%;background:'+ac+';margin-top:5px;"></span><div style="font-weight:700;font-size:16px;line-height:1.3;flex:1;">'+esc(r.title)+'</div>';
+  const xb=document.createElement("button");xb.textContent="×";xb.title="Close";xb.style.cssText="border:none;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0 2px;";xb.onclick=close;
+  head.appendChild(xb);card.appendChild(head);
+  if(r.detail){const d=document.createElement("div");d.className="cmeta";d.style.cssText="margin:2px 0 10px;font-size:13px;";d.textContent=r.detail;card.appendChild(d);}
+  const meta=document.createElement("div");meta.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;";
+  const chip=txt=>{const c=document.createElement("span");c.className="chip";c.style.cssText="background:#eef0f4;color:#5a6069;font-size:12px;";c.textContent=txt;return c;};
+  meta.appendChild(chip(r.status||"Not started"));
+  if(r.start||r.target)meta.appendChild(chip((r.start||"?")+" → "+(r.target||"?")));
+  if(linked.length)meta.appendChild(chip(done+"/"+linked.length+" tasks done"));
+  card.appendChild(meta);
+  const lbl=t=>{const l=document.createElement("div");l.className="cmeta";l.style.cssText="font-weight:600;margin:0 0 4px;";l.textContent=t;return l;};
+  const areaSel=mkSelect2(areaNames(),r.area);areaSel.style.width="100%";areaSel.style.marginBottom="10px";
+  const phaseSel=mkSelect2(phaseNames(),phaseOf(r));phaseSel.style.width="100%";
+  card.appendChild(lbl("Area (container)"));card.appendChild(areaSel);
+  card.appendChild(lbl("Phase"));card.appendChild(phaseSel);
+  const foot=document.createElement("div");foot.style.cssText="display:flex;gap:8px;margin-top:16px;";
+  const save=document.createElement("button");save.className="btn primary sm";save.textContent="Save";
+  save.onclick=async()=>{await setTarget(r.id,{area:areaSel.value,phase:phaseSel.value});close();renderRoadmap();banner("Updated “"+r.title+"”.","ok");};
+  const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
+  foot.append(save,cancel);card.appendChild(foot);
+  ov.appendChild(card);document.body.appendChild(ov);
+}
 async function setArea(id,patch){try{await fbUpdate("areas",id,patch);}catch(e){banner(e.message,"err");}}
 // empty dates/strings sort to the end
 function cmpDateAsc(a,b){if(!a&&!b)return 0;if(!a)return 1;if(!b)return -1;return a<b?-1:a>b?1:0;}
@@ -1510,7 +1547,7 @@ function renderPlot(m){
       const ac=areaColor(r.area);
       const tx=(toMs(r.target)-min)/span*100;
       if(r.start){const sx=(toMs(r.start)-min)/span*100;const w=document.createElement("div");w.className="plot-whisker";w.style.cssText="left:"+Math.min(sx,tx)+"%;width:"+Math.abs(tx-sx)+"%;background:"+ac+";";track.appendChild(w);}
-      const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";";
+      const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";cursor:pointer;";dot.addEventListener("click",e=>{e.stopPropagation();openRoadmapModal(r);});
       track.appendChild(dot);
       laneItems.push({r,tx,dot});
     });
@@ -1564,7 +1601,7 @@ function appendTimeline(m,targets,compactEmpty){
       const lbl=document.createElement("div");lbl.className="tl-label";lbl.textContent=r.title;lbl.title=r.title+" ("+r.area+")";
       const handle=document.createElement("div");handle.className="tl-handle";handle.title="Drag to widen the title column";handle.addEventListener("mousedown",startTlResize);
       const track=document.createElement("div");track.className="tl-track";
-      const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";";
+      const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";cursor:pointer;";bar.addEventListener("click",()=>openRoadmapModal(r));
       const span2=r.start?(r.start+" → "+r.target):("by "+r.target);
       bar.textContent=span2+(linked.length?"  ("+done+"/"+linked.length+")":"");
       // Same rich hover card as the Plot view.
