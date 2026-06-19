@@ -344,10 +344,12 @@ const phaseOf=r=>r.phase||r.horizon||"";
 const today=()=>new Date().toISOString().slice(0,10);
 // Parse a "YYYY-MM-DD" string to a local midnight Date (null if blank/invalid).
 function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
-// Does a task's due date fall in the selected timeframe bucket? Tasks with no due date match only "all".
+// The date a task's timeframe filtering/grouping keys off — due date or entry date (createdAt), per the toggle.
+const taskDateOf=t=>taskDateField==="entry"?t.createdAt:t.due;
+// Does a task's chosen date fall in the selected timeframe bucket? Tasks with no such date match only "all".
 function taskTimeMatch(t){
   if(taskTime==="all")return true;
-  const d=parseDay(t.due);if(!d)return false;
+  const d=parseDay(taskDateOf(t));if(!d)return false;
   const n=new Date(),t0=new Date(n.getFullYear(),n.getMonth(),n.getDate());
   if(taskTime==="today")return d.getTime()===t0.getTime();
   if(taskTime==="past")return d<t0;
@@ -372,7 +374,7 @@ const TIME_BUCKETS=[
   ["next","Next month","#f2eefb","#6a4bb0"],["later","Later","#eef0f4","#566173"],
   ["none","No date","#f0f0ee","#7a7f88"]];
 function taskBucket(t){
-  const d=parseDay(t.due);if(!d)return "none";
+  const d=parseDay(taskDateOf(t));if(!d)return "none";
   const n=new Date(),t0=new Date(n.getFullYear(),n.getMonth(),n.getDate());
   if(d<t0)return "past";
   if(d.getTime()===t0.getTime())return "today";
@@ -668,7 +670,7 @@ function taskCard(t){
   if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
   d.appendChild(ar);
   const crow=document.createElement("div");crow.className="crow";
-  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})));
+  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),mkSelect(CATS,t.category,v=>setTask(t.id,{category:v})));
   d.appendChild(crow);
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
@@ -858,13 +860,18 @@ function renderTasks(m){
   }
   if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
   // Collapsible filter/grouping panel — keeps the board uncluttered; state survives live re-renders via taskFiltersOpen.
-  const activeN=(taskTime!=="all"?1:0)+(taskPerson?taskPerson.size:0)+(taskGroup!=="category"?1:0);
+  const activeN=(taskTime!=="all"?1:0)+(taskDateField!=="due"?1:0)+(taskPerson?taskPerson.size:0)+(taskGroup!=="category"?1:0);
   const filtT=document.createElement("button");filtT.type="button";filtT.className="btn sm rmtgl"+(taskFiltersOpen?" on":"");filtT.style.margin="0 0 10px";
   filtT.innerHTML='<span class="tgchev">▾</span>Filters &amp; grouping'+(activeN?' ('+activeN+')':'');
   const panel=document.createElement("div");panel.style.display=taskFiltersOpen?"":"none";
   filtT.onclick=()=>{taskFiltersOpen=!taskFiltersOpen;panel.style.display=taskFiltersOpen?"":"none";filtT.classList.toggle("on",taskFiltersOpen);};
   m.append(filtT,panel);
-  // Timeframe filter (by due date) — layered on top of the status view above.
+  // Date-type toggle — whether the When filter and Timeframe grouping key off due date or entry date.
+  const df=document.createElement("div");df.className="views";df.style.margin="0 0 10px";
+  const dflab=document.createElement("span");dflab.className="cmeta";dflab.style.cssText="align-self:center;margin-right:4px;";dflab.textContent="Date:";df.appendChild(dflab);
+  [["due","Due date"],["entry","Entry date"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskDateField===k)b.classList.add("on");b.onclick=()=>{taskDateField=k;renderTasks();};df.appendChild(b);});
+  panel.appendChild(df);
+  // Timeframe filter (by the chosen date type above) — layered on top of the status view.
   const tf=document.createElement("div");tf.className="views";tf.style.margin="0 0 10px";
   const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="When:";tf.appendChild(tflab);
   [["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
