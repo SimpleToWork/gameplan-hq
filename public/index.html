@@ -758,14 +758,18 @@ function renderCapture(m){m=m||document.getElementById("main");
   // Discipline picker — a multi-select colour-toggle row (like the Tasks filters): the AI may assign drafted
   // tasks ONLY to the selected disciplines (one per task). "All disciplines" = no limit. Persists across tab switches.
   const dRow=document.createElement("div");dRow.className="views";dRow.style.margin="10px 0 0";
-  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.title="Limit which disciplines the AI may assign to drafted tasks";dLab.textContent="Disciplines:";dRow.appendChild(dLab);
+  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.title="Limit which disciplines the AI may assign to drafted tasks (none selected = any discipline)";dLab.textContent="Disciplines:";dRow.appendChild(dLab);
   const ctgl=(label,color,on,onClick)=>{const b=document.createElement("button");b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";b.onclick=onClick;return b;};
+  // Re-seed the picker from the signed-in member's profile disciplines (can't reuse the guarded applyCaptureCatsDefault mid-session).
+  const profileCats=()=>{const mm=member(identity);const dc=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];return dc.length?new Set(dc):null;};
   const rebuildD=()=>{
     while(dRow.children.length>1)dRow.removeChild(dRow.lastChild);
     // Multi-select: each discipline toggles independently; the AI picks one per task ONLY from the selected set.
-    // "All disciplines" (no selection) lets Claude choose from every discipline.
-    dRow.appendChild(ctgl("All disciplines","#8a8a8a",!(captureCats&&captureCats.size),()=>{captureCatsDefaulted=true;captureCats=null;rebuildD();}));
+    // No selection = the AI may use any discipline. Reset returns to the member's profile default; Clear empties the selection.
     CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",!!(captureCats&&captureCats.has(c)),()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();captureCats.has(c)?captureCats.delete(c):captureCats.add(c);if(!captureCats.size)captureCats=null;rebuildD();})));
+    const reset=document.createElement("button");reset.textContent="Reset";reset.title="Reset to your profile disciplines";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();rebuildD();};
+    dRow.appendChild(reset);
+    if(captureCats&&captureCats.size){const clr=document.createElement("button");clr.textContent="Clear";clr.title="Clear selected disciplines (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;rebuildD();};dRow.appendChild(clr);}
   };
   rebuildD();
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
@@ -1318,7 +1322,10 @@ function targetCard(r,group){
   const asgB=document.createElement("button");asgB.textContent="Assign";
   const taskB=document.createElement("button");taskB.textContent="Break into tasks";
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
-  acts.append(editB,asgB,taskB,delB);
+  acts.append(editB,asgB,taskB);
+  // Direct "Go to task(s)" action when this target has linked tasks — jumps to them on the Tasks board.
+  if(linked.length){const goB=document.createElement("button");goB.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";goB.title="Open the linked task(s) on the Tasks board";goB.onclick=()=>goToTask(linked[0].id);acts.append(goB);}
+  acts.append(delB);
   // Drag handle affordance — only in list view with manual sort, where reordering is meaningful.
   const canDrag=!!group&&rmSort==="manual";
   if(canDrag){const grip=document.createElement("span");grip.className="grip";grip.textContent="⠿";grip.title="Drag to reorder";acts.prepend(grip);}
