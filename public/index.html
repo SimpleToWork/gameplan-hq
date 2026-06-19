@@ -254,7 +254,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch }
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch, arrayUnion }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -313,6 +313,7 @@ let taskView="all";
 let taskTime="all";          // timeframe filter on due date: all | today | week | month | past | next | future
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
+let taskFiltersOpen=false;   // is the When/Who/Group-by filter panel expanded? (collapsed by default)
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
@@ -592,6 +593,11 @@ async function movePhase(ph,dir){
 
 /* ---------- Task ops ---------- */
 async function setTask(id,patch){try{await fbUpdate("tasks",id,patch);}catch(e){banner(e.message,"err");}}
+// Append a note tagged with the current identity. arrayUnion so concurrent adds don't clobber.
+async function addTaskNote(id,text){
+  const note={text,by:identity,at:today()};
+  try{await fbUpdate("tasks",id,{notes:arrayUnion(note)});}catch(e){banner(e.message,"err");}
+}
 // Delete is a soft-delete: tasks move to Trash (trashed flag) so they can be restored.
 async function deleteTask(id){
   try{await fbUpdate("tasks",id,{trashed:true,trashedAt:today()});banner("Moved to Trash — restore it from the Trash tab.","ok");}catch(e){banner(e.message,"err");}
@@ -658,15 +664,17 @@ function taskCard(t){
   if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
   d.appendChild(ar);
   const crow=document.createElement("div");crow.className="crow";
-  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),
-    mkSelect(["— roadmap —"].concat(DB.roadmap.map(r=>r.title)),rm?rm.title:"— roadmap —",v=>{const tgt=DB.roadmap.find(r=>r.title===v);setTask(t.id,{roadmapId:tgt?tgt.id:null});}));
+  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})));
   d.appendChild(crow);
+  const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
   const asg=document.createElement("button");asg.textContent="Assign";
   const edit=document.createElement("button");edit.textContent="Edit";
+  const link=document.createElement("button");link.textContent=rm?"Roadmap ▸":"Roadmap";link.title=rm?"Linked to: "+rm.title:"Link to a roadmap target";
+  const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
   const ask=document.createElement("button");ask.textContent="Ask Claude";
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(asg,edit,ask,rmv);d.appendChild(acts);
+  acts.append(asg,edit,link,notesBtn,ask,rmv);d.appendChild(acts);
   // assign pop
   const apop=document.createElement("div");apop.className="pop";
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
@@ -686,6 +694,66 @@ function taskCard(t){
   const eLbl3=document.createElement("label");eLbl3.className="cmeta";eLbl3.textContent="Due date";
   epop.append(eLbl1,ti,eLbl2,cx,eLbl3,du,eSave);d.appendChild(epop);
   edit.onclick=()=>epop.classList.toggle("open");
+  // roadmap pop -> searchable, area-grouped single-select picker (replaces the old flat title dropdown).
+  const rpop=document.createElement("div");rpop.className="pop";
+  const rctrl=document.createElement("div");rctrl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;";
+  const rsearch=document.createElement("input");rsearch.className="ctrl";rsearch.type="search";rsearch.placeholder="Search roadmap…";rsearch.style.cssText="flex:1;min-width:120px;";
+  // areas that actually have targets (named areas first, then any stray area found on a target)
+  const rAreas=areaNames().filter(an=>DB.roadmap.some(r=>r.area===an));
+  DB.roadmap.forEach(r=>{if(r.area&&!rAreas.includes(r.area))rAreas.push(r.area);});
+  const rAreaSel=mkSelect(["All areas"].concat(rAreas),"All areas",()=>renderRoadList());
+  rctrl.append(rsearch,rAreaSel);
+  const rAreaColor=an=>{const ar=DB.areas.find(x=>x.name===an);return ar&&ar.color?ar.color:"#9aa0a8";};
+  const rlist=document.createElement("div");rlist.style.cssText="max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:3px;";
+  rpop.append(rctrl,rlist);d.appendChild(rpop);
+  function renderRoadList(){
+    rlist.innerHTML="";
+    const q=rsearch.value.trim().toLowerCase(),af=rAreaSel.value;let shown=0;
+    // "None" row clears the link (sets roadmapId to null), matching by id — not by title — so duplicates are safe.
+    const none=document.createElement("div");none.className="opt";none.style.cursor="pointer";
+    none.innerHTML='<span class="cmeta"'+(!t.roadmapId?' style="font-weight:700;"':'')+'>— No roadmap link —</span>';
+    none.onclick=()=>{setTask(t.id,{roadmapId:null});rpop.classList.remove("open");};
+    rlist.appendChild(none);
+    rAreas.filter(an=>af==="All areas"||af===an).forEach(an=>{
+      const color=rAreaColor(an);
+      const inArea=DB.roadmap.filter(r=>r.area===an&&(!q||(r.title+" "+(r.detail||"")).toLowerCase().includes(q)));
+      if(!inArea.length)return;shown+=inArea.length;
+      const ghead=document.createElement("div");ghead.className="opt";ghead.style.cssText="font-weight:700;background:"+color+"14;border-radius:6px;cursor:default;";
+      ghead.innerHTML='<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+color+';margin:0 6px 0 2px;"></span>'+esc(an)+' <span class="cmeta" style="font-weight:400;">('+inArea.length+')</span>';
+      rlist.appendChild(ghead);
+      inArea.forEach(r=>{
+        const sel=t.roadmapId===r.id;
+        const l=document.createElement("div");l.className="opt";l.style.cssText="margin-left:18px;cursor:pointer;";
+        l.innerHTML=(sel?'<span style="color:#4646c8;">▸ </span>':'')+'<span'+(sel?' style="font-weight:700;color:#4646c8;"':'')+'>'+esc(r.title)+'</span> <span class="cmeta">('+(phaseOf(r)?esc(phaseOf(r))+' · ':'')+esc(r.status||"Not started")+')</span>';
+        l.onclick=()=>{setTask(t.id,{roadmapId:r.id});rpop.classList.remove("open");};
+        rlist.appendChild(l);
+      });
+    });
+    if(!shown)rlist.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+(DB.roadmap.length?"No matches.":"No roadmap targets yet.")+'</div>');
+  }
+  rsearch.addEventListener("input",renderRoadList);
+  renderRoadList();
+  link.onclick=()=>{rpop.classList.toggle("open");if(rpop.classList.contains("open"))rsearch.focus();};
+  // notes pop -> per-user tagged notes on the task (each note records who wrote it)
+  const npop=document.createElement("div");npop.className="pop";
+  const nlist=document.createElement("div");nlist.style.cssText="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto;";
+  if(taskNotes.length){
+    taskNotes.forEach(nt=>{
+      const mm=member(nt.by);const color=mm&&mm.color?mm.color:"#9aa0a8";
+      const row=document.createElement("div");row.style.cssText="border-left:3px solid "+color+";padding:1px 0 1px 8px;";
+      const meta=document.createElement("div");meta.style.cssText="display:flex;align-items:center;gap:6px;margin-bottom:2px;";
+      const av=document.createElement("span");av.className="ava";av.style.cssText="background:"+color+";width:18px;height:18px;font-size:9px;";av.textContent=initials(nt.by||"?");
+      meta.appendChild(av);
+      meta.insertAdjacentHTML("beforeend",'<span style="font-weight:600;font-size:12px;color:'+color+';">'+esc(nt.by||"Unknown")+'</span>'+(nt.at?'<span class="cmeta">'+esc(nt.at)+'</span>':''));
+      const body=document.createElement("div");body.style.cssText="white-space:pre-wrap;font-size:13px;";body.textContent=nt.text||"";
+      row.append(meta,body);nlist.appendChild(row);
+    });
+  }else{nlist.innerHTML='<div class="cmeta">No notes yet.</div>';}
+  const nta=document.createElement("textarea");nta.className="ctrl";nta.placeholder="Add a note… (tagged with your name)";nta.style.minHeight="60px";
+  const nAdd=document.createElement("button");nAdd.className="btn primary sm";nAdd.style.alignSelf="flex-start";nAdd.textContent="Add note as "+identity;
+  nAdd.onclick=()=>{const v=nta.value.trim();if(!v){banner("Note can’t be empty.","err");return;}addTaskNote(t.id,v);nta.value="";banner("Note added by "+identity+".","ok");};
+  npop.append(nlist,nta,nAdd);d.appendChild(npop);
+  notesBtn.onclick=()=>{npop.classList.toggle("open");if(npop.classList.contains("open"))nta.focus();};
   // ask pop -> builds a prompt to paste into claude.ai
   const qpop=document.createElement("div");qpop.className="pop";
   const qt=document.createElement("textarea");qt.className="ctrl";qt.placeholder="What do you want to ask about this task? (optional — leave blank for a general approach)";
@@ -785,11 +853,18 @@ function renderTasks(m){
     return;
   }
   if(!DB.tasks.some(t=>!t.trashed)){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks yet</div>Capture some, or use “+ Add task” above.</div>');return;}
+  // Collapsible filter/grouping panel — keeps the board uncluttered; state survives live re-renders via taskFiltersOpen.
+  const activeN=(taskTime!=="all"?1:0)+(taskPerson?taskPerson.size:0)+(taskGroup!=="category"?1:0);
+  const filtT=document.createElement("button");filtT.type="button";filtT.className="btn sm rmtgl"+(taskFiltersOpen?" on":"");filtT.style.margin="0 0 10px";
+  filtT.innerHTML='<span class="tgchev">▾</span>Filters &amp; grouping'+(activeN?' ('+activeN+')':'');
+  const panel=document.createElement("div");panel.style.display=taskFiltersOpen?"":"none";
+  filtT.onclick=()=>{taskFiltersOpen=!taskFiltersOpen;panel.style.display=taskFiltersOpen?"":"none";filtT.classList.toggle("on",taskFiltersOpen);};
+  m.append(filtT,panel);
   // Timeframe filter (by due date) — layered on top of the status view above.
-  const tf=document.createElement("div");tf.className="views";tf.style.margin="-4px 0 10px";
+  const tf=document.createElement("div");tf.className="views";tf.style.margin="0 0 10px";
   const tflab=document.createElement("span");tflab.className="cmeta";tflab.style.cssText="align-self:center;margin-right:4px;";tflab.textContent="When:";tf.appendChild(tflab);
   [["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
-  m.appendChild(tf);
+  panel.appendChild(tf);
   // People filter (by assignee) — opt-in; selecting members shows only their tasks.
   const pf=document.createElement("div");pf.className="views";pf.style.margin="0 0 12px";
   const plab=document.createElement("span");plab.className="cmeta";plab.style.cssText="align-self:center;margin-right:4px;";plab.textContent="Who:";pf.appendChild(plab);
@@ -798,12 +873,12 @@ function renderTasks(m){
   const unB=document.createElement("button");unB.textContent="Unassigned";if(taskPerson&&taskPerson.has(UNASSIGNED))unB.classList.add("on");
   unB.onclick=()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(UNASSIGNED)?taskPerson.delete(UNASSIGNED):taskPerson.add(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();};pf.appendChild(unB);
   if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
-  m.appendChild(pf);
+  panel.appendChild(pf);
   // Group-by toggle — how the matching cards are split into sections.
-  const gb=document.createElement("div");gb.className="views";gb.style.margin="0 0 12px";
+  const gb=document.createElement("div");gb.className="views";gb.style.margin="0 0 4px";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
   [["category","Discipline"],["timeframe","Timeframe"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
-  m.appendChild(gb);
+  panel.appendChild(gb);
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   sections.forEach(sec=>{
     const wrap=document.createElement("div");wrap.className="cat";
