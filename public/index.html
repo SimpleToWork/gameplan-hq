@@ -825,12 +825,15 @@ function taskCard(t){
   const asg=document.createElement("button");asg.textContent="Assign";
   const edit=document.createElement("button");edit.textContent="Edit";
   const link=document.createElement("button");link.textContent=rm?"Roadmap ▸":"Roadmap";link.title=rm?"Linked to: "+rm.title:"Link to a roadmap target";
+  // One-click unlink, shown only when a target is linked (no need to open the picker to clear it).
+  const unlink=rm?document.createElement("button"):null;
+  if(unlink){unlink.className="rm";unlink.textContent="✕";unlink.title="Unlink roadmap target";unlink.onclick=()=>setTask(t.id,{roadmapId:null});}
   const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
   const ask=document.createElement("button");ask.title="Ask Claude";ask.setAttribute("aria-label","Ask Claude");
   // Claude logo (inline sunburst mark, clay #D97757) replaces the "Ask Claude" text; title/aria-label keep it accessible.
   ask.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(asg,edit,link,notesBtn,ask,rmv);d.appendChild(acts);
+  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,rmv);d.appendChild(acts);
   // assign pop
   const apop=document.createElement("div");apop.className="pop";
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
@@ -1602,7 +1605,7 @@ function renderRoadmapList(m){
   const areasList=rmShown();
   if(areasList.length){
     const allCol=areasList.every(a=>rmCollapsed.has("area:"+a));
-    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-end;margin:0 0 6px;";
+    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-end;margin:16px 0 6px;";
     const sa=document.createElement("button");sa.className="btn sm";sa.style.fontFamily="monospace";sa.textContent=allCol?"<>  Expand all":"><  Collapse all";sa.title=allCol?"Expand all sections":"Collapse all sections";
     sa.onclick=()=>{if(allCol)areasList.forEach(a=>rmCollapsed.delete("area:"+a));else areasList.forEach(a=>rmCollapsed.add("area:"+a));renderRoadmap();};
     sb.appendChild(sa);m.appendChild(sb);
