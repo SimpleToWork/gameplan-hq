@@ -684,7 +684,7 @@ function buildTaskPrompt(task,q){
 }
 
 /* ---------- Render ---------- */
-function setPage(p){page=p;document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));render();}
+function setPage(p){closeTargetModal();page=p;document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));render();}
 function render(){const m=document.getElementById("main");
   if(page==="capture")renderCapture(m);else if(page==="tasks")renderTasks(m);
   else if(page==="roadmap")renderRoadmap(m);else if(page==="agendas")renderAgendas(m);
