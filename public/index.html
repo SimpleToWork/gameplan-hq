@@ -149,6 +149,8 @@
   .cat-count{font-size:12px;color:var(--faint);}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:9px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
+  @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
+  .card.flash{animation:taskflash 1.6s ease-out;}
   .chips{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
@@ -340,6 +342,7 @@ let taskWhoOpen=false;
 let taskCatOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
+let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
@@ -539,7 +542,7 @@ async function captureTasks(){
       if(!chosen.length){banner("Tick at least one task, or discard.","err");return;}
       approve.disabled=true;discard.disabled=true;approve.innerHTML='<span class="spin"></span> Adding';
       try{
-        for(const t of chosen){const{_include,...clean}=t;await fbAdd("tasks",clean);}
+        for(const t of chosen){const{_include,_newId,...clean}=t;t._newId=await fbAdd("tasks",clean);} // keep each new doc id for the per-task "Go to task" button
         ta.value="";captureText="";out.innerHTML="";
         const done=document.createElement("div");done.style.cssText="font-size:13.5px;font-weight:500;margin-bottom:7px;";
         done.textContent="Added "+chosen.length+" task"+(chosen.length!==1?"s":"")+" to the board.";
@@ -556,7 +559,10 @@ async function captureTasks(){
   finally{btn.disabled=false;btn.textContent="Draft tasks";hint.textContent="";}
 }
 function miniCard(t){const d=document.createElement("div");d.className="card";const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium;
-  d.innerHTML='<div class="chips"><span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+t.category+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span></div><div class="ctitle">'+esc(t.title)+'</div>';return d;}
+  d.innerHTML='<div class="chips"><span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+t.category+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span></div><div class="ctitle">'+esc(t.title)+'</div>';
+  // After approval the task is saved and has a real id — offer a jump straight to it on the board.
+  if(t._newId){const g=document.createElement("button");g.className="btn sm";g.style.cssText="margin-top:8px;align-self:flex-start;";g.textContent="Go to task →";g.onclick=()=>goToTask(t._newId);d.appendChild(g);}
+  return d;}
 // Editable preview row for a Claude-drafted task, shown for approval before anything is saved.
 function ghostSelect(options,value,onchange){const s=document.createElement("select");s.className="ghost-select";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 function dfield(label,control){const w=document.createElement("div");w.className="dfield";const l=document.createElement("label");l.textContent=label;w.append(l,control);return w;}
@@ -716,7 +722,7 @@ function renderCapture(m){m=m||document.getElementById("main");
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
 function taskCard(t){
-  const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"");
+  const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"");d.dataset.taskId=t.id;
   const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
   const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
   const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -876,6 +882,13 @@ function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
   return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t);
 }
+// Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
+// mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
+function goToTask(id){
+  focusTaskId=id;
+  taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskCollapsed.delete(id);
+  setPage("tasks");
+}
 function renderTasks(m){
   m=m||document.getElementById("main");m.innerHTML="";
   const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)).length;
@@ -1011,6 +1024,9 @@ function renderTasks(m){
     const grid=document.createElement("div");grid.className="grid";sec.items.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);m.appendChild(wrap);
   });
   if(!sections.length){const filtered=taskTime!=="all"||taskPerson||taskCategory;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
+  // Scroll to + briefly highlight a task we were asked to focus (e.g. "Go to task" from Capture). Cleared only
+  // once the card actually exists, so a snapshot-driven re-render can retry if the task isn't in DB yet.
+  if(focusTaskId){requestAnimationFrame(()=>{const card=m.querySelector('[data-task-id="'+focusTaskId+'"]');if(card){focusTaskId=null;card.scrollIntoView({behavior:"smooth",block:"center"});card.classList.add("flash");setTimeout(()=>card.classList.remove("flash"),1600);}});}
 }
 
 const areaColor=name=>{const a=DB.areas.find(x=>x.name===name);return a?a.color:"#8a8a8a";};
