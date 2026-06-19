@@ -594,10 +594,12 @@ async function captureRoadmap(){
     const existing=DB.roadmap.map(r=>r.area+": "+r.title);
     const p='You maintain a company roadmap across these areas: '+areaNames().join(", ")+'. Turn this input into roadmap targets. '+
       'Each target: area (one of the list), title (short), detail (one line), phase (one of: '+(phaseNames().join(", ")||"Phase I")+'). '+
-      'Existing targets (do not duplicate): '+JSON.stringify(existing)+'. Reply with ONLY a JSON array of NEW targets: [{"area","title","detail","phase"}]. '+EXTRACT_GUARD+'\nInput:\n"""'+txt+'"""';
+      'Also include start and target dates as "YYYY-MM-DD" ONLY when the input clearly states them (e.g. "by Aug 30", "starting next week"); otherwise use "" — never invent dates. Today is '+today()+'. '+
+      'Existing targets (do not duplicate): '+JSON.stringify(existing)+'. Reply with ONLY a JSON array of NEW targets: [{"area","title","detail","phase","start","target"}]. '+EXTRACT_GUARD+'\nInput:\n"""'+txt+'"""';
     const text=await callClaude(p);const arr=extractJSON(text,"array");
+    const ymd=s=>(typeof s==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(s))?s:"";
     let ord=nextRoadmapOrder();
-    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",phase:phaseNames().includes(r.phase)?r.phase:(phaseNames()[0]||""),status:"Not started",start:"",target:"",createdAt:today(),order:ord++}); }
+    for(const r of arr){ await fbAdd("roadmap",{area:areaNames().includes(r.area)?r.area:(DB.areas[0]?DB.areas[0].name:"Development"),title:r.title||"Target",detail:r.detail||"",phase:phaseNames().includes(r.phase)?r.phase:(phaseNames()[0]||""),status:"Not started",start:ymd(r.start),target:ymd(r.target),createdAt:today(),order:ord++}); }
     ta.value="";banner("Added "+arr.length+" roadmap target"+(arr.length!==1?"s":"")+".","ok");
   }catch(e){banner("Could not draft the roadmap ("+(e.message||"error")+"). Check AI_ENDPOINT, or retry.","err");console.error(e);}
   finally{btn.disabled=false;btn.textContent="Add to roadmap";}
@@ -1283,7 +1285,7 @@ function renderRoadmap(m){
   am.style.margin="6px 0 2px";
   areasSorted().forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
-    chip.appendChild(document.createTextNode(a.name));
+    const anm=document.createElement("span");anm.textContent=a.name;anm.style.cursor="pointer";anm.title="Click to rename area";chip.appendChild(anm);
     const sw=document.createElement("input");sw.type="color";sw.value=a.color;sw.title="Area color";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setArea(a.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename area";ed.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:15px;line-height:1;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:18px;line-height:1;padding:0;";
@@ -1297,6 +1299,7 @@ function renderRoadmap(m){
       inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
       chip.append(inp,ok,cancel);inp.focus();inp.select();
     };
+    anm.onclick=ed.onclick; // clicking the container (area) name toggles it into rename/edit mode
     const aInUse=DB.roadmap.filter(r=>r.area===a.name).length;
     if(aInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=a.name+" has "+aInUse+" target"+(aInUse!==1?"s":"")+" — reassign or delete them before removing the area";x.onclick=()=>banner("Can’t remove “"+a.name+"”: "+aInUse+" target"+(aInUse!==1?"s are":" is")+" still assigned. Reassign or delete them first.","err");}
     else x.onclick=()=>removeArea(a);
@@ -1312,11 +1315,12 @@ function renderRoadmap(m){
   pm.style.margin="8px 0 2px";
   phasesSorted().forEach(p=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
-    const nm=document.createElement("span");nm.textContent=p.name;
+    const nm=document.createElement("span");nm.textContent=p.name;nm.style.cursor="pointer";nm.title="Click to rename phase";
     const sw=document.createElement("input");sw.type="color";sw.value=p.color;sw.title="Phase color";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setPhase(p.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename phase";ed.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:15px;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove phase";x.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:18px;padding:0;";
     ed.onclick=()=>{chip.innerHTML="";const inp=document.createElement("input");inp.value=p.name;inp.style.cssText="border:1px solid "+p.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:120px;";const ok=document.createElement("button");ok.textContent="✓";ok.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:16px;padding:0;";const cn=document.createElement("button");cn.textContent="×";cn.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";const save=()=>{const v=inp.value.trim();if(!v||v===p.name){renderRoadmap();return;}renamePhase(p,v);};ok.onclick=save;cn.onclick=()=>renderRoadmap();inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});chip.append(inp,ok,cn);inp.focus();inp.select();};
+    nm.onclick=ed.onclick; // clicking the container (phase) name toggles it into rename/edit mode
     const pInUse=DB.roadmap.filter(r=>phaseOf(r)===p.name).length;
     if(pInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=p.name+" has "+pInUse+" target"+(pInUse!==1?"s":"")+" — reassign them before removing the phase";x.onclick=()=>banner("Can’t remove “"+p.name+"”: "+pInUse+" target"+(pInUse!==1?"s are":" is")+" still assigned. Reassign them first.","err");}
     else x.onclick=()=>removePhase(p);
