@@ -382,19 +382,16 @@ function resolveIdentity(user){
   if(m){identity=m.name;identityUnknown=false;}
   else{identity=user.displayName||user.email||"You";identityUnknown=true;taskView="all";} // off-roster: "My tasks" would be empty, so show all on load
 }
-// On first login, default the discipline filter to the disciplines the signed-in user owns as domains
-// (matched by name, case-insensitive). Applies once, after the roster + domains have synced; never overrides
-// a manual change — taskCatDefaulted is also set whenever the user touches the discipline filter.
+// On first login, default the discipline filter to the signed-in member's profile disciplines (the same field
+// that seeds the Capture picker). Applies once, after the roster has synced; never overrides a manual change —
+// taskCatDefaulted is also set whenever the user touches the discipline filter. (Domains are a separate concept.)
 function applyDomainDefault(){
   if(taskCatDefaulted||identityUnknown||!authUser)return;
-  if(!DB.members.length||!DB.domains.length)return;     // wait until both roster and domains have loaded
-  const owned=DB.domains.filter(d=>(d.owners||[]).some(n=>(n||"").toLowerCase()===identity.toLowerCase()));
-  // Match a domain to a discipline tolerantly: normalise away case/spacing/punctuation, then accept an exact
-  // match or a domain that starts/ends with the discipline (so "Back-End Dev" -> Back-End, "Front End Dev" -> Front-End).
-  const norm=s=>(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
-  const cats=CATS.filter(c=>{const cn=norm(c);return owned.some(d=>{const dn=norm(d.name);return dn===cn||dn.startsWith(cn)||dn.endsWith(cn);});});
+  if(!DB.members.length)return;                         // wait until the roster has loaded
+  const mm=member(identity);
+  const cats=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];
   if(cats.length)taskCategory=new Set(cats);
-  taskCatDefaulted=true;                                // roster + domains are present: apply once and stop, match or not
+  taskCatDefaulted=true;                                // roster is present: apply once and stop, match or not
 }
 // On first login, pre-populate the Capture discipline picker from the signed-in member's profile disciplines
 // (independent of domains). Applies once after the roster syncs; never overrides a manual change to the picker.
@@ -509,7 +506,7 @@ function subscribeAll(){
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color,email:mem.email||""})); }
       if(k==="members"){ resolveIdentity(authUser); refreshIdentity(); } // roster changed — re-bind identity, then repaint the label
-      applyDomainDefault(); // once roster + domains have synced, seed the discipline filter from the user's owned domains
+      applyDomainDefault(); // once the roster has synced, seed the discipline filter from the user's profile disciplines
       applyCaptureCatsDefault(); // once the roster has synced, seed the Capture discipline picker from the user's profile disciplines
       // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
       if(page!=="capture"){ const y=window.scrollY; render(); window.scrollTo(0,y); }
