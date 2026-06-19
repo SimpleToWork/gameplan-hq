@@ -2213,13 +2213,17 @@ function renderProposedTasks(a,tasks,container){
     const chosen=rows.filter(r=>r.cb.checked&&r.title.value.trim());
     if(!chosen.length){banner("Pick at least one action step.","err");return;}
     create.disabled=true;create.innerHTML='<span class="spin"></span> Creating';
-    let n=0;
+    // Skip titles already on the board (case-insensitive) so re-running doesn't create duplicates.
+    const existing=new Set(DB.tasks.filter(t=>!t.trashed).map(t=>(t.title||"").trim().toLowerCase()));
+    let n=0,skip=0;
     for(const r of chosen){
-      try{await fbAdd("tasks",{title:r.title.value.trim(),category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,due:today(),createdBy:identity,createdAt:today(),roadmapId:r.roadmapId});n++;}
+      const title=r.title.value.trim();
+      if(existing.has(title.toLowerCase())){skip++;continue;}
+      try{await fbAdd("tasks",{title,category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,due:today(),createdBy:identity,createdAt:today(),roadmapId:r.roadmapId});existing.add(title.toLowerCase());n++;}
       catch(e){banner(e.message,"err");}
     }
-    banner("Created "+n+" task"+(n!==1?"s":"")+" from the notes.","ok");
-    container.innerHTML='<div class="cmeta">Created '+n+' task'+(n!==1?'s':'')+' — see the Tasks page.</div>';
+    banner("Created "+n+" task"+(n!==1?"s":"")+(skip?", skipped "+skip+" already on the board":"")+".","ok");
+    container.innerHTML='<div class="cmeta">Created '+n+' task'+(n!==1?'s':'')+(skip?', skipped '+skip+' already on the board':'')+' — see the Tasks page.</div>';
   };
   container.appendChild(create);
 }
