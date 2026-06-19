@@ -756,7 +756,7 @@ function buildTaskPrompt(task,q){
 }
 
 /* ---------- Render ---------- */
-function setPage(p){page=p;document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));render();}
+function setPage(p){page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));render();}
 function render(){const m=document.getElementById("main");
   if(page==="capture")renderCapture(m);else if(page==="tasks")renderTasks(m);
   else if(page==="roadmap")renderRoadmap(m);else if(page==="agendas")renderAgendas(m);
@@ -2302,6 +2302,9 @@ function init(){
   try{localStorage.removeItem("gp_identity");}catch(e){}
   refreshIdentity();
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
+  // Restore the last-visited page across refreshes (falls back to the default for unknown/blocked storage).
+  try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","team"].includes(sp))page=sp;}catch(e){}
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
 
   if(!fbReady){
     const warn=document.getElementById("setupwarn");
