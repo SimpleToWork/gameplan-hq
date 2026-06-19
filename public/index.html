@@ -406,6 +406,15 @@ function applyCaptureCatsDefault(){
   if(cats.length)captureCats=new Set(cats);
   captureCatsDefaulted=true;                            // roster is present: apply once and stop, match or not
 }
+// Reset the Tasks filters to the same state a fresh page load produces: My tasks (or All for off-roster),
+// Today, Due date, no people/stage filter, and the discipline default re-seeded from the user's owned domains.
+function resetTaskFiltersToDefault(){
+  taskView=identityUnknown?"all":"mine";
+  taskTime="today";taskDateField="due";
+  taskPerson=null;taskStage=null;
+  taskCategory=null;taskCatDefaulted=false;applyDomainDefault(); // re-run the one-shot domain default, like on login
+  renderTasks();
+}
 // Roadmap phases (ordered). phaseOf() reads the new `phase` field, falling back to the legacy `horizon`.
 const phasesSorted=()=>DB.phases.slice().sort((a,b)=>a.name.localeCompare(b.name));
 const phaseNames=()=>phasesSorted().map(p=>p.name);
@@ -1162,6 +1171,36 @@ function openRoadmapModal(r){
   foot.append(save,cancel);card.appendChild(foot);
   ov.appendChild(card);document.body.appendChild(ov);
 }
+// Cluster picker: when a plot segment holds several targets, list them all; clicking one opens its editor.
+// Reuses the .rm-modal-ov class so openRoadmapModal replaces this picker cleanly when a row is chosen.
+function openRoadmapClusterModal(items,label,color){
+  document.querySelectorAll(".rm-modal-ov").forEach(el=>el.remove()); // never stack modals
+  const ov=document.createElement("div");ov.className="rm-modal-ov";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(20,23,31,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px;";
+  const card=document.createElement("div");
+  card.style.cssText="background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:16px;width:100%;max-width:430px;max-height:85vh;overflow:auto;padding:20px;box-shadow:0 24px 60px rgba(0,0,0,.32);";
+  const close=()=>{document.removeEventListener("keydown",onKey);ov.remove();};
+  const onKey=e=>{if(e.key==="Escape"){e.preventDefault();close();}};
+  document.addEventListener("keydown",onKey);
+  ov.addEventListener("click",e=>{if(e.target===ov)close();});
+  const head=document.createElement("div");head.style.cssText="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;";
+  head.innerHTML='<span style="flex-shrink:0;width:11px;height:11px;border-radius:50%;background:'+(color||"#9aa0a8")+';margin-top:5px;"></span><div style="font-weight:700;font-size:16px;line-height:1.3;flex:1;">'+esc(label)+'</div>';
+  const xb=document.createElement("button");xb.textContent="×";xb.title="Close";xb.style.cssText="border:none;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0 2px;";xb.onclick=close;
+  head.appendChild(xb);card.appendChild(head);
+  const sub=document.createElement("div");sub.className="cmeta";sub.style.cssText="margin:2px 0 12px;font-size:13px;";sub.textContent=items.length+" targets at this point — pick one to open.";card.appendChild(sub);
+  const list=document.createElement("div");list.style.cssText="display:flex;flex-direction:column;gap:6px;";
+  items.forEach(r=>{
+    const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
+    const row=document.createElement("button");row.style.cssText="display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 11px;";
+    row.innerHTML='<span style="flex:none;width:9px;height:9px;border-radius:50%;background:'+areaColor(r.area)+';"></span>'+
+      '<span style="flex:1;font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(r.title)+'</span>'+
+      '<span class="cmeta" style="flex:none;font-size:11.5px;">'+esc(r.target||"")+(linked.length?" · "+done+"/"+linked.length:"")+'</span>';
+    row.onclick=()=>{close();openRoadmapModal(r);}; // close picker (drops its keydown listener) before opening the editor
+    list.appendChild(row);
+  });
+  card.appendChild(list);
+  ov.appendChild(card);document.body.appendChild(ov);
+}
 async function setArea(id,patch){try{await fbUpdate("areas",id,patch);}catch(e){banner(e.message,"err");}}
 // empty dates/strings sort to the end
 function cmpDateAsc(a,b){if(!a&&!b)return 0;if(!a)return 1;if(!b)return -1;return a<b?-1:a>b?1:0;}
@@ -1533,8 +1572,9 @@ function singleTipHTML(r){
     '<span class="pt-chip">'+(r.start?esc(r.start)+" → ":"by ")+esc(r.target)+'</span>'+
     (linked.length?'<span class="pt-chip">'+done+'/'+linked.length+' tasks done</span>':'<span class="pt-chip">no linked tasks</span>')+'</div>';
 }
-// Show the targets in a lane whose dots sit near the cursor; highlight those dots.
-function showLaneTip(label,color,laneItems,track,e){
+// The lane items whose dots sit near the cursor x, sorted left→right. Shared by hover and click so a
+// click opens exactly the segment the tooltip showed. Falls back to the single closest dot when nothing's in reach.
+function nearItems(laneItems,track,e){
   const rect=track.getBoundingClientRect();
   const px=(e.clientX-rect.left)/rect.width*100;
   const thr=Math.max(22/rect.width*100,2.5);   // ~22px reach, but at least 2.5% on narrow tracks
@@ -1543,6 +1583,11 @@ function showLaneTip(label,color,laneItems,track,e){
     let best=null,bd=Infinity;laneItems.forEach(it=>{const d=Math.abs(it.tx-px);if(d<bd){bd=d;best=it;}});
     if(best&&bd<=thr*2.5)near=[best];
   }
+  return near.sort((a,b)=>a.tx-b.tx);
+}
+// Show the targets in a lane whose dots sit near the cursor; highlight those dots.
+function showLaneTip(label,color,laneItems,track,e){
+  const near=nearItems(laneItems,track,e);
   laneItems.forEach(it=>it.dot.classList.toggle("near",near.includes(it)));
   if(!near.length){hidePlotTip();return;}
   const t=plotTipEl();
@@ -1591,12 +1636,16 @@ function renderPlot(m){
       const ac=areaColor(r.area);
       const tx=(toMs(r.target)-min)/span*100;
       if(r.start){const sx=(toMs(r.start)-min)/span*100;const w=document.createElement("div");w.className="plot-whisker";w.style.cssText="left:"+Math.min(sx,tx)+"%;width:"+Math.abs(tx-sx)+"%;background:"+ac+";";track.appendChild(w);}
-      const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";cursor:pointer;";dot.addEventListener("click",e=>{e.stopPropagation();openRoadmapModal(r);});
+      const dot=document.createElement("div");dot.className="plot-dot";dot.style.cssText="left:"+tx+"%;background:"+ac+";cursor:pointer;";
       track.appendChild(dot);
       laneItems.push({r,tx,dot});
     });
     track.addEventListener("mousemove",e=>showLaneTip(L.label,L.color,laneItems,track,e));
     track.addEventListener("mouseleave",()=>{hidePlotTip();laneItems.forEach(it=>it.dot.classList.remove("near"));});
+    // Click resolves the cluster at the cursor (same logic as the hover tooltip): one target → its editor,
+    // several → a picker so every overlapping target in the segment stays reachable.
+    track.addEventListener("click",e=>{const near=nearItems(laneItems,track,e);if(!near.length)return;
+      if(near.length===1)openRoadmapModal(near[0].r);else openRoadmapClusterModal(near.map(it=>it.r),L.label,L.color);});
     lane.append(lbl,track);plot.appendChild(lane);
   });
   m.appendChild(plot);
