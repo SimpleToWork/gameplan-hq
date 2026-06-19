@@ -337,12 +337,14 @@ let taskDateField="due";     // which date the timeframe filter + grouping use: 
 let taskPerson=null;         // Set of assignee names to filter tasks by; null = no people filter
 let taskCategory=null;       // Set of disciplines (categories) to filter tasks by; null = no discipline filter
 let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
+let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
 let taskWhoOpen=false;
 let taskCatOpen=false;
 let taskStageOpen=false;
+let taskRmOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
@@ -457,6 +459,17 @@ const ACTIVE_STAGES=STATUSES.filter(s=>s!=="Done"&&s!=="Archived");
 function taskStageMatch(t){
   if(!taskStage)return true;
   return taskStage.has(t.status);
+}
+// Roadmap cascade filter: Area (parent) → target (child). "__none__" matches unlinked tasks; a targetId
+// matches that exact target; an area alone matches any task whose linked target lives in that area. A task
+// pointing at a deleted target resolves to nothing, so it's correctly excluded.
+function taskRoadmapMatch(t){
+  if(!taskRoadmap)return true;
+  const {area,targetId}=taskRoadmap;
+  if(targetId==="__none__")return !t.roadmapId;
+  if(targetId)return t.roadmapId===targetId;
+  if(area){const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return !!r&&r.area===area;}
+  return true;
 }
 // Timeframe grouping: place a task in exactly one due-date bucket. Order = most urgent first.
 const TIME_BUCKETS=[
@@ -937,7 +950,7 @@ function taskViewMatch(t){
 }
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
-  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t);
+  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t);
 }
 // Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
 // mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
@@ -1052,6 +1065,25 @@ function renderTasks(m){
   ACTIVE_STAGES.forEach(st=>{const on=!!(taskStage&&taskStage.has(st));const col=(ST_COLOR[st]||["#eee","#888"])[1];
     sf.appendChild(colorTgl(st,col,on,()=>{if(!taskStage)taskStage=new Set();taskStage.has(st)?taskStage.delete(st):taskStage.add(st);if(!taskStage.size)taskStage=null;renderTasks();}));});
   if(taskStage){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskStage=null;renderTasks();};sf.appendChild(clr);}
+  // Roadmap group — cascading Area (parent) → target (child) selects. Changing the area resets the target.
+  const rf=document.createElement("div");rf.className="views";rf.style.margin="0 0 12px";
+  const rlab=document.createElement("span");rlab.className="cmeta";rlab.style.cssText="align-self:center;margin-right:4px;";rlab.textContent="Roadmap:";rf.appendChild(rlab);
+  const rmAreas=[...new Set(DB.roadmap.map(r=>r.area).filter(Boolean))].sort();
+  const curArea=(taskRoadmap&&taskRoadmap.area)||"";
+  const curTarget=(taskRoadmap&&taskRoadmap.targetId)||"";
+  const areaSel=document.createElement("select");areaSel.className="mini";
+  [["","All areas"],...rmAreas.map(a=>[a,a]),["__none__","(Unlinked)"]].forEach(([v,lbl])=>{const o=document.createElement("option");o.value=v;o.textContent=lbl;if(v===curArea||(v==="__none__"&&curTarget==="__none__")||(v===""&&!curArea&&curTarget!=="__none__"))o.selected=true;areaSel.appendChild(o);});
+  areaSel.onchange=()=>{const v=areaSel.value;taskRoadmap=!v?null:v==="__none__"?{area:null,targetId:"__none__"}:{area:v,targetId:null};renderTasks();};
+  rf.appendChild(areaSel);
+  if(curArea){  // parent chosen → show the child target select for that area
+    const inArea=DB.roadmap.filter(r=>r.area===curArea).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+    const tgtSel=document.createElement("select");tgtSel.className="mini";
+    const o0=document.createElement("option");o0.value="";o0.textContent="All in area ("+inArea.length+")";tgtSel.appendChild(o0);
+    inArea.forEach(r=>{const o=document.createElement("option");o.value=r.id;o.textContent=r.title;if(r.id===curTarget)o.selected=true;tgtSel.appendChild(o);});
+    tgtSel.onchange=()=>{taskRoadmap={area:curArea,targetId:tgtSel.value||null};renderTasks();};
+    rf.appendChild(tgtSel);
+  }
+  if(taskRoadmap){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskRoadmap=null;renderTasks();};rf.appendChild(clr);}
   // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
   const gb=document.createElement("div");gb.className="views";gb.style.cssText="margin:0;margin-left:auto;";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
@@ -1063,15 +1095,17 @@ function renderTasks(m){
   const catT=mkGroup("Discipline",()=>taskCatOpen,v=>{taskCatOpen=v;},(catN?' ('+catN+')':''),cf);
   const stageN=taskStage?taskStage.size:0;
   const stageT=mkGroup("Stage",()=>taskStageOpen,v=>{taskStageOpen=v;},(stageN?' ('+stageN+')':''),sf);
+  const rmLabel=!taskRoadmap?'':taskRoadmap.targetId==="__none__"?' · Unlinked':taskRoadmap.targetId?(' · '+((DB.roadmap.find(r=>r.id===taskRoadmap.targetId)||{}).title||'target')):(' · '+taskRoadmap.area);
+  const rmT=mkGroup("Roadmap",()=>taskRmOpen,v=>{taskRmOpen=v;},rmLabel,rf);
   const trow=document.createElement("div");
   // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
   trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   const hdr=document.querySelector("header");trow.style.top=(hdr?hdr.offsetHeight-1:0)+"px";
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
-  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage;
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap;
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;renderTasks();};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;renderTasks();};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -1082,10 +1116,10 @@ function renderTasks(m){
   const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft="0";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  trow.append(timeT,whoT,catT,stageT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
+  trow.append(timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
   trow.append(collExp);
-  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf);
+  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf,rf);
   m.append(trow,panelWrap);
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   sections.forEach(sec=>{
