@@ -2129,7 +2129,7 @@ async function callMeet(payload){
 // Pull this agenda's transcript from Fireflies (matched server-side by date + title) into its notes.
 async function pullFireflies(a){
   try{
-    const r=await fetch(FF_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:a.title||"",date:a.date||""})});
+    const r=await fetch(FF_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:a.title||"",date:a.date||"",meetLink:a.meetLink||""})});
     const data=await r.json().catch(()=>({}));
     if(r.status===501||data.needsSetup){banner("Fireflies isn’t set up yet — add FIREFLIES_API_KEY in Vercel and redeploy.","err");return;}
     if(data.authError){banner("Fireflies rejected the API key — check FIREFLIES_API_KEY in Vercel.","err");return;}

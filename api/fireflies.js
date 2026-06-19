@@ -68,26 +68,44 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   if (!key) return res.status(501).json({ error: "Fireflies is not configured on the server.", needsSetup: true });
 
-  const { title = "", date = "" } = req.body || {};
+  const { title = "", date = "", meetLink = "" } = req.body || {};
+  // Normalize a Meet/conference URL for comparison: drop protocol, query/hash, trailing slash.
+  const normLink = u => (u || "").toLowerCase().replace(/^https?:\/\//, "").split(/[?#]/)[0].replace(/\/+$/, "").trim();
+  // The agenda's day plus its neighbours (±1), so a call that slipped a day still matches.
+  const dayWindow = d => {
+    if (!d) return null;
+    const base = Date.parse(d + "T12:00:00Z");
+    return new Set([base - 86400000, base, base + 86400000].map(ms => new Date(ms).toISOString().slice(0, 10)));
+  };
   try {
-    // 1) List recent transcripts; narrow to the agenda's day, then rank by title similarity.
+    // 1) List recent transcripts. Match on the Meet link first (immune to time/day drift), else day ±1 + title.
     const list = await ffQuery(key,
-      "query($limit:Int){ transcripts(limit:$limit){ id title date transcript_url } }", { limit: 50 });
+      "query($limit:Int){ transcripts(limit:$limit){ id title date transcript_url meeting_link } }", { limit: 50 });
     const all = (list && list.transcripts) || [];
-    const sameDay = date ? all.filter(t => dayString(Number(t.date)) === date) : all;
-    if (!sameDay.length) {
-      return res.status(200).json({ found: false, message: "No Fireflies transcript found for " + (date || "recent meetings") + " yet. Transcripts appear a few minutes after a call ends." });
+    let best = null;
+    // a) Exact Meet-link match — most reliable; ignores when the call actually happened vs. when it was scheduled.
+    if (meetLink) {
+      const target = normLink(meetLink);
+      if (target) best = all.find(t => t.meeting_link && normLink(t.meeting_link) === target) || null;
     }
-    const ranked = sameDay.map(t => ({ t, score: titleScore(title, t.title) })).sort((a, b) => b.score - a.score);
-    // Ambiguous: several meetings that day and none clearly matches the title — let the user disambiguate.
-    if (sameDay.length > 1 && ranked[0].score < 0.5) {
-      return res.status(200).json({
-        found: false, ambiguous: true,
-        candidates: sameDay.map(t => ({ id: t.id, title: t.title })),
-        message: sameDay.length + " Fireflies meetings on " + date + " and none clearly matches \"" + title + "\". Rename to match, or pick it manually in Fireflies."
-      });
+    // b) Fall back to the agenda's day (±1) ranked by title similarity.
+    if (!best) {
+      const win = dayWindow(date);
+      const near = win ? all.filter(t => win.has(dayString(Number(t.date)))) : all;
+      if (!near.length) {
+        return res.status(200).json({ found: false, message: "No Fireflies transcript found around " + (date || "recently") + " yet. Transcripts appear a few minutes after a call ends." });
+      }
+      const ranked = near.map(t => ({ t, score: titleScore(title, t.title) })).sort((a, b) => b.score - a.score);
+      // Ambiguous: several meetings nearby and none clearly matches the title — let the user disambiguate.
+      if (near.length > 1 && ranked[0].score < 0.5) {
+        return res.status(200).json({
+          found: false, ambiguous: true,
+          candidates: near.map(t => ({ id: t.id, title: t.title })),
+          message: near.length + " Fireflies meetings near " + date + " and none clearly matches \"" + title + "\". Rename to match, or pick it manually in Fireflies."
+        });
+      }
+      best = ranked[0].t;
     }
-    const best = ranked[0].t;
     // 2) Fetch the chosen transcript's summary + sentences.
     const det = await ffQuery(key,
       "query($id:String!){ transcript(id:$id){ id title transcript_url summary{ overview action_items } sentences{ speaker_name text } } }", { id: best.id });
