@@ -988,13 +988,20 @@ function renderTasks(m){
   // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
   trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   const hdr=document.querySelector("header");trow.style.top=(hdr?hdr.offsetHeight-1:0)+"px";
+  // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
+  // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory;
+  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.marginLeft="auto";clearAll.textContent="Clear all filters";
+  clearAll.onclick=()=>{taskView="all";taskTime="all";taskPerson=null;taskCategory=null;renderTasks();};
   // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
   const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
-  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft="auto";
+  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft=anyFilter?"0":"auto";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  trow.append(timeT,whoT,catT,collExp);
+  trow.append(timeT,whoT,catT);
+  if(anyFilter)trow.append(clearAll);
+  trow.append(collExp);
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf);
   m.append(trow,panelWrap);
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
