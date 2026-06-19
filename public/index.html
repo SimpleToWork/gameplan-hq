@@ -363,6 +363,7 @@ let rmPeopleActive=null;     // Set of member names to filter the roadmap by ass
 let rmDragId=null;           // id of the roadmap target currently being dragged (manual reorder)
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
+let rmCollapsed=new Set();   // keys of collapsed Roadmap list sections ("area:<name>"); header-only when collapsed. Survives live re-renders
 let seededAreas=false;
 let seededMembers=false;
 let seededPhases=false;
@@ -1578,7 +1579,13 @@ function renderRoadmapList(m){
   rmShown().forEach(area=>{
     const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
     const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
-    const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
+    // Collapsible section: clicking the header hides this area's cards (header-only). State in rmCollapsed survives re-renders.
+    const key="area:"+area;const collapsed=rmCollapsed.has(key);
+    const head=document.createElement("div");head.className="areahead";head.style.cursor="pointer";head.title=collapsed?"Click to expand":"Click to collapse";
+    head.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(collapsed?"▸":"▾")+'</span><span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';
+    head.onclick=()=>{collapsed?rmCollapsed.delete(key):rmCollapsed.add(key);renderRoadmap();};
+    m.appendChild(head);
+    if(collapsed)return;                  // header-only when collapsed
     if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">'+(rmPeopleActive?"No targets for the selected people.":"No targets yet.")+'</div>');return;}
     // One flat, sorted list per area (phase shown as a chip) so reorder/sort work across the whole area.
     const manual=rmSort==="manual";const grp=sortTargets(items);
