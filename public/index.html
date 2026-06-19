@@ -1065,15 +1065,19 @@ function renderTasks(m){
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage;
-  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:auto;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
+  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
   clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;renderTasks();};
+  // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
+  // Anchors the right-hand button group; always available as a quick "take me home".
+  const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
+  resetBtn.onclick=()=>resetTaskFiltersToDefault();
   // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
   const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
-  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft=anyFilter?"0":"auto";
+  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft="0";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  trow.append(timeT,whoT,catT,stageT);
+  trow.append(timeT,whoT,catT,stageT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
   trow.append(collExp);
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf);
