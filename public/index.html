@@ -969,22 +969,27 @@ function renderTasks(m){
   CATS.forEach(cat=>{const on=!!(taskCategory&&taskCategory.has(cat));
     cf.appendChild(colorTgl(cat,CAT_COLOR[cat]||"#888",on,()=>{if(!taskCategory)taskCategory=new Set();taskCategory.has(cat)?taskCategory.delete(cat):taskCategory.add(cat);if(!taskCategory.size)taskCategory=null;renderTasks();}));});
   if(taskCategory){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskCategory=null;renderTasks();};cf.appendChild(clr);}
-  // Group-by group — display option, decoupled from the filters above.
-  const gb=document.createElement("div");gb.className="views";gb.style.margin="0 0 4px";
+  // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
+  const gb=document.createElement("div");gb.className="views";gb.style.cssText="margin:0;margin-left:auto;";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
   GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
-  // Toolbar: one collapse toggle per group + global card collapse/expand.
+  vb.appendChild(gb);
+  // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
   const whoT=mkGroup("Who",()=>taskWhoOpen,v=>{taskWhoOpen=v;},(whoN?' ('+whoN+')':''),pf);
   const catT=mkGroup("Discipline",()=>taskCatOpen,v=>{taskCatOpen=v;},(catN?' ('+catN+')':''),cf);
-  const grpT=mkGroup("Group by",()=>taskGroupOpen,v=>{taskGroupOpen=v;},' · '+labelOf(GROUP_OPTS,taskGroup),gb);
-  const trow=document.createElement("div");trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;";
-  const collAll=document.createElement("button");collAll.className="btn sm";collAll.textContent="Collapse all";
-  collAll.onclick=()=>{DB.tasks.filter(t=>taskFilter(t)).forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  const expAll=document.createElement("button");expAll.className="btn sm";expAll.textContent="Expand all";
-  expAll.onclick=()=>{taskCollapsed.clear();renderTasks();};
-  trow.append(timeT,whoT,catT,grpT,collAll,expAll);
-  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,gb);
+  const trow=document.createElement("div");
+  // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
+  trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
+  const hdr=document.querySelector("header");trow.style.top=(hdr?hdr.offsetHeight-1:0)+"px";
+  // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
+  const visible=DB.tasks.filter(t=>taskFilter(t));
+  const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
+  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft="auto";
+  collExp.textContent=allCollapsed?"Expand all":"Collapse all";
+  collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
+  trow.append(timeT,whoT,catT,collExp);
+  const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf);
   m.append(trow,panelWrap);
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   sections.forEach(sec=>{
