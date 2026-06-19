@@ -1605,7 +1605,7 @@ function renderRoadmapList(m){
   const areasList=rmShown();
   if(areasList.length){
     const allCol=areasList.every(a=>rmCollapsed.has("area:"+a));
-    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-end;margin:16px 0 6px;";
+    const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-start;margin:26px 0 6px;";
     const sa=document.createElement("button");sa.className="btn sm";sa.style.fontFamily="monospace";sa.textContent=allCol?"<>  Expand all":"><  Collapse all";sa.title=allCol?"Expand all sections":"Collapse all sections";
     sa.onclick=()=>{if(allCol)areasList.forEach(a=>rmCollapsed.delete("area:"+a));else areasList.forEach(a=>rmCollapsed.add("area:"+a));renderRoadmap();};
     sb.appendChild(sa);m.appendChild(sb);
