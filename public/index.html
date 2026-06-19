@@ -390,6 +390,19 @@ function applyDomainDefault(){
   if(cats.length)taskCategory=new Set(cats);
   taskCatDefaulted=true;                                // roster + domains are present: apply once and stop, match or not
 }
+// Reset every task filter to its fresh-load default — My tasks (All if off-roster), Today, Due date, group by
+// discipline — then re-apply the per-user owned-domain discipline default. Replicates a page refresh, no reload.
+function resetTaskFilters(){
+  taskView=identityUnknown?"all":"mine";
+  taskTime="today";
+  taskDateField="due";
+  taskGroup="category";
+  taskPerson=null;
+  taskCategory=null;
+  taskCatDefaulted=false;   // allow applyDomainDefault() to re-apply the owned-domain default
+  applyDomainDefault();
+  renderTasks();
+}
 // Roadmap phases (ordered). phaseOf() reads the new `phase` field, falling back to the legacy `horizon`.
 const phasesSorted=()=>DB.phases.slice().sort((a,b)=>a.name.localeCompare(b.name));
 const phaseNames=()=>phasesSorted().map(p=>p.name);
@@ -1024,16 +1037,20 @@ function renderTasks(m){
   const hdr=document.querySelector("header");trow.style.top=(hdr?hdr.offsetHeight-1:0)+"px";
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
+  // Reset to default — restore the fresh-load view (My tasks · Today · Due date + per-user discipline default)
+  // in one click; always available. "Clear all filters" (only when something is active) instead goes fully open.
+  const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Restore the default view (My tasks · Today · Due date), as on a fresh load";
+  resetBtn.onclick=()=>resetTaskFilters();
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory;
-  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:auto;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
+  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
   clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;renderTasks();};
-  // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
+  // Single collapse/expand-all toggle. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
   const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
-  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft=anyFilter?"0":"auto";
+  const collExp=document.createElement("button");collExp.className="btn sm";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  trow.append(timeT,whoT,catT);
+  trow.append(timeT,whoT,catT,resetBtn);
   if(anyFilter)trow.append(clearAll);
   trow.append(collExp);
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf);
