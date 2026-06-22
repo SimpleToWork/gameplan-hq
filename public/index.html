@@ -896,7 +896,7 @@ function renderCapture(m){m=m||document.getElementById("main");
       chunks=[];let rec;
       try{rec=new MediaRecorder(stream);}catch(e){hint.textContent="Couldn't start recording.";stream.getTracks().forEach(t=>t.stop());stream=null;return;}
       const base=cta.value.trim()?cta.value.replace(/\s+$/,"")+" ":"";  // preserve existing text; the live transcript builds after it
-      let busy=false,timer=null;
+      let busy=false,looping=true;
       // Re-transcribe the whole clip-so-far and replace the live portion (Groq is batch, so re-sending the full
       // growing clip avoids word-boundary garbling). Skips a tick while a previous call is still in flight.
       const live=async(final)=>{
@@ -909,13 +909,13 @@ function renderCapture(m){m=m||document.getElementById("main");
       };
       rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
       rec.onstop=async()=>{
-        if(timer)clearInterval(timer);
+        looping=false;
         if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
         speechRec=null;mic.style.cssText="";mic.textContent="\ud83c\udfa4 Dictate";
         await live(true);   // final, most-accurate pass over the full clip
         if(cta.value&&!/\s$/.test(cta.value)){cta.value+=" ";captureText=cta.value;}
       };
-      speechRec=rec;try{rec.start(1000);recUI();timer=setInterval(()=>live(false),4000);}catch(e){hint.textContent="Couldn't start recording.";speechRec=null;}
+      speechRec=rec;try{rec.start(500);recUI();(async()=>{while(looping){await live(false);await new Promise(r=>setTimeout(r,150));}})();}catch(e){hint.textContent="Couldn't start recording.";speechRec=null;}
     };
     row.appendChild(mic);
     if(speechRec)recUI();   // returning to Capture mid-recording: reflect the running state
