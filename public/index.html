@@ -1416,7 +1416,7 @@ function renderTasks(m){
       const val=taskGroup==="person"?(sec.label==="Unassigned"?UNASSIGNED:sec.label):sec.label;
       const cur=taskGroup==="person"?taskPerson:taskCategory;
       if(!(cur&&cur.size===1&&cur.has(val))){ // hide when already focused on exactly this section (no-op)
-        const fb=document.createElement("button");fb.className="btn sm";fb.textContent="Filter";fb.title="Show only this section";fb.style.cssText="margin-left:auto;padding:2px 9px;font-size:11px;";
+        const fb=document.createElement("button");fb.className="btn sm";fb.textContent="Filter";fb.title="Show only this section";fb.style.cssText="padding:2px 9px;font-size:11px;";
         fb.onclick=e=>{e.stopPropagation();
           if(taskGroup==="person"){taskPerson=new Set([val]);}
           else{taskCatDefaulted=true;taskCategory=new Set([val]);}
