@@ -364,6 +364,7 @@ let taskRmOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
+let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
 let taskSecCollapsed=new Set(); // labels of task sections collapsed to header-only; survives live re-renders
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
@@ -2079,8 +2080,18 @@ function agendaForm(a,onDone,onCancel){
   return wrap;
 }
 
+function agendaSearchMatch(a){
+  const q=agendaSearch.trim().toLowerCase();if(!q)return true;
+  if((a.title||"").toLowerCase().includes(q))return true;
+  if((a.notes||"").toLowerCase().includes(q))return true;
+  if((a.attendees||[]).some(n=>(n||"").toLowerCase().includes(q)))return true;
+  return (a.roadmapIds||[]).some(id=>{const r=DB.roadmap.find(x=>x.id===id);return r&&(r.title||"").toLowerCase().includes(q);});
+}
 function renderAgendas(m){
-  m=m||document.getElementById("main");m.innerHTML="";
+  m=m||document.getElementById("main");
+  // Preserve search-box focus + caret across the per-keystroke re-render (capture before innerHTML teardown).
+  const _agSe=document.getElementById("agendaSearch");const _agRefocus=!!(_agSe&&document.activeElement===_agSe);const _agCaret=_agRefocus?(_agSe.selectionStart??_agSe.value.length):0;
+  m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agendas</div><p class="pagesub">Plan a meeting around roadmap items. Describe it and Claude drafts the agenda from open roadmap items, or build one by hand.</p>');
   const plan=document.createElement("div");plan.className="hero";plan.style.padding="16px";
   plan.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Plan a meeting</h2><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open roadmap items and attendees.</span></div>';
@@ -2094,13 +2105,21 @@ function renderAgendas(m){
   {const row=plan.querySelector(".row");row.insertBefore(addBtn,row.querySelector(".hint"));}
   m.appendChild(addBox);
   if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach roadmap items.</div>');return;}
-  // Collapse/expand-all toggle — flips by whether every agenda is already collapsed.
-  const allCol=DB.agendas.every(a=>agendaCollapsed.has(a.id));
-  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="0 0 10px";
-  collExp.textContent=allCol?"Expand all":"Collapse all";
-  collExp.onclick=()=>{if(allCol)agendaCollapsed.clear();else DB.agendas.forEach(a=>agendaCollapsed.add(a.id));renderAgendas();};
-  m.appendChild(collExp);
-  DB.agendas.forEach(a=>{
+  // Search box — filters agendas by title/notes/attendees/linked item titles.
+  const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agendaSearch";agS.placeholder="Search agendas\u2026";agS.value=agendaSearch;agS.style.cssText="min-width:160px;max-width:280px;margin:0 0 10px;display:block;";
+  agS.oninput=()=>{agendaSearch=agS.value;renderAgendas();};
+  m.appendChild(agS);
+  const shownAg=DB.agendas.filter(agendaSearchMatch);
+  if(!shownAg.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas match</div>Try a different search.</div>');}
+  else{
+    // Collapse/expand-all toggle — flips by whether every shown agenda is already collapsed.
+    const allCol=shownAg.every(a=>agendaCollapsed.has(a.id));
+    const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="0 0 10px";
+    collExp.textContent=allCol?"Expand all":"Collapse all";
+    collExp.onclick=()=>{if(allCol)agendaCollapsed.clear();else shownAg.forEach(a=>agendaCollapsed.add(a.id));renderAgendas();};
+    m.appendChild(collExp);
+  }
+  shownAg.forEach(a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
     const el=document.createElement("div");el.className="ag"+(agendaCollapsed.has(a.id)?" collapsed":"");
     const h=document.createElement("h3");h.style.cssText="display:flex;align-items:center;gap:8px;";
@@ -2253,6 +2272,7 @@ function renderAgendas(m){
     };
     el.appendChild(del);m.appendChild(el);
   });
+  if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}
 }
 async function removeItemFromAgenda(agendaId,itemId){const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;try{await fbUpdate("agendas",agendaId,{roadmapIds:(a.roadmapIds||[]).filter(x=>x!==itemId)});}catch(e){banner(e.message,"err");}}
 
