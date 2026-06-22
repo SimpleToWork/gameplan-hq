@@ -1409,6 +1409,21 @@ function renderTasks(m){
     const headEl=document.createElement("div");headEl.className="cat-head";headEl.style.cursor="pointer";headEl.title=col?"Click to expand":"Click to collapse";
     headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(col?"▸":"▾")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+sec.items.length+'</span>';
     headEl.onclick=()=>{col?taskSecCollapsed.delete(sec.label):taskSecCollapsed.add(sec.label);renderTasks();};
+    // Per-section "filter to this section" button — focuses the board on just this group. Only for category/person
+    // groupings, where a matching global filter Set exists (timeframe buckets don't map cleanly to taskTime). It
+    // replaces the active filter with this one value; stopPropagation keeps it from toggling the header's collapse.
+    if(taskGroup==="category"||taskGroup==="person"){
+      const val=taskGroup==="person"?(sec.label==="Unassigned"?UNASSIGNED:sec.label):sec.label;
+      const cur=taskGroup==="person"?taskPerson:taskCategory;
+      if(!(cur&&cur.size===1&&cur.has(val))){ // hide when already focused on exactly this section (no-op)
+        const fb=document.createElement("button");fb.className="btn sm";fb.textContent="Filter";fb.title="Show only this section";fb.style.cssText="margin-left:auto;padding:2px 9px;font-size:11px;";
+        fb.onclick=e=>{e.stopPropagation();
+          if(taskGroup==="person"){taskPerson=new Set([val]);}
+          else{taskCatDefaulted=true;taskCategory=new Set([val]);}
+          renderTasks();};
+        headEl.appendChild(fb);
+      }
+    }
     wrap.appendChild(headEl);
     if(!col){
       const grid=document.createElement("div");grid.className="grid";
