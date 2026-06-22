@@ -2243,7 +2243,14 @@ function renderAgendas(m){
       el.appendChild(nw);
     }
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
-    del.onclick=async()=>{deleteMeetForAgenda(a);try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
+    // Inline confirm before this permanent, doubly-destructive action (also cancels the Google Calendar invite).
+    del.onclick=()=>{
+      const q=document.createElement("span");q.style.cssText="font-size:11.5px;color:var(--danger);margin-left:8px;";q.textContent="Delete agenda? This also cancels the Calendar invite.";
+      const y=document.createElement("button");y.className="btn sm rm";y.style.cssText="color:var(--danger);margin-left:8px;";y.textContent="Yes, delete";
+      y.onclick=async()=>{deleteMeetForAgenda(a);try{await fbDelete("agendas",a.id);}catch(e){banner(e.message,"err");}};
+      const n=document.createElement("button");n.className="btn sm";n.style.marginLeft="6px";n.textContent="Cancel";n.onclick=()=>renderAgendas();
+      del.replaceWith(q);q.after(y,n);
+    };
     el.appendChild(del);m.appendChild(el);
   });
 }
