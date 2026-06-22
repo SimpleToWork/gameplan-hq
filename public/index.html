@@ -957,7 +957,10 @@ function taskCard(t){
   const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));
   const catCol=CAT_COLOR[t.category]||"#888";
   catSel.style.cssText+=";background:"+catCol+"22;color:"+catCol+";border-color:"+catCol+"55;font-weight:600;";
-  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),catSel);
+  // Inline target-date editor — adjust the due date right on the card (no edit modal). The chip above stays as the overdue flag.
+  const dueIn=document.createElement("input");dueIn.type="date";dueIn.className="mini";dueIn.value=t.due||"";dueIn.title="Target date";
+  dueIn.onchange=()=>setTask(t.id,{due:dueIn.value||""});
+  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),catSel,dueIn);
   d.appendChild(crow);
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
