@@ -2070,7 +2070,10 @@ function agendaForm(a,onDone,onCancel){
     const time=wrap.querySelector('[data-fld="time"]').value;
     const tz=wrap.querySelector('[data-fld="tz"]').value;
     try{
-      if(a){await fbUpdate("agendas",a.id,{title,date,time,tz});banner("Agenda updated.","ok");updateMeetForAgenda(Object.assign({},a,{title,date,time,tz}));}
+      if(a){const patch={title,date,time,tz};
+        // A time change invalidates existing RSVPs (people approved a different slot) — reset them.
+        if((a.rsvps||[]).length&&(date!==a.date||time!==(a.time||"")||tz!==(a.tz||"")))patch.rsvps=[];
+        await fbUpdate("agendas",a.id,patch);banner("Agenda updated."+(patch.rsvps?" RSVPs reset.":""),"ok");updateMeetForAgenda(Object.assign({},a,{title,date,time,tz}));}
       else{const newId=await fbAdd("agendas",{title,date,time,tz,attendees:[],roadmapIds:[],notes:"",createdBy:identity});banner("Agenda created.","ok");createMeetForAgenda({id:newId,title,date,time,tz,attendees:[],roadmapIds:[]},true);}
       if(onDone)onDone();
     }catch(e){banner(e.message,"err");}
@@ -2140,9 +2143,59 @@ function renderAgendas(m){
     el.appendChild(h);
     const meta=document.createElement("div");meta.className="agmeta";meta.textContent=(a.date?a.date:"No date set")+(a.time?" · "+a.time:"")+(a.time&&a.tz?" "+a.tz:"")+(a.createdBy?" · Created by "+a.createdBy:"");el.appendChild(meta);
     const atts=document.createElement("div");atts.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;";
-    if((a.attendees||[]).length)a.attendees.forEach(n=>atts.appendChild(attendeeChip(n)));
+    if((a.attendees||[]).length)a.attendees.forEach(n=>atts.appendChild(attendeeChip(n,rsvpStatusOf(a,n))));
     else atts.innerHTML='<span class="cmeta">no attendees yet</span>';
     el.appendChild(atts);
+    // ---- Attendance: RSVP summary, the signed-in user's own controls, and the creator's review of proposed times.
+    if((a.attendees||[]).length){
+      const rs=rsvpSummary(a);
+      const sum=document.createElement("div");sum.className="cmeta";sum.style.marginTop="4px";
+      sum.textContent="In-app RSVP: "+rs.accepted+" in · "+rs.declined+" out · "+rs.proposed+" proposed a new time";
+      el.appendChild(sum);
+    }
+    // Only attendees can RSVP; gating is UI-only (shared board).
+    if((a.attendees||[]).includes(identity)){
+      const my=rsvpStatusOf(a,identity);
+      const rbar=document.createElement("div");rbar.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center;";
+      rbar.insertAdjacentHTML("beforeend",'<span class="cmeta">Your RSVP:</span>');
+      const mkBtn=(label,active,on)=>{const b=document.createElement("button");b.className="btn sm"+(active?" primary":"");b.textContent=label;b.onclick=on;return b;};
+      rbar.appendChild(mkBtn("Approve",my==="accepted",async()=>{try{await setRsvp(a,identity,{status:"accepted"});banner("Marked as attending.","ok");}catch(e){banner(e.message,"err");}}));
+      rbar.appendChild(mkBtn("Decline",my==="declined",async()=>{try{await setRsvp(a,identity,{status:"declined"});banner("Marked as declined.","ok");}catch(e){banner(e.message,"err");}}));
+      // Propose a new time — opens a popup; a live re-render just closes it.
+      const propBtn=mkBtn("Propose new time",my==="proposed",null);
+      const propPop=document.createElement("div");propPop.className="pop";
+      propPop.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">Suggest a different date/time for the creator to review.</div>');
+      const prow=document.createElement("div");prow.style.cssText="display:flex;flex-wrap:wrap;gap:8px;align-items:center;";
+      const pd=document.createElement("input");pd.type="date";pd.className="ctrl";pd.style.maxWidth="160px";pd.value=a.date||today();
+      const pt=document.createElement("input");pt.type="time";pt.className="ctrl";pt.style.maxWidth="120px";pt.value=a.time||"";
+      const pn=document.createElement("input");pn.type="text";pn.className="ctrl";pn.placeholder="Optional note";pn.style.minWidth="160px";
+      const mine=rsvpOf(a,identity);if(mine&&mine.status==="proposed"){if(mine.proposedDate)pd.value=mine.proposedDate;if(mine.proposedTime)pt.value=mine.proposedTime;if(mine.note)pn.value=mine.note;}
+      prow.append(pd,pt,pn);propPop.appendChild(prow);
+      const psave=document.createElement("button");psave.className="btn primary sm";psave.style.marginTop="8px";psave.textContent="Send proposal";
+      psave.onclick=async()=>{if(!pd.value){banner("Pick a proposed date.","err");return;}try{await setRsvp(a,identity,{status:"proposed",proposedDate:pd.value,proposedTime:pt.value,note:pn.value.trim()});banner("Proposed a new time.","ok");}catch(e){banner(e.message,"err");}propPop.classList.remove("open");};
+      propPop.appendChild(psave);
+      propBtn.onclick=()=>propPop.classList.toggle("open");
+      rbar.appendChild(propBtn);
+      el.append(rbar,propPop);
+    }
+    // Creator (or anyone, on legacy agendas with no createdBy) reviews + adjusts proposed times.
+    const proposals=(a.rsvps||[]).filter(r=>r.status==="proposed");
+    if(proposals.length&&(identity===a.createdBy||!a.createdBy)){
+      const box=document.createElement("div");box.style.cssText="margin-top:8px;padding:8px;border:1px solid var(--line,#e6e6e3);border-radius:8px;";
+      box.insertAdjacentHTML("beforeend",'<div style="font-weight:700;font-size:12px;margin-bottom:4px;">Proposed new times</div>');
+      proposals.forEach(p=>{
+        const row=document.createElement("div");row.style.cssText="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:5px;";
+        row.insertAdjacentHTML("beforeend",'<span class="cmeta">'+esc(p.name)+(p.note?' — "'+esc(p.note)+'"':'')+'</span>');
+        const ad=document.createElement("input");ad.type="date";ad.className="ctrl";ad.style.maxWidth="150px";ad.value=p.proposedDate||a.date||today();
+        const at=document.createElement("input");at.type="time";at.className="ctrl";at.style.maxWidth="110px";at.value=p.proposedTime||a.time||"";
+        const apply=document.createElement("button");apply.className="btn primary sm";apply.textContent="Apply";
+        apply.onclick=async()=>{const date=ad.value||a.date,time=at.value||"";if(!date){banner("Pick a date to apply.","err");return;}try{await fbUpdate("agendas",a.id,{date,time,rsvps:[]});banner("Time set to "+date+(time?" "+time:"")+"; RSVPs reset.","ok");updateMeetForAgenda(Object.assign({},a,{date,time}));}catch(e){banner(e.message,"err");}};
+        const dismiss=document.createElement("button");dismiss.className="btn sm";dismiss.textContent="Dismiss";
+        dismiss.onclick=async()=>{try{await fbUpdate("agendas",a.id,{rsvps:(a.rsvps||[]).filter(r=>r.name!==p.name)});banner("Proposal dismissed.","ok");}catch(e){banner(e.message,"err");}};
+        row.append(ad,at,apply,dismiss);box.appendChild(row);
+      });
+      el.appendChild(box);
+    }
     // Inline attendee editor — add/remove people on the card without opening the editor; syncs the Calendar invite.
     const peoBtn=document.createElement("button");peoBtn.className="btn sm";peoBtn.textContent="People";peoBtn.style.marginTop="6px";
     const peoPop=document.createElement("div");peoPop.className="pop";
@@ -2290,14 +2343,27 @@ function attendeeEmailStats(a){
   const noEmail=names.filter(n=>!memberEmail(n));
   return {total:names.length,invited:names.length-noEmail.length,missing:noEmail};
 }
-// A colored pill (member avatar + name) using the team member's color.
-function attendeeChip(name){
+// A colored pill (member avatar + name) using the team member's color. `status` is the
+// optional in-app RSVP state (accepted/declined/proposed) and adds a small mark.
+function attendeeChip(name,status){
   const mm=member(name);const color=mm&&mm.color?mm.color:"#9aa0a8";
   const c=document.createElement("span");
   c.style.cssText="display:inline-flex;align-items:center;gap:6px;background:"+color+"22;color:"+color+";border-radius:999px;padding:2px 10px 2px 3px;font-size:12px;font-weight:600;";
   const av=document.createElement("span");av.className="ava";av.style.cssText="background:"+color+";width:18px;height:18px;font-size:9px;";av.textContent=initials(name);
   c.append(av,document.createTextNode(name));
+  const m=RSVP_MARK[status];if(m){const b=document.createElement("span");b.title=m.label;b.textContent=m.mark;b.style.cssText="margin-left:1px;color:"+m.color+";font-weight:800;";c.appendChild(b);}
   return c;
+}
+// ---- In-app RSVP / attendance approval (stored on the agenda doc, independent of Google's own invite RSVP) ----
+const RSVP_MARK={accepted:{mark:"✓",color:"#1f9d55",label:"Attending"},declined:{mark:"✕",color:"#a32d2d",label:"Declined"},proposed:{mark:"⏱",color:"#b7791f",label:"Proposed a new time"}};
+const rsvpOf=(a,name)=>(a.rsvps||[]).find(r=>r.name===name)||null;
+const rsvpStatusOf=(a,name)=>{const r=rsvpOf(a,name);return r?r.status:"";};
+function rsvpSummary(a){const r=a.rsvps||[];const c=s=>r.filter(x=>x.status===s).length;return {accepted:c("accepted"),declined:c("declined"),proposed:c("proposed")};}
+// Upsert the signed-in user's RSVP entry (one per name) and persist.
+async function setRsvp(a,name,patch){
+  const list=(a.rsvps||[]).filter(r=>r.name!==name);
+  list.push(Object.assign({name,at:today()},patch));
+  await fbUpdate("agendas",a.id,{rsvps:list});
 }
 // Build the body sent to /api/calendar from an agenda.
 function meetPayload(a,extra){
