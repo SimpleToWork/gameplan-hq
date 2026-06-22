@@ -648,7 +648,7 @@ function buildReviewPanel(added,skipped,container,opts){
   const list=document.createElement("div");list.className="draft-list";
   const approve=document.createElement("button");approve.className="btn primary";
   const refresh=()=>{const n=added.filter(x=>x._include).length;approve.textContent="Approve & add "+n+" task"+(n!==1?"s":"");approve.disabled=!n;};
-  added.forEach(t=>list.appendChild(proposalCard(t,refresh)));
+  added.forEach(t=>list.appendChild(proposalCard(t,refresh,!opts.hideRoadmap)));
   panel.appendChild(list);
   if(skipped.length){const sk=document.createElement("div");sk.className="review-skip";sk.textContent="Skipped (already on the board): "+skipped.join(", ");panel.appendChild(sk);}
   const discard=document.createElement("button");discard.className="btn";discard.textContent="Discard";discard.onclick=()=>{opts.onDiscard?opts.onDiscard():container.innerHTML="";};
@@ -683,7 +683,7 @@ function openBreakdownReview(added,skipped,r){
   h.appendChild(x);mo.appendChild(h);
   const body=document.createElement("div");mo.appendChild(body);
   bd.appendChild(mo);document.body.appendChild(bd);
-  buildReviewPanel(added,skipped,body,{onDiscard:()=>bd.remove(),afterApprove:(chosen,c)=>{const close=document.createElement("button");close.className="btn primary";close.style.marginTop="12px";close.textContent="Close";close.onclick=()=>bd.remove();c.appendChild(close);}});
+  buildReviewPanel(added,skipped,body,{hideRoadmap:true,onDiscard:()=>bd.remove(),afterApprove:(chosen,c)=>{const close=document.createElement("button");close.className="btn primary";close.style.marginTop="12px";close.textContent="Close";close.onclick=()=>bd.remove();c.appendChild(close);}});
 }
 function miniCard(t){const d=document.createElement("div");d.className="card";const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium;
   d.innerHTML='<div class="chips"><span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+t.category+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span></div><div class="ctitle">'+esc(t.title)+'</div>';
@@ -693,7 +693,27 @@ function miniCard(t){const d=document.createElement("div");d.className="card";co
 // Editable preview row for a Claude-drafted task, shown for approval before anything is saved.
 function ghostSelect(options,value,onchange){const s=document.createElement("select");s.className="ghost-select";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 function dfield(label,control){const w=document.createElement("div");w.className="dfield";const l=document.createElement("label");l.textContent=label;w.append(l,control);return w;}
-function proposalCard(t,onToggle){
+// Grouped roadmap-target picker for the draft-review rows. Options carry the target id (matched by id, not title,
+// so duplicate titles are safe); "" = no link. Targets are grouped by area in areaNames() order.
+function roadmapSelect(value,onchange){
+  const s=document.createElement("select");s.className="ghost-select";
+  const none=document.createElement("option");none.value="";none.textContent="— No roadmap link —";s.appendChild(none);
+  if(!DB.roadmap.length){none.textContent="No roadmap targets yet";s.disabled=true;return s;}
+  // areaNames() first (sorted), then any stray areas present on targets but missing from the area list.
+  const ordered=areaNames().slice();
+  DB.roadmap.forEach(r=>{if(r.area&&!ordered.includes(r.area))ordered.push(r.area);});
+  ordered.forEach(an=>{
+    const inArea=DB.roadmap.filter(r=>r.area===an);
+    if(!inArea.length)return;
+    const og=document.createElement("optgroup");og.label=an;
+    inArea.forEach(r=>{const op=document.createElement("option");op.value=r.id;op.textContent=r.title||"Target";if(r.id===value)op.selected=true;og.appendChild(op);});
+    s.appendChild(og);
+  });
+  s.value=value||"";
+  s.onchange=()=>onchange(s.value||null);
+  return s;
+}
+function proposalCard(t,onToggle,showRoadmap){
   const d=document.createElement("div");d.className="draft";
   const cb=document.createElement("input");cb.type="checkbox";cb.className="dcheck";cb.checked=t._include!==false;cb.title="Include this task";
   const body=document.createElement("div");body.className="dbody";
@@ -704,6 +724,8 @@ function proposalCard(t,onToggle){
     dfield("Category",ghostSelect(CATS,t.category,v=>{t.category=v;})),
     dfield("Priority",ghostSelect(PRIORITIES,t.priority,v=>{t.priority=v;})),
     dfield("Owner",ghostSelect(roster().map(mm=>mm.name),(t.assignees&&t.assignees[0])||identity,v=>{t.assignees=[v];})));
+  // Roadmap link is suppressed when the panel is opened from a roadmap target (the link is already implied).
+  if(showRoadmap)meta.append(dfield("Roadmap",roadmapSelect(t.roadmapId||null,v=>{t.roadmapId=v;})));
   const cx=document.createElement("textarea");cx.className="dctx";cx.placeholder="Add context or notes…";cx.value=t.context||"";cx.oninput=()=>{t.context=cx.value;};
   body.append(ti,meta,cx);
   d.append(cb,body);
@@ -1188,7 +1210,9 @@ function renderTasks(m){
   titleI.addEventListener("keydown",e=>{if(e.key==="Escape")closeForm();});
   addBtn.onclick=()=>{const isOpen=form.style.display!=="none";form.style.display=isOpen?"none":"block";addBtn.textContent=isOpen?"+ Add task":"Close";if(!isOpen)titleI.focus();};
   m.append(form);
-  const vb=document.createElement("div");vb.className="views";vb.style.marginTop="16px";  // breathing room between the page description and the status-view buttons (scoped to this row, not shared .views)
+  // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
+  // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
+  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
   m.appendChild(vb);
   if(taskView==="trash"){
@@ -1301,7 +1325,9 @@ function renderTasks(m){
   const trow=document.createElement("div");
   // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
   trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
-  const hdr=document.querySelector("header");trow.style.top=(hdr?hdr.offsetHeight-1:0)+"px";
+  const hdr=document.querySelector("header");const hh=hdr?hdr.offsetHeight:0;
+  vb.style.top=(hh-1)+"px";                       // first sticky bar: directly under the page header
+  trow.style.top=(hh+vb.offsetHeight-1)+"px";     // second sticky bar: stacked below the (now-measured) Group/Sort row
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim();
