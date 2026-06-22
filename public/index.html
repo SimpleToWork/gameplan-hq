@@ -346,6 +346,7 @@ let captureText="";          // Capture textarea contents, kept in state so tab 
 let speechRec=null;          // active Web Speech recognition while dictating in Capture; null when idle
 let captureCats=null;        // Capture: Set of disciplines the AI may pick from when drafting tasks; null/empty = all disciplines
 let captureCatsDefaulted=false; // once true, the signed-in member's profile disciplines won't re-seed captureCats (also set when the user edits the picker)
+let captureRoadmapId=null;   // Capture: roadmap target id pre-selected in the capture area; every drafted task inherits it (null = no link). Read only in captureTasks.
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
 let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
@@ -503,8 +504,10 @@ const TIME_BUCKETS=[
   ["week","This week","#eef4fb","#2c6cb0"],["month","This month","#eef7ef","#2e7d4f"],
   ["next","Next month","#f2eefb","#6a4bb0"],["later","Later","#eef0f4","#566173"],
   ["none","No date","#f0f0ee","#7a7f88"]];
-function taskBucket(t){
-  const d=parseDay(taskDateOf(t));if(!d)return "none";
+// Map a local-midnight Date (or null) to its TIME_BUCKETS key. Shared by timeframe grouping and the
+// date-based sort separators so both stay in lockstep.
+function bucketKeyOf(d){
+  if(!d)return "none";
   const n=new Date(),t0=new Date(n.getFullYear(),n.getMonth(),n.getDate());
   if(d<t0)return "past";
   if(d.getTime()===t0.getTime())return "today";
@@ -515,6 +518,8 @@ function taskBucket(t){
   if(d.getFullYear()===nm.getFullYear()&&d.getMonth()===nm.getMonth())return "next";
   return "later";
 }
+const BUCKET_LABEL=Object.fromEntries(TIME_BUCKETS.map(([k,lbl])=>[k,lbl]));
+function taskBucket(t){return bucketKeyOf(parseDay(taskDateOf(t)));}
 // Build ordered sections [{label,color,items}] for the chosen Group-by mode over already-filtered tasks.
 function taskSections(list){
   // Within-section ordering. Each mode returns a comparator with priority as the tiebreaker so order is
@@ -538,6 +543,24 @@ function taskSections(list){
     return secs;
   }
   return CATS.map(cat=>({label:cat,color:CAT_COLOR[cat]||"#888",items:sortP(list.filter(t=>t.category===cat))})).filter(s=>s.items.length);
+}
+// Sort-by sub-grouping: within a Group-by section, consecutive cards that share the active sort key form one
+// "group". key() must mirror the comparator in taskSections so runs stay contiguous; label() names the run for
+// the divider. Date sorts (entry/target) bucket by relative TIME_BUCKETS so they don't fragment one-per-card.
+function sortDividers(mode){
+  const fa=t=>{const a=(t.assignees||[]).filter(Boolean);return a.length?a[0]:null;};
+  if(mode==="status")return {key:t=>t.status||"",label:t=>t.status||"No status"};
+  if(mode==="person") return {key:t=>{const a=fa(t);return a?a.toLowerCase():"\uffff";},label:t=>fa(t)||"Unassigned"};
+  if(mode==="entry")  return {key:t=>bucketKeyOf(parseDay(t.createdAt)),label:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.createdAt))]};
+  if(mode==="target") return {key:t=>bucketKeyOf(parseDay(t.due)),     label:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.due))]};
+  return {key:t=>t.priority||"",label:t=>t.priority||"No priority"}; // priority (default)
+}
+// Full-width hairline divider with the new group's label; spans every grid column so it forces a row break.
+function sortSepEl(label){
+  const s=document.createElement("div");
+  s.style.cssText="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:5px 0 0;";
+  s.innerHTML='<span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);white-space:nowrap;">'+esc(label||"")+'</span><span style="flex:1;height:1px;background:var(--line,#e6e6e3);"></span>';
+  return s;
 }
 const initials=n=>{const p=(n||"").trim().split(/\s+/);return (p.length>1?p[0][0]+p[1][0]:(n||"?").slice(0,2)).toUpperCase();};
 const member=n=>roster().find(m=>m.name.toLowerCase()===(n||"").toLowerCase());
@@ -620,7 +643,7 @@ async function captureTasks(){
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
-      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:null,_include:true}));
+      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:captureRoadmapId||null,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
@@ -918,6 +941,13 @@ function renderCapture(m){m=m||document.getElementById("main");
   };
   rebuildD();
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
+  // Roadmap pre-select — every drafted task inherits this target (each proposal row can still override it before approving).
+  // Drop a stale id if the target was deleted since it was picked, so we never auto-link to a missing target.
+  if(captureRoadmapId&&!DB.roadmap.find(r=>r.id===captureRoadmapId))captureRoadmapId=null;
+  const rmRow=document.createElement("div");rmRow.className="views";rmRow.style.margin="8px 0 0";
+  const rmLab=document.createElement("span");rmLab.className="cmeta";rmLab.style.cssText="align-self:center;margin-right:4px;";rmLab.title="Auto-link every drafted task to this roadmap target (you can change it per task in review)";rmLab.textContent="Roadmap:";rmRow.appendChild(rmLab);
+  rmRow.appendChild(roadmapSelect(captureRoadmapId,v=>{captureRoadmapId=v;}));
+  cr.parentNode.insertBefore(rmRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});
   // Voice-to-text: record audio, transcribe via /api/transcribe (Groq Whisper). Works on iOS/Android/desktop.
@@ -1369,7 +1399,12 @@ function renderTasks(m){
     headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(col?"▸":"▾")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+sec.items.length+'</span>';
     headEl.onclick=()=>{col?taskSecCollapsed.delete(sec.label):taskSecCollapsed.add(sec.label);renderTasks();};
     wrap.appendChild(headEl);
-    if(!col){const grid=document.createElement("div");grid.className="grid";sec.items.forEach(t=>grid.appendChild(taskCard(t)));wrap.appendChild(grid);}
+    if(!col){
+      const grid=document.createElement("div");grid.className="grid";
+      const sd=sortDividers(taskSort);let prevKey;
+      sec.items.forEach(t=>{const k=sd.key(t);if(prevKey!==undefined&&k!==prevKey)grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
+      wrap.appendChild(grid);
+    }
     m.appendChild(wrap);
   });
   if(!sections.length){const filtered=taskTime!=="all"||taskPerson||taskCategory;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
