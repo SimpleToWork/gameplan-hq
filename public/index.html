@@ -168,6 +168,8 @@
   .card.collapsed{align-self:start;}
   .ccollapse{margin-left:auto;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;}
   .ccollapse:hover{color:var(--ink,#2a2f38);}
+  /* Collapsed agenda card: show only its header (h3 with the title + controls), hide the body. */
+  .ag.collapsed > *:not(h3){display:none;}
   .cmeta{font-size:12px;color:var(--muted);}
   /* roadmap toolbar: collapse toggles for Areas+Phases and Filters (saves vertical space) */
   .rmtoolbar-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;}
@@ -360,6 +362,7 @@ let taskStageOpen=false;
 let taskRmOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
+let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
 let taskSecCollapsed=new Set(); // labels of task sections collapsed to header-only; survives live re-renders
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
@@ -2071,10 +2074,22 @@ function renderAgendas(m){
   addBtn.onclick=()=>{const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Create agenda by hand":"Close";};
   m.append(addBtn,addBox);
   if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach roadmap items.</div>');return;}
+  // Collapse/expand-all toggle — flips by whether every agenda is already collapsed.
+  const allCol=DB.agendas.every(a=>agendaCollapsed.has(a.id));
+  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="0 0 10px";
+  collExp.textContent=allCol?"Expand all":"Collapse all";
+  collExp.onclick=()=>{if(allCol)agendaCollapsed.clear();else DB.agendas.forEach(a=>agendaCollapsed.add(a.id));renderAgendas();};
+  m.appendChild(collExp);
   DB.agendas.forEach(a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
-    const el=document.createElement("div");el.className="ag";
+    const el=document.createElement("div");el.className="ag"+(agendaCollapsed.has(a.id)?" collapsed":"");
     const h=document.createElement("h3");h.style.cssText="display:flex;align-items:center;gap:8px;";
+    // Per-card collapse toggle — flips just this agenda instantly (no full re-render); state in agendaCollapsed.
+    const chev=document.createElement("button");chev.className="ccollapse";chev.type="button";chev.style.marginLeft="0";
+    const setChev=()=>{const on=el.classList.contains("collapsed");chev.textContent=on?"▸":"▾";chev.title=on?"Expand agenda":"Collapse agenda";};
+    setChev();
+    chev.onclick=e=>{e.stopPropagation();const on=el.classList.toggle("collapsed");on?agendaCollapsed.add(a.id):agendaCollapsed.delete(a.id);setChev();};
+    h.appendChild(chev);
     const ttl=document.createElement("span");ttl.textContent=a.title;ttl.style.flex="1";h.appendChild(ttl);
     const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent="Edit";h.appendChild(editBtn);
     el.appendChild(h);
