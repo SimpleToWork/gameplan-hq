@@ -354,7 +354,6 @@ let taskCategory=null;       // Set of disciplines (categories) to filter tasks 
 let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
-let taskSearchFocused=false; // keep focus in the search box across the re-render each keystroke triggers
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
@@ -1138,7 +1137,10 @@ function goToRoadmapItem(r){
   setPage("roadmap");
 }
 function renderTasks(m){
-  m=m||document.getElementById("main");m.innerHTML="";
+  m=m||document.getElementById("main");
+  // Was the search box focused before we tear down the DOM? Capture it (and the caret) so we can restore after.
+  const _se=document.getElementById("taskSearch");const _refocusSearch=!!(_se&&document.activeElement===_se);const _searchCaret=_refocusSearch?(_se.selectionStart??_se.value.length):0;
+  m.innerHTML="";
   const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)).length;
   const trashN=DB.tasks.filter(t=>t.trashed).length;
   const head=document.createElement("div");
@@ -1297,13 +1299,12 @@ function renderTasks(m){
   // Free-text search box (leftmost). Re-renders on each keystroke; focus is restored after render (see below).
   const searchInp=document.createElement("input");searchInp.type="search";searchInp.className="ctrl";searchInp.id="taskSearch";searchInp.placeholder="Search tasks\u2026";searchInp.value=taskSearch;searchInp.style.cssText="flex:1;min-width:140px;max-width:280px;";
   searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
-  searchInp.onfocus=()=>{taskSearchFocused=true;};searchInp.onblur=()=>{taskSearchFocused=false;};
   trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
   trow.append(collExp);
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf,rf);
   m.append(trow,panelWrap);
-  if(taskSearchFocused){searchInp.focus();const _v=searchInp.value;try{searchInp.setSelectionRange(_v.length,_v.length);}catch(_){}}
+  if(_refocusSearch){searchInp.focus();try{searchInp.setSelectionRange(_searchCaret,_searchCaret);}catch(_){}}
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecCollapsed.
@@ -2044,9 +2045,8 @@ function agendaForm(a,onDone,onCancel){
   wrap.innerHTML='<div class="field"><label>Meeting title</label><input class="ctrl" data-fld="title" placeholder="e.g. Cache rollout review"></div>'+
     '<div class="field"><label>Date</label><input class="ctrl" data-fld="date" type="date"></div>'+
     '<div class="field"><label>Time</label><input class="ctrl" data-fld="time" type="time"></div>'+
-    '<div class="field"><label>Timezone</label><select class="ctrl" data-fld="tz">'+tzOptions+'</select></div>'+
-    '<div class="field"><label>Attendees</label><div class="agPeople" style="display:flex;flex-wrap:wrap;gap:10px;">'+
-      roster().map(mem=>'<label class="opt"><input type="checkbox" data-name="'+esc(mem.name)+'"'+(att.has(mem.name)?" checked":"")+'> <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+(mem.color||"#9aa0a8")+';margin-right:3px;"></span>'+esc(mem.name)+'</label>').join("")+'</div></div>';
+    '<div class="field"><label>Timezone</label><select class="ctrl" data-fld="tz">'+tzOptions+'</select></div>';
+    // Attendees are now edited inline on the agenda card (People), not here.
   wrap.querySelector('[data-fld="title"]').value=a?a.title||"":"";
   wrap.querySelector('[data-fld="date"]').value=a?a.date||"":"";
   wrap.querySelector('[data-fld="time"]').value=a?a.time||"":"";
@@ -2058,10 +2058,9 @@ function agendaForm(a,onDone,onCancel){
     const date=wrap.querySelector('[data-fld="date"]').value;
     const time=wrap.querySelector('[data-fld="time"]').value;
     const tz=wrap.querySelector('[data-fld="tz"]').value;
-    const attendees=Array.from(wrap.querySelectorAll('.agPeople input:checked')).map(x=>x.dataset.name);
     try{
-      if(a){await fbUpdate("agendas",a.id,{title,date,time,tz,attendees});banner("Agenda updated.","ok");updateMeetForAgenda(Object.assign({},a,{title,date,time,tz,attendees}));}
-      else{const newId=await fbAdd("agendas",{title,date,time,tz,attendees,roadmapIds:[],notes:""});banner("Agenda created.","ok");createMeetForAgenda({id:newId,title,date,time,tz,attendees,roadmapIds:[]},true);}
+      if(a){await fbUpdate("agendas",a.id,{title,date,time,tz});banner("Agenda updated.","ok");updateMeetForAgenda(Object.assign({},a,{title,date,time,tz}));}
+      else{const newId=await fbAdd("agendas",{title,date,time,tz,attendees:[],roadmapIds:[],notes:""});banner("Agenda created.","ok");createMeetForAgenda({id:newId,title,date,time,tz,attendees:[],roadmapIds:[]},true);}
       if(onDone)onDone();
     }catch(e){banner(e.message,"err");}
   };
@@ -2113,7 +2112,10 @@ function renderAgendas(m){
     const peoBtn=document.createElement("button");peoBtn.className="btn sm";peoBtn.textContent="People";peoBtn.style.marginTop="6px";
     const peoPop=document.createElement("div");peoPop.className="pop";
     const peoSel=new Set(a.attendees||[]);
-    roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=peoSel.has(mem.name);cb.onchange=()=>{cb.checked?peoSel.add(mem.name):peoSel.delete(mem.name);};const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";margin:0 5px 0 2px;";l.append(cb,sw,document.createTextNode(mem.name+(memberEmail(mem.name)?"":" (no email)")));peoPop.appendChild(l);});
+    // Same flex-wrap checkbox layout as the editor's Attendees section.
+    const peoWrap=document.createElement("div");peoWrap.style.cssText="display:flex;flex-wrap:wrap;gap:10px;";
+    roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=peoSel.has(mem.name);cb.onchange=()=>{cb.checked?peoSel.add(mem.name):peoSel.delete(mem.name);};const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";margin-right:3px;";l.append(cb,sw,document.createTextNode(mem.name+(memberEmail(mem.name)?"":" (no email)")));peoWrap.appendChild(l);});
+    peoPop.appendChild(peoWrap);
     const peoApply=document.createElement("button");peoApply.className="btn primary sm";peoApply.style.alignSelf="flex-start";peoApply.textContent="Apply";
     peoApply.onclick=async()=>{const attendees=[...peoSel];try{await fbUpdate("agendas",a.id,{attendees});banner("Attendees updated.","ok");updateMeetForAgenda(Object.assign({},a,{attendees}));}catch(e){banner(e.message,"err");}peoPop.classList.remove("open");};
     peoPop.appendChild(peoApply);
