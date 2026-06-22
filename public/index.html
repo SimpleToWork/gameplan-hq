@@ -2076,13 +2076,14 @@ function renderAgendas(m){
   const plan=document.createElement("div");plan.className="hero";plan.style.padding="16px";
   plan.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Plan a meeting</h2><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open roadmap items and attendees.</span></div>';
   m.appendChild(plan);document.getElementById("planBtn").onclick=planMeeting;
-  // Create by hand — collapsible
-  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.margin="10px 0";addBtn.textContent="+ Create agenda by hand";
-  const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:16px;display:none;margin-bottom:8px;";
+  // Create by hand — button sits inline in the Plan-a-meeting row; the form drops in below.
+  const addBtn=document.createElement("button");addBtn.className="btn";addBtn.textContent="+ Create agenda by hand";
+  const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:16px;display:none;margin:8px 0;";
   const closeAdd=()=>{addBox.style.display="none";addBtn.textContent="+ Create agenda by hand";};
   addBox.appendChild(agendaForm(null,closeAdd,closeAdd));
   addBtn.onclick=()=>{const open=addBox.style.display!=="none";addBox.style.display=open?"none":"block";addBtn.textContent=open?"+ Create agenda by hand":"Close";};
-  m.append(addBtn,addBox);
+  {const row=plan.querySelector(".row");row.insertBefore(addBtn,row.querySelector(".hint"));}
+  m.appendChild(addBox);
   if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach roadmap items.</div>');return;}
   // Collapse/expand-all toggle — flips by whether every agenda is already collapsed.
   const allCol=DB.agendas.every(a=>agendaCollapsed.has(a.id));
