@@ -112,6 +112,9 @@
   .target.dragging{opacity:.45;}
   .target.drop-before{box-shadow:inset 0 3px 0 0 var(--accent);}
   .target.drop-after{box-shadow:inset 0 -3px 0 0 var(--accent);}
+  .card.discd.dragging{opacity:.45;}
+  .card.discd.drop-before{box-shadow:inset 0 3px 0 0 var(--accent);}
+  .card.discd.drop-after{box-shadow:inset 0 -3px 0 0 var(--accent);}
   .grip{cursor:grab;color:var(--faint);font-size:13px;line-height:1;user-select:none;}
   /* roadmap plot (scatter) */
   .plot{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;overflow-x:auto;}
@@ -151,6 +154,7 @@
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
   @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
   .card.flash{animation:taskflash 1.6s ease-out;}
+  .target.flash{animation:taskflash 1.6s ease-out;}
   .chips{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
@@ -354,6 +358,7 @@ let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let taskSecCollapsed=new Set(); // labels of task sections collapsed to header-only; survives live re-renders
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
+let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
@@ -367,6 +372,7 @@ let rmKbMode="all";          // kanban layout: all (one board) | area (one board
 let rmPlotMode="area";       // plot lanes: area | person
 let rmPeopleActive=null;     // Set of member names to filter the roadmap by assignee; null = no people filter
 let rmDragId=null;           // id of the roadmap target currently being dragged (manual reorder)
+let discDragId=null;         // id of the discipline card being dragged (Team-page reorder)
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
 let rmCollapsed=new Set();   // keys of collapsed Roadmap list sections ("area:<name>"); header-only when collapsed. Survives live re-renders
@@ -748,10 +754,21 @@ async function removeDiscipline(d){
   if(n){banner("\u201c"+d.name+"\u201d is used by "+n+" task"+(n!==1?"s":"")+" \u2014 reassign them first.","err");return;}
   try{await fbDelete("disciplines",d.id);banner("Removed discipline \u201c"+d.name+"\u201d.","ok");}catch(e){banner(e.message,"err");}
 }
-async function moveDiscipline(d,dir){
-  const ds=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0));const i=ds.findIndex(x=>x.id===d.id);const j=i+dir;
-  if(j<0||j>=ds.length)return;const other=ds[j];
-  try{await fbUpdate("disciplines",d.id,{order:other.order??j});await fbUpdate("disciplines",other.id,{order:d.order??i});}catch(e){banner(e.message,"err");}
+async function reorderDiscipline(draggedId,targetId,before){
+  if(draggedId===targetId)return;
+  const all=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0));
+  const dragged=all.find(x=>x.id===draggedId);if(!dragged)return;
+  const arr=all.filter(x=>x.id!==draggedId);
+  let idx=arr.findIndex(x=>x.id===targetId);
+  if(idx<0)idx=arr.length;else if(!before)idx++;
+  arr.splice(idx,0,dragged);
+  // Renumber order in one batched write so the snapshot fires once (single re-render).
+  try{
+    if(!fbReady)throw new Error("Firebase not configured");
+    const batch=writeBatch(db);let changed=0;
+    arr.forEach((x,k)=>{if((x.order??null)!==k){batch.update(doc(db,"disciplines",x.id),{order:k});changed++;}});
+    if(changed)await batch.commit();
+  }catch(e){banner(e.message,"err");}
 }
 /* ---------- Phase ops ---------- */
 async function addPhase(name){
@@ -858,36 +875,47 @@ function renderCapture(m){m=m||document.getElementById("main");
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});
-  // Voice-to-text: append finalised speech to the textarea. Mic button only appears where supported.
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(SR){
+  // Voice-to-text: record audio, transcribe via /api/transcribe (Groq Whisper). Works on iOS/Android/desktop.
+  if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder){
     const hint=document.getElementById("capHint");
     const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
     const blockedMsg="Microphone blocked. Open this site\u2019s settings (the lock/site-info icon in the address bar) \u2192 Microphone \u2192 Allow, then reload."+(isMobile?" Or use your keyboard\u2019s mic key.":"");
     const row=cta.closest(".hero").querySelector(".row");
     const mic=document.createElement("button");mic.type="button";mic.className="btn sm";mic.id="capMic";mic.textContent="\uD83C\uDFA4 Dictate";mic.title="Dictate with your voice";
-    const listening=()=>{mic.style.cssText="background:#c23b3b;border-color:#c23b3b;color:#fff;";mic.textContent="\u25CF Listening\u2026 (click to stop)";};
+    const recUI=()=>{mic.style.cssText="background:#c23b3b;border-color:#c23b3b;color:#fff;";mic.textContent="\u25CF Recording\u2026 (click to stop)";};
+    let chunks=[],stream=null;
     mic.onclick=async()=>{
       if(speechRec){stopSpeech();return;}
-      // Force the standard mic permission chooser — Web Speech alone can silently fail when the choice is
-      // undecided; getUserMedia reliably surfaces the Allow/Block prompt. (If already blocked, reset it in site settings.)
-      if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
-        try{const s=await navigator.mediaDevices.getUserMedia({audio:true});s.getTracks().forEach(tr=>tr.stop());}
-        catch(err){hint.textContent=blockedMsg;return;}
-      }
-      const rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;
-      rec.onresult=e=>{let interim="";
-        for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];
-          if(r.isFinal){const txt=r[0].transcript.trim();if(txt){cta.value=(cta.value.trim()?cta.value.replace(/\s+$/,"")+" ":"")+txt+" ";captureText=cta.value;}}
-          else interim+=r[0].transcript;}
-        hint.textContent=interim?("\u2026"+interim):"Listening\u2026";};
-      rec.onerror=ev=>{hint.textContent=ev.error==="not-allowed"?blockedMsg:"Voice input error: "+ev.error;stopSpeech();};
-      rec.onend=()=>{stopSpeech();};
-      speechRec=rec;try{rec.start();listening();}catch(e){hint.textContent="Couldn\u2019t start voice input.";speechRec=null;}
+      // getUserMedia surfaces the Allow/Block prompt; if already blocked, reset it in site settings (blockedMsg).
+      try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}
+      catch(err){hint.textContent=blockedMsg;return;}
+      chunks=[];let rec;
+      try{rec=new MediaRecorder(stream);}catch(e){hint.textContent="Couldn't start recording.";stream.getTracks().forEach(t=>t.stop());stream=null;return;}
+      rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+      rec.onstop=async()=>{
+        if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+        speechRec=null;mic.style.cssText="";mic.textContent="\ud83c\udfa4 Dictate";
+        if(chunks.length)await transcribeBlob(new Blob(chunks,{type:rec.mimeType||"audio/webm"}),cta,hint);
+      };
+      speechRec=rec;try{rec.start();recUI();}catch(e){hint.textContent="Couldn't start recording.";speechRec=null;}
     };
     row.appendChild(mic);
-    if(speechRec)listening();   // returning to Capture mid-session: reflect the running state
+    if(speechRec)recUI();   // returning to Capture mid-recording: reflect the running state
   }}
+// Send a recorded audio blob to /api/transcribe (Groq Whisper) and append the returned text to the Capture box.
+async function transcribeBlob(blob,cta,hint){
+  hint.textContent="Transcribing…";
+  try{
+    const bytes=new Uint8Array(await blob.arrayBuffer());let bin="";const CH=0x8000;
+    for(let i=0;i<bytes.length;i+=CH)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH));
+    const r=await fetch(TRANSCRIBE_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({audio:btoa(bin),mime:blob.type||"audio/webm"})});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||("HTTP "+r.status));
+    const txt=(data.text||"").trim();
+    if(txt){cta.value=(cta.value.trim()?cta.value.replace(/\s+$/,"")+" ":"")+txt+" ";captureText=cta.value;}
+    hint.textContent=txt?"":"No speech detected.";
+  }catch(e){hint.textContent="Transcription failed: "+(e.message||"error");console.error(e);}
+}
 
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
@@ -1076,6 +1104,15 @@ function goToRoadmapTasks(r){
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
   setPage("tasks");
+}
+// Jump to a target on the main Roadmap (List) view: flip to list, clear area/people filters and expand its
+// section so the card is in the DOM, then renderRoadmapList honours focusRoadmapId to scroll + flash it.
+function goToRoadmapItem(r){
+  focusRoadmapId=r.id;
+  roadmapView="list";
+  rmActive=null;rmPeopleActive=null;
+  rmCollapsed.delete("area:"+r.area);
+  setPage("roadmap");
 }
 function renderTasks(m){
   m=m||document.getElementById("main");m.innerHTML="";
@@ -1344,9 +1381,14 @@ function openRoadmapModal(r){
   save.onclick=async()=>{await setTarget(r.id,{area:areaSel.value,phase:phaseSel.value});close();renderRoadmap();banner("Updated “"+r.title+"”.","ok");};
   const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
   foot.append(save,cancel);
+  // Jump to this item on the main Roadmap (List) view — always available since every target lives there.
+  const goRm=document.createElement("button");goRm.className="btn sm";goRm.style.marginLeft="auto";
+  goRm.textContent="Go to roadmap item →";goRm.title="Show this item on the main roadmap view";
+  goRm.onclick=()=>{close();goToRoadmapItem(r);};
+  foot.appendChild(goRm);
   // Jump to the linked task(s) on the Tasks board. With several, focus the first (goToTask relaxes filters so the rest show too).
   if(linked.length){
-    const go=document.createElement("button");go.className="btn sm";go.style.marginLeft="auto";
+    const go=document.createElement("button");go.className="btn sm";
     go.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";
     go.onclick=()=>{close();goToRoadmapTasks(r);};
     foot.appendChild(go);
@@ -1474,7 +1516,7 @@ function targetForm(r,onDone,onCancel){
   return wrap;
 }
 function targetCard(r,group){
-  const el=document.createElement("div");el.className="target";
+  const el=document.createElement("div");el.className="target";el.dataset.rid=r.id;
   const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
   const ac=areaColor(r.area);
   const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
@@ -1726,6 +1768,7 @@ function renderRoadmapList(m){
     const manual=rmSort==="manual";const grp=sortTargets(items);
     grp.forEach(r=>m.appendChild(targetCard(r,manual?grp:null)));
   });
+  if(focusRoadmapId){requestAnimationFrame(()=>{const el=m.querySelector('[data-rid="'+focusRoadmapId+'"]');if(el){focusRoadmapId=null;el.scrollIntoView({behavior:"smooth",block:"center"});el.classList.add("flash");setTimeout(()=>el.classList.remove("flash"),1600);}});}
 }
 // Build one phase-column kanban board for a set of targets.
 function appendKanban(m,targets){
@@ -2382,8 +2425,9 @@ function renderTeam(m){
   const csorted=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0));
   const cgrid=document.createElement("div");cgrid.className="grid";
   csorted.forEach((d,idx)=>{
-    const card=document.createElement("div");card.className="card";
+    const card=document.createElement("div");card.className="card discd";card.draggable=true;
     const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:8px;";
+    const grip=document.createElement("span");grip.textContent="\u2807";grip.title="Drag to reorder";grip.style.cssText="cursor:grab;color:var(--muted,#7a7f88);flex:none;";head.appendChild(grip);
     const sw=document.createElement("input");sw.type="color";sw.value=(d.color||"#888888");sw.title="Discipline colour";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
     sw.onchange=()=>setDiscipline(d.id,{color:sw.value});
     const nm=document.createElement("div");nm.className="ctitle";nm.style.color=d.color||"#333";nm.textContent=d.name;
@@ -2391,17 +2435,22 @@ function renderTeam(m){
     const cnt=DB.tasks.filter(t=>!t.trashed&&t.category===d.name).length;
     card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+cnt+' task'+(cnt!==1?'s':'')+'</div>');
     const acts=document.createElement("div");acts.className="acts";
-    const up=document.createElement("button");up.textContent="\u25B2";up.title="Move up";up.disabled=idx===0;up.onclick=()=>moveDiscipline(d,-1);
-    const dn=document.createElement("button");dn.textContent="\u25BC";dn.title="Move down";dn.disabled=idx===csorted.length-1;dn.onclick=()=>moveDiscipline(d,1);
     const ren=document.createElement("button");ren.textContent="Rename";
     const rem=document.createElement("button");rem.className="rm";rem.textContent="Remove";
-    acts.append(up,dn,ren,rem);card.appendChild(acts);
+    acts.append(ren,rem);card.appendChild(acts);
     const rp=document.createElement("div");rp.className="pop";
     const ri=document.createElement("input");ri.className="ctrl";ri.value=d.name;
     const rb=document.createElement("button");rb.className="btn primary sm";rb.style.alignSelf="flex-start";rb.textContent="Save name";
     rb.onclick=()=>{const v=ri.value.trim();if(v){renameDiscipline(d,v);rp.classList.remove("open");}};
     rp.append(ri,rb);card.appendChild(rp);
-    ren.onclick=()=>{rp.classList.toggle("open");if(rp.classList.contains("open"))ri.focus();};
+    const syncDrag=()=>{card.draggable=!rp.classList.contains("open");};
+    ren.onclick=()=>{rp.classList.toggle("open");syncDrag();if(rp.classList.contains("open"))ri.focus();};
+    const clearDM=()=>document.querySelectorAll(".discd.drop-before,.discd.drop-after").forEach(n=>n.classList.remove("drop-before","drop-after"));
+    card.addEventListener("dragstart",e=>{if(!card.draggable){e.preventDefault();return;}discDragId=d.id;e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",d.id);}catch(_){}card.classList.add("dragging");});
+    card.addEventListener("dragend",()=>{discDragId=null;card.classList.remove("dragging");clearDM();});
+    card.addEventListener("dragover",e=>{if(!discDragId||discDragId===d.id)return;e.preventDefault();e.dataTransfer.dropEffect="move";const rect=card.getBoundingClientRect();const before=(e.clientY-rect.top)<rect.height/2;card.classList.toggle("drop-before",before);card.classList.toggle("drop-after",!before);});
+    card.addEventListener("dragleave",()=>card.classList.remove("drop-before","drop-after"));
+    card.addEventListener("drop",e=>{if(!discDragId||discDragId===d.id)return;e.preventDefault();const before=card.classList.contains("drop-before");clearDM();reorderDiscipline(discDragId,d.id,before);});
     rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove \u201c"+d.name+"\u201d?";y.onclick=()=>removeDiscipline(d);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     cgrid.appendChild(card);
   });
