@@ -731,10 +731,10 @@ async function renameArea(area,newName){
 }
 /* ---------- Discipline ops ---------- */
 async function addDiscipline(name){
-  if(DB.disciplines.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That discipline already exists.","err");return;}
+  if(DB.disciplines.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That discipline already exists.","err");return false;}
   const used=DB.disciplines.map(d=>d.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.disciplines.length%AREA_POOL.length];
   const order=DB.disciplines.reduce((mx,d)=>Math.max(mx,d.order??0),-1)+1;
-  try{await fbAdd("disciplines",{name,color,order});banner("Added discipline \u201c"+name+"\u201d.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("disciplines",{name,color,order});banner("Added discipline \u201c"+name+"\u201d.","ok");return true;}catch(e){banner(e.message,"err");return false;}
 }
 async function setDiscipline(id,patch){try{await fbUpdate("disciplines",id,patch);}catch(e){banner(e.message,"err");}}
 async function renameDiscipline(d,newName){
@@ -2320,25 +2320,65 @@ function renderProposedTasks(a,tasks,container){
 
 /* ---------- Team & Domains ops ---------- */
 async function addMember(name,email){
-  if(roster().some(m=>m.name.toLowerCase()===name.toLowerCase())){banner("That person is already on the team.","err");return;}
+  if(roster().some(m=>m.name.toLowerCase()===name.toLowerCase())){banner("That person is already on the team.","err");return false;}
   const used=DB.members.map(m=>m.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.members.length%AREA_POOL.length];
-  try{await fbAdd("members",{name,email:email||"",color});banner("Added "+name+".","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("members",{name,email:email||"",color});banner("Added "+name+".","ok");return true;}catch(e){banner(e.message,"err");return false;}
 }
 async function renameMember(id,name){try{await fbUpdate("members",id,{name});banner("Renamed.","ok");}catch(e){banner(e.message,"err");}}
 async function setMember(id,patch){try{await fbUpdate("members",id,patch);banner("Saved.","ok");}catch(e){banner(e.message,"err");}}
 async function removeMember(mem){try{await fbDelete("members",mem.id);banner("Removed "+mem.name+".","ok");}catch(e){banner(e.message,"err");}}
 async function addDomain(name){
-  if(DB.domains.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That domain already exists.","err");return;}
+  if(DB.domains.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That domain already exists.","err");return false;}
   const used=DB.domains.map(d=>d.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.domains.length%AREA_POOL.length];
-  try{await fbAdd("domains",{name,color,owners:[]});banner("Added domain “"+name+"”.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("domains",{name,color,owners:[]});banner("Added domain “"+name+"”.","ok");return true;}catch(e){banner(e.message,"err");return false;}
 }
 async function setDomain(id,patch){try{await fbUpdate("domains",id,patch);}catch(e){banner(e.message,"err");}}
 async function removeDomain(d){try{await fbDelete("domains",d.id);banner("Removed domain “"+d.name+"”.","ok");}catch(e){banner(e.message,"err");}}
 
+// Generic modal: dim overlay + centered card with a title and ×; closes on ×, backdrop, or Esc. No global
+// state and never stacks, so it can't wedge navigation. build(card, close) fills the body (card is in the DOM).
+function openModal(title, build){
+  document.querySelectorAll(".gp-modal-ov").forEach(el=>el.remove());
+  const ov=document.createElement("div");ov.className="gp-modal-ov";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(20,23,31,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px;";
+  const card=document.createElement("div");
+  card.style.cssText="background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:16px;width:100%;max-width:420px;max-height:85vh;overflow:auto;padding:20px;box-shadow:0 24px 60px rgba(0,0,0,.32);";
+  const close=()=>{document.removeEventListener("keydown",onKey);ov.remove();};
+  const onKey=e=>{if(e.key==="Escape"){e.preventDefault();close();}};
+  document.addEventListener("keydown",onKey);
+  ov.addEventListener("click",e=>{if(e.target===ov)close();});
+  const head=document.createElement("div");head.style.cssText="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;";
+  head.innerHTML='<div style="font-weight:700;font-size:16px;flex:1;">'+esc(title)+'</div>';
+  const xb=document.createElement("button");xb.textContent="×";xb.title="Close";xb.style.cssText="border:none;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0 2px;";xb.onclick=close;
+  head.appendChild(xb);card.appendChild(head);
+  ov.appendChild(card);document.body.appendChild(ov);
+  build(card, close);
+  return close;
+}
 function renderTeam(m){
   m=m||document.getElementById("main");m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Team</div><p class="pagesub">Your people and their domains — areas of expertise that show who has authority over a kind of development.</p>');
-  m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm">Members</span><span class="cat-count">'+roster().length+'</span></div>');
+  // Each section's "+ Add" button lives top-right of its header and opens a modal (no inline add rows).
+  const sectionHead=(name,count,onAdd,addLabel,sub)=>{
+    const h=document.createElement("div");h.className="areahead";
+    h.innerHTML='<span class="nm">'+esc(name)+'</span><span class="cat-count">'+count+'</span>';
+    const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent=addLabel;add.onclick=onAdd;
+    h.appendChild(add);m.appendChild(h);
+    if(sub)m.insertAdjacentHTML("beforeend",'<p class="pagesub">'+sub+'</p>');
+  };
+  const fieldModal=(title,placeholder,btnLabel,addFn,opts)=>openModal(title,(card,close)=>{
+    const ni=document.createElement("input");ni.className="ctrl";ni.placeholder=placeholder;ni.style.cssText="width:100%;margin-bottom:8px;";
+    let ne=null;
+    if(opts&&opts.email){ne=document.createElement("input");ne.className="ctrl";ne.type="email";ne.placeholder="Email (optional — for Meet invites)";ne.style.cssText="width:100%;margin-bottom:8px;";}
+    const save=document.createElement("button");save.className="btn primary";save.style.marginTop="4px";save.textContent=btnLabel;
+    const submit=async()=>{const n=ni.value.trim();if(!n){banner("Enter a name.","err");return;}if(await addFn(n,ne?ne.value.trim():undefined))close();};
+    save.onclick=submit;ni.addEventListener("keydown",e=>{if(e.key==="Enter")submit();});if(ne)ne.addEventListener("keydown",e=>{if(e.key==="Enter")submit();});
+    card.append(ni);if(ne)card.append(ne);card.append(save);ni.focus();
+  });
+  const addMemberModal=()=>fieldModal("Add member","Name","Add member",addMember,{email:true});
+  const addDomainModal=()=>fieldModal("Add domain","Domain name (e.g. Data Pipeline)","Add domain",addDomain);
+  const addDisciplineModal=()=>fieldModal("Add discipline","Discipline name (e.g. QA)","Add discipline",addDiscipline);
+  sectionHead("Members",roster().length,addMemberModal,"+ Add member");
   const grid=document.createElement("div");grid.className="grid";
   roster().forEach(mem=>{
     const owns=DB.domains.filter(d=>(d.owners||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()));
@@ -2382,17 +2422,9 @@ function renderTeam(m){
     grid.appendChild(card);
   });
   m.appendChild(grid);
-  const addRow=document.createElement("div");addRow.style.cssText="display:flex;gap:8px;margin:12px 0 24px;flex-wrap:wrap;";
-  const ni=document.createElement("input");ni.className="ctrl";ni.placeholder="New member name";ni.style.width="200px";
-  const ne=document.createElement("input");ne.className="ctrl";ne.type="email";ne.placeholder="email (optional)";ne.style.width="220px";
-  const nb=document.createElement("button");nb.className="btn";nb.textContent="+ Add member";
-  const doAdd=()=>{if(ni.value.trim()){addMember(ni.value.trim(),ne.value.trim());ni.value="";ne.value="";}};
-  nb.onclick=doAdd;
-  ni.addEventListener("keydown",e=>{if(e.key==="Enter")doAdd();});
-  ne.addEventListener("keydown",e=>{if(e.key==="Enter")doAdd();});
-  addRow.append(ni,ne,nb);m.appendChild(addRow);
-  m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm">Domains</span><span class="cat-count">'+DB.domains.length+'</span></div><p class="pagesub">Areas of expertise. Assign owners to show who has authority over that kind of development.</p>');
-  if(!DB.domains.length)m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No domains yet — add one below.</div>');
+  m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
+  sectionHead("Domains",DB.domains.length,addDomainModal,"+ Add domain","Areas of expertise. Assign owners to show who has authority over that kind of development.");
+  if(!DB.domains.length)m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No domains yet — use “+ Add domain” above.</div>');
   const dgrid=document.createElement("div");dgrid.className="grid";
   DB.domains.forEach(d=>{
     const card=document.createElement("div");card.className="card";
@@ -2414,14 +2446,9 @@ function renderTeam(m){
     dgrid.appendChild(card);
   });
   m.appendChild(dgrid);
-  const dr=document.createElement("div");dr.style.cssText="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;";
-  const di=document.createElement("input");di.className="ctrl";di.placeholder="New domain (e.g. Data Pipeline)";di.style.width="220px";
-  const dbtn=document.createElement("button");dbtn.className="btn";dbtn.textContent="+ Add domain";
-  dbtn.onclick=()=>{if(di.value.trim()){addDomain(di.value.trim());di.value="";}};
-  di.addEventListener("keydown",e=>{if(e.key==="Enter"&&di.value.trim()){addDomain(di.value.trim());di.value="";}});
-  dr.append(di,dbtn);m.appendChild(dr);
+  m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
   // Disciplines manager — create/rename/recolour/reorder/remove the task categories (CATS) used app-wide.
-  m.insertAdjacentHTML("beforeend",'<div class="areahead" style="margin-top:22px;"><span class="nm">Disciplines</span><span class="cat-count">'+DB.disciplines.length+'</span></div><p class="pagesub">Task categories used across Capture, Tasks and filters \u2014 colour-coded everywhere.</p>');
+  sectionHead("Disciplines",DB.disciplines.length,addDisciplineModal,"+ Add discipline","Task categories used across Capture, Tasks and filters \u2014 colour-coded everywhere.");
   const csorted=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0));
   const cgrid=document.createElement("div");cgrid.className="grid";
   csorted.forEach((d,idx)=>{
@@ -2455,12 +2482,6 @@ function renderTeam(m){
     cgrid.appendChild(card);
   });
   m.appendChild(cgrid);
-  const cr2=document.createElement("div");cr2.style.cssText="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;";
-  const ci=document.createElement("input");ci.className="ctrl";ci.placeholder="New discipline (e.g. QA)";ci.style.width="220px";
-  const cbtn=document.createElement("button");cbtn.className="btn";cbtn.textContent="+ Add discipline";
-  cbtn.onclick=()=>{if(ci.value.trim()){addDiscipline(ci.value.trim());ci.value="";}};
-  ci.addEventListener("keydown",e=>{if(e.key==="Enter"&&ci.value.trim()){addDiscipline(ci.value.trim());ci.value="";}});
-  cr2.append(ci,cbtn);m.appendChild(cr2);
 }
 
 /* ---------- Auth gate ---------- */
