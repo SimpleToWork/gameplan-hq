@@ -987,13 +987,11 @@ function taskCard(t){
   const epop=document.createElement("div");epop.className="pop";
   const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.width="100%";
   const cx=document.createElement("textarea");cx.className="ctrl";cx.value=t.context||"";cx.placeholder="Context / notes";
-  const du=document.createElement("input");du.className="ctrl";du.type="date";du.value=t.due||"";
   const eSave=document.createElement("button");eSave.className="btn primary sm";eSave.style.alignSelf="flex-start";eSave.textContent="Save";
-  eSave.onclick=()=>{if(!ti.value.trim()){banner("Title can’t be empty.","err");return;}setTask(t.id,{title:ti.value.trim(),context:cx.value.trim(),due:du.value||""});banner("Task updated.","ok");epop.classList.remove("open");};
+  eSave.onclick=()=>{if(!ti.value.trim()){banner("Title can’t be empty.","err");return;}setTask(t.id,{title:ti.value.trim(),context:cx.value.trim()});banner("Task updated.","ok");epop.classList.remove("open");};
   const eLbl1=document.createElement("label");eLbl1.className="cmeta";eLbl1.textContent="Title";
   const eLbl2=document.createElement("label");eLbl2.className="cmeta";eLbl2.textContent="Description / notes";
-  const eLbl3=document.createElement("label");eLbl3.className="cmeta";eLbl3.textContent="Due date";
-  epop.append(eLbl1,ti,eLbl2,cx,eLbl3,du,eSave);d.appendChild(epop);
+  epop.append(eLbl1,ti,eLbl2,cx,eSave);d.appendChild(epop);
   edit.onclick=()=>epop.classList.toggle("open");
   // roadmap pop -> searchable, area-grouped single-select picker (replaces the old flat title dropdown).
   const rpop=document.createElement("div");rpop.className="pop";
