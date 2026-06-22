@@ -1379,8 +1379,13 @@ function renderTasks(m){
   trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
   trow.append(collExp);
+  // Third sticky bar: the expanded filter-option rows, so the selectable options stay in reach (not just their toggles)
+  // while scrolling. z-4 tucks it under trow (z-5). When every group is collapsed the child rows are display:none, so it
+  // has zero height and is invisible; its shadow then coincides with trow's. Its `top` is set after it's measured below.
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf,rf);
+  panelWrap.style.cssText="position:sticky;z-index:4;background:var(--canvas);box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   m.append(trow,panelWrap);
+  panelWrap.style.top=(hh+vb.offsetHeight+trow.offsetHeight-1)+"px"; // stacked below trow, now that trow's height is known
   if(_refocusSearch){searchInp.focus();try{searchInp.setSelectionRange(_searchCaret,_searchCaret);}catch(_){}}
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
