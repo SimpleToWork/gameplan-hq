@@ -115,6 +115,10 @@
   .card.discd.dragging{opacity:.45;}
   .card.discd.drop-before{box-shadow:inset 0 3px 0 0 var(--accent);}
   .card.discd.drop-after{box-shadow:inset 0 -3px 0 0 var(--accent);}
+  input[type=color].cswatch{-webkit-appearance:none;-moz-appearance:none;appearance:none;border:none;border-radius:50%;padding:0;overflow:hidden;}
+  input[type=color].cswatch::-webkit-color-swatch-wrapper{padding:0;}
+  input[type=color].cswatch::-webkit-color-swatch{border:none;border-radius:50%;}
+  input[type=color].cswatch::-moz-color-swatch{border:none;border-radius:50%;}
   .grip{cursor:grab;color:var(--faint);font-size:13px;line-height:1;user-select:none;}
   /* roadmap plot (scatter) */
   .plot{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;overflow-x:auto;}
@@ -1646,7 +1650,7 @@ function renderRoadmap(m){
   areasSorted().forEach(a=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     const anm=document.createElement("span");anm.textContent=a.name;anm.style.cursor="pointer";anm.title="Click to rename area";chip.appendChild(anm);
-    const sw=document.createElement("input");sw.type="color";sw.value=a.color;sw.title="Area color";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setArea(a.id,{color:sw.value});
+    const sw=document.createElement("input");sw.type="color";sw.value=a.color;sw.title="Area color";sw.className="cswatch";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setArea(a.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename area";ed.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:15px;line-height:1;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:18px;line-height:1;padding:0;";
     ed.onclick=()=>{
@@ -1676,7 +1680,7 @@ function renderRoadmap(m){
   phasesSorted().forEach(p=>{
     const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
     const nm=document.createElement("span");nm.textContent=p.name;nm.style.cursor="pointer";nm.title="Click to rename phase";
-    const sw=document.createElement("input");sw.type="color";sw.value=p.color;sw.title="Phase color";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setPhase(p.id,{color:sw.value});
+    const sw=document.createElement("input");sw.type="color";sw.value=p.color;sw.title="Phase color";sw.className="cswatch";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setPhase(p.id,{color:sw.value});
     const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename phase";ed.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:15px;padding:0;";
     const x=document.createElement("button");x.textContent="×";x.title="Remove phase";x.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:18px;padding:0;";
     ed.onclick=()=>{chip.innerHTML="";const inp=document.createElement("input");inp.value=p.name;inp.style.cssText="border:1px solid "+p.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:120px;";const ok=document.createElement("button");ok.textContent="✓";ok.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:16px;padding:0;";const cn=document.createElement("button");cn.textContent="×";cn.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";const save=()=>{const v=inp.value.trim();if(!v||v===p.name){renderRoadmap();return;}renamePhase(p,v);};ok.onclick=save;cn.onclick=()=>renderRoadmap();inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});chip.append(inp,ok,cn);inp.focus();inp.select();};
@@ -2455,7 +2459,7 @@ function renderTeam(m){
     const card=document.createElement("div");card.className="card discd";card.draggable=true;
     const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:8px;";
     const grip=document.createElement("span");grip.textContent="\u2807";grip.title="Drag to reorder";grip.style.cssText="cursor:grab;color:var(--muted,#7a7f88);flex:none;";head.appendChild(grip);
-    const sw=document.createElement("input");sw.type="color";sw.value=(d.color||"#888888");sw.title="Discipline colour";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
+    const sw=document.createElement("input");sw.type="color";sw.value=(d.color||"#888888");sw.title="Discipline colour";sw.className="cswatch";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
     sw.onchange=()=>setDiscipline(d.id,{color:sw.value});
     const nm=document.createElement("div");nm.className="ctitle";nm.style.color=d.color||"#333";nm.textContent=d.name;
     head.append(sw,nm);card.appendChild(head);
