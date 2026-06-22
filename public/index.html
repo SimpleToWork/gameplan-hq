@@ -1427,8 +1427,10 @@ function renderTasks(m){
     wrap.appendChild(headEl);
     if(!col){
       const grid=document.createElement("div");grid.className="grid";
-      const sd=sortDividers(taskSort);let prevKey;
-      sec.items.forEach(t=>{const k=sd.key(t);if(prevKey!==undefined&&k!==prevKey)grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
+      const sd=sortDividers(taskSort);const multi=new Set(sec.items.map(sd.key)).size>1;let prevKey;
+      // Label every sort group incl. the first — but only when the section has >1 group, so single-group
+      // sections (and the degenerate Group==Sort case) don't show a divider that just repeats the header.
+      sec.items.forEach(t=>{const k=sd.key(t);if(multi&&(prevKey===undefined||k!==prevKey))grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
       wrap.appendChild(grid);
     }
     m.appendChild(wrap);
