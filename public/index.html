@@ -2098,6 +2098,16 @@ function renderAgendas(m){
     if((a.attendees||[]).length)a.attendees.forEach(n=>atts.appendChild(attendeeChip(n)));
     else atts.innerHTML='<span class="cmeta">no attendees yet</span>';
     el.appendChild(atts);
+    // Inline attendee editor — add/remove people on the card without opening the editor; syncs the Calendar invite.
+    const peoBtn=document.createElement("button");peoBtn.className="btn sm";peoBtn.textContent="People";peoBtn.style.marginTop="6px";
+    const peoPop=document.createElement("div");peoPop.className="pop";
+    const peoSel=new Set(a.attendees||[]);
+    roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=peoSel.has(mem.name);cb.onchange=()=>{cb.checked?peoSel.add(mem.name):peoSel.delete(mem.name);};const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";margin:0 5px 0 2px;";l.append(cb,sw,document.createTextNode(mem.name+(memberEmail(mem.name)?"":" (no email)")));peoPop.appendChild(l);});
+    const peoApply=document.createElement("button");peoApply.className="btn primary sm";peoApply.style.alignSelf="flex-start";peoApply.textContent="Apply";
+    peoApply.onclick=async()=>{const attendees=[...peoSel];try{await fbUpdate("agendas",a.id,{attendees});banner("Attendees updated.","ok");updateMeetForAgenda(Object.assign({},a,{attendees}));}catch(e){banner(e.message,"err");}peoPop.classList.remove("open");};
+    peoPop.appendChild(peoApply);
+    peoBtn.onclick=()=>peoPop.classList.toggle("open");
+    el.append(peoBtn,peoPop);
     // Google Meet link (or a button to generate one)
     const meet=document.createElement("div");meet.style.cssText="margin-top:6px;";
     if(a.meetLink){
