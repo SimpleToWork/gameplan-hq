@@ -52,17 +52,25 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-// Build start/end {dateTime,timeZone} from a YYYY-MM-DD date using the configured tz.
-function window(date) {
+// Build start/end {dateTime,timeZone} from a YYYY-MM-DD date plus an optional HH:MM time and IANA timezone.
+// Falls back to the configured defaults (START_HOUR / TZ) when a per-meeting time or zone isn't supplied.
+// dateTime is a naive local wall-clock string + a timeZone field, so Google handles DST correctly.
+function window(date, time, tz) {
   const d = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : new Date().toISOString().slice(0, 10);
   const pad = n => String(n).padStart(2, "0");
-  const start = `${d}T${pad(START_HOUR)}:00:00`;
-  const endH = START_HOUR + Math.floor(DURATION_MIN / 60);
-  const endM = DURATION_MIN % 60;
-  const end = `${d}T${pad(endH)}:${pad(endM)}:00`;
+  const zone = (typeof tz === "string" && tz.trim()) ? tz.trim() : TZ;
+  let sh = START_HOUR, sm = 0;
+  if (typeof time === "string" && /^\d{1,2}:\d{2}$/.test(time)) {
+    const [h, m] = time.split(":").map(Number);
+    if (h >= 0 && h < 24 && m >= 0 && m < 60) { sh = h; sm = m; }
+  }
+  const start = `${d}T${pad(sh)}:${pad(sm)}:00`;
+  let eTotal = sh * 60 + sm + DURATION_MIN, endDay = d;
+  if (eTotal >= 1440) { eTotal -= 1440; endDay = new Date(Date.parse(d + "T00:00:00Z") + 86400000).toISOString().slice(0, 10); }
+  const end = `${endDay}T${pad(Math.floor(eTotal / 60))}:${pad(eTotal % 60)}:00`;
   return {
-    start: { dateTime: start, timeZone: TZ },
-    end: { dateTime: end, timeZone: TZ }
+    start: { dateTime: start, timeZone: zone },
+    end: { dateTime: end, timeZone: zone }
   };
 }
 
@@ -114,7 +122,7 @@ export default async function handler(req, res) {
   }
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
-  const { action = "create", title, date, description, attendees, eventId } = req.body || {};
+  const { action = "create", title, date, time, tz, description, attendees, eventId } = req.body || {};
   // Auto-invite the Fireflies notetaker bot so it joins every meeting. Override or
   // disable via the NOTETAKER_EMAIL env var (set to "" to turn it off).
   const NOTETAKER_EMAIL = process.env.NOTETAKER_EMAIL ?? "fred@fireflies.ai";
@@ -163,7 +171,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { start, end } = window(date);
+    const { start, end } = window(date, time, tz);
     const body = {
       summary: title || "Meeting",
       description: description || "",

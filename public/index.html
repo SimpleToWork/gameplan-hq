@@ -1928,22 +1928,33 @@ async function planMeeting(){
 function agendaForm(a,onDone,onCancel){
   const wrap=document.createElement("div");
   const att=new Set(a&&a.attendees?a.attendees:[]);
+  // Timezone choices — common IANA zones; default to the agenda's saved tz, else the browser's zone.
+  const TZ_LIST=["America/New_York","America/Chicago","America/Denver","America/Phoenix","America/Los_Angeles","America/Anchorage","Pacific/Honolulu","UTC","Europe/London","Europe/Paris","Europe/Berlin","Asia/Kolkata","Asia/Singapore","Asia/Tokyo","Australia/Sydney"];
+  let browserTz="America/New_York";try{browserTz=Intl.DateTimeFormat().resolvedOptions().timeZone||browserTz;}catch(e){}
+  const curTz=(a&&a.tz)||browserTz;
+  const tzChoices=TZ_LIST.includes(curTz)?TZ_LIST:[curTz].concat(TZ_LIST);
+  const tzOptions=tzChoices.map(z=>'<option value="'+esc(z)+'"'+(z===curTz?' selected':'')+'>'+esc(z)+'</option>').join("");
   wrap.innerHTML='<div class="field"><label>Meeting title</label><input class="ctrl" data-fld="title" placeholder="e.g. Cache rollout review"></div>'+
     '<div class="field"><label>Date</label><input class="ctrl" data-fld="date" type="date"></div>'+
+    '<div class="field"><label>Time</label><input class="ctrl" data-fld="time" type="time"></div>'+
+    '<div class="field"><label>Timezone</label><select class="ctrl" data-fld="tz">'+tzOptions+'</select></div>'+
     '<div class="field"><label>Attendees</label><div class="agPeople" style="display:flex;flex-wrap:wrap;gap:10px;">'+
       roster().map(mem=>'<label class="opt"><input type="checkbox" data-name="'+esc(mem.name)+'"'+(att.has(mem.name)?" checked":"")+'> <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+(mem.color||"#9aa0a8")+';margin-right:3px;"></span>'+esc(mem.name)+'</label>').join("")+'</div></div>';
   wrap.querySelector('[data-fld="title"]').value=a?a.title||"":"";
   wrap.querySelector('[data-fld="date"]').value=a?a.date||"":"";
+  wrap.querySelector('[data-fld="time"]').value=a?a.time||"":"";
   const btns=document.createElement("div");btns.style.cssText="display:flex;gap:8px;margin-top:4px;";
   const save=document.createElement("button");save.className="btn primary";save.textContent=a?"Save changes":"Create agenda";
   save.onclick=async()=>{
     const title=wrap.querySelector('[data-fld="title"]').value.trim();
     if(!title){banner("Give the meeting a title.","err");return;}
     const date=wrap.querySelector('[data-fld="date"]').value;
+    const time=wrap.querySelector('[data-fld="time"]').value;
+    const tz=wrap.querySelector('[data-fld="tz"]').value;
     const attendees=Array.from(wrap.querySelectorAll('.agPeople input:checked')).map(x=>x.dataset.name);
     try{
-      if(a){await fbUpdate("agendas",a.id,{title,date,attendees});banner("Agenda updated.","ok");updateMeetForAgenda(Object.assign({},a,{title,date,attendees}));}
-      else{const newId=await fbAdd("agendas",{title,date,attendees,roadmapIds:[],notes:""});banner("Agenda created.","ok");createMeetForAgenda({id:newId,title,date,attendees,roadmapIds:[]},true);}
+      if(a){await fbUpdate("agendas",a.id,{title,date,time,tz,attendees});banner("Agenda updated.","ok");updateMeetForAgenda(Object.assign({},a,{title,date,time,tz,attendees}));}
+      else{const newId=await fbAdd("agendas",{title,date,time,tz,attendees,roadmapIds:[],notes:""});banner("Agenda created.","ok");createMeetForAgenda({id:newId,title,date,time,tz,attendees,roadmapIds:[]},true);}
       if(onDone)onDone();
     }catch(e){banner(e.message,"err");}
   };
@@ -1974,7 +1985,7 @@ function renderAgendas(m){
     const ttl=document.createElement("span");ttl.textContent=a.title;ttl.style.flex="1";h.appendChild(ttl);
     const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent="Edit";h.appendChild(editBtn);
     el.appendChild(h);
-    const meta=document.createElement("div");meta.className="agmeta";meta.textContent=a.date?a.date:"No date set";el.appendChild(meta);
+    const meta=document.createElement("div");meta.className="agmeta";meta.textContent=(a.date?a.date:"No date set")+(a.time?" · "+a.time:"")+(a.time&&a.tz?" "+a.tz:"");el.appendChild(meta);
     const atts=document.createElement("div");atts.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;";
     if((a.attendees||[]).length)a.attendees.forEach(n=>atts.appendChild(attendeeChip(n)));
     else atts.innerHTML='<span class="cmeta">no attendees yet</span>';
@@ -2119,7 +2130,7 @@ function meetPayload(a,extra){
   const emails=(a.attendees||[]).map(memberEmail).filter(Boolean);
   const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
   const desc=(items.length?"Agenda:\n"+items.map(r=>"• "+r.title+(r.area?" ("+r.area+")":"")).join("\n"):"Planned in Gameplan HQ.")+"\n\nGameplan HQ";
-  return Object.assign({title:a.title||"Meeting",date:a.date||today(),attendees:emails,description:desc},extra||{});
+  return Object.assign({title:a.title||"Meeting",date:a.date||today(),time:a.time||"",tz:a.tz||"",attendees:emails,description:desc},extra||{});
 }
 async function callMeet(payload){
   const r=await fetch(MEET_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
