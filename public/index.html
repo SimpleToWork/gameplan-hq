@@ -2109,20 +2109,22 @@ function renderAgendas(m){
   {const row=plan.querySelector(".row");row.insertBefore(addBtn,row.querySelector(".hint"));}
   m.appendChild(addBox);
   if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach roadmap items.</div>');return;}
-  // Search box — filters agendas by title/notes/attendees/linked item titles.
-  const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agendaSearch";agS.placeholder="Search agendas\u2026";agS.value=agendaSearch;agS.style.cssText="min-width:160px;max-width:280px;margin:0 0 10px;display:block;";
+  // Search box + collapse toggle on one row.
+  const agbar=document.createElement("div");agbar.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;";
+  const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agendaSearch";agS.placeholder="Search agendas\u2026";agS.value=agendaSearch;agS.style.cssText="flex:1;min-width:160px;max-width:280px;";
   agS.oninput=()=>{agendaSearch=agS.value;renderAgendas();};
-  m.appendChild(agS);
+  agbar.appendChild(agS);
   const shownAg=DB.agendas.filter(agendaSearchMatch);
-  if(!shownAg.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas match</div>Try a different search.</div>');}
-  else{
+  if(shownAg.length){
     // Collapse/expand-all toggle — flips by whether every shown agenda is already collapsed.
     const allCol=shownAg.every(a=>agendaCollapsed.has(a.id));
-    const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="14px 0 10px";
+    const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="0";
     collExp.textContent=allCol?"Expand all":"Collapse all";
     collExp.onclick=()=>{if(allCol)agendaCollapsed.clear();else shownAg.forEach(a=>agendaCollapsed.add(a.id));renderAgendas();};
-    m.appendChild(collExp);
+    agbar.appendChild(collExp);
   }
+  m.appendChild(agbar);
+  if(!shownAg.length)m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas match</div>Try a different search.</div>');
   shownAg.forEach(a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
     const el=document.createElement("div");el.className="ag"+(agendaCollapsed.has(a.id)?" collapsed":"");
