@@ -1348,7 +1348,9 @@ function renderTasks(m){
   const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["roadmap","Roadmap"]];
   const sb=document.createElement("div");sb.className="views";sb.style.cssText="margin:0;margin-left:10px;";
   const sortLab=document.createElement("span");sortLab.className="cmeta";sortLab.style.cssText="align-self:center;margin-right:4px;";sortLab.textContent="Sort by:";sb.appendChild(sortLab);
-  SORT_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskSort===k)b.classList.add("on");b.onclick=()=>{taskSort=k;renderTasks();};sb.appendChild(b);});
+  const sortSel=document.createElement("select");sortSel.className="mini";  // dropdown (mirrors the roadmap-target select) — cleaner than a button row
+  SORT_OPTS.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(taskSort===k)o.selected=true;sortSel.appendChild(o);});
+  sortSel.onchange=()=>{taskSort=sortSel.value;renderTasks();};sb.appendChild(sortSel);
   vb.appendChild(sb);
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
