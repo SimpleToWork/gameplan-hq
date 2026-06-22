@@ -526,12 +526,17 @@ function taskSections(list){
   // deterministic; missing values (no assignee / no date) sort to the end. JS sort is stable.
   const prank=t=>(PRANK[t.priority]??2);
   const firstAssignee=t=>{const a=(t.assignees||[]).filter(Boolean);return a.length?a[0].toLowerCase():null;};
+  // Roadmap-item ordering mirrors the Roadmap page: area (alphabetical, strays appended) → manual order.
+  // Built once per call; tasks unlinked or pointing at a deleted target rank to the end (Infinity).
+  const rmRank=new Map();{let i=0;const areasO=areasSorted().map(a=>a.name);DB.roadmap.forEach(r=>{if(r.area&&!areasO.includes(r.area))areasO.push(r.area);});areasO.forEach(an=>sortManual(DB.roadmap.filter(r=>r.area===an)).forEach(r=>rmRank.set(r.id,i++)));}
+  const rrank=t=>rmRank.has(t.roadmapId)?rmRank.get(t.roadmapId):Infinity;
   const cmp={
     priority:(a,b)=>prank(a)-prank(b),
     status:(a,b)=>{const r=(STATUSES.indexOf(a.status)+1||99)-(STATUSES.indexOf(b.status)+1||99);return r||prank(a)-prank(b);},
     person:(a,b)=>{const pa=firstAssignee(a),pb=firstAssignee(b);if(pa!==pb){if(pa===null)return 1;if(pb===null)return -1;return pa.localeCompare(pb);}return prank(a)-prank(b);},
     entry:(a,b)=>{const da=a.createdAt||"",db=b.createdAt||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
     target:(a,b)=>{const da=a.due||"",db=b.due||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
+    roadmap:(a,b)=>{const r=rrank(a)-rrank(b);return r||prank(a)-prank(b);},
   };
   const sortP=arr=>arr.sort(cmp[taskSort]||cmp.priority);
   if(taskGroup==="timeframe")
@@ -553,6 +558,7 @@ function sortDividers(mode){
   if(mode==="person") return {key:t=>{const a=fa(t);return a?a.toLowerCase():"\uffff";},label:t=>fa(t)||"Unassigned"};
   if(mode==="entry")  return {key:t=>bucketKeyOf(parseDay(t.createdAt)),label:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.createdAt))]};
   if(mode==="target") return {key:t=>bucketKeyOf(parseDay(t.due)),     label:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.due))]};
+  if(mode==="roadmap"){const tt=id=>DB.roadmap.find(r=>r.id===id);return {key:t=>{const r=tt(t.roadmapId);return r?r.id:"";},label:t=>{const r=tt(t.roadmapId);return r?(r.title||"Untitled target"):"No roadmap";}};}
   return {key:t=>t.priority||"",label:t=>t.priority||"No priority"}; // priority (default)
 }
 // Full-width hairline divider with the new group's label; spans every grid column so it forces a row break.
@@ -1339,7 +1345,7 @@ function renderTasks(m){
   GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
   vb.appendChild(gb);
   // Sort-by — orders cards within each section (also a display option, not a filter). Sits beside Group-by.
-  const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"]];
+  const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["roadmap","Roadmap"]];
   const sb=document.createElement("div");sb.className="views";sb.style.cssText="margin:0;margin-left:10px;";
   const sortLab=document.createElement("span");sortLab.className="cmeta";sortLab.style.cssText="align-self:center;margin-right:4px;";sortLab.textContent="Sort by:";sb.appendChild(sortLab);
   SORT_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskSort===k)b.classList.add("on");b.onclick=()=>{taskSort=k;renderTasks();};sb.appendChild(b);});
