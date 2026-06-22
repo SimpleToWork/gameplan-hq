@@ -895,30 +895,39 @@ function renderCapture(m){m=m||document.getElementById("main");
       catch(err){hint.textContent=blockedMsg;return;}
       chunks=[];let rec;
       try{rec=new MediaRecorder(stream);}catch(e){hint.textContent="Couldn't start recording.";stream.getTracks().forEach(t=>t.stop());stream=null;return;}
+      const base=cta.value.trim()?cta.value.replace(/\s+$/,"")+" ":"";  // preserve existing text; the live transcript builds after it
+      let busy=false,timer=null;
+      // Re-transcribe the whole clip-so-far and replace the live portion (Groq is batch, so re-sending the full
+      // growing clip avoids word-boundary garbling). Skips a tick while a previous call is still in flight.
+      const live=async(final)=>{
+        if((busy&&!final)||!chunks.length)return;
+        while(busy)await new Promise(res=>setTimeout(res,120));   // on the final pass, wait for any in-flight call
+        busy=true;
+        try{const txt=await transcribeAudio(new Blob(chunks,{type:rec.mimeType||"audio/webm"}));cta.value=base+txt;captureText=cta.value;hint.textContent=final?"":"\u2026transcribing live";}
+        catch(e){if(final)hint.textContent="Transcription failed: "+(e.message||"error");}
+        busy=false;
+      };
       rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
       rec.onstop=async()=>{
+        if(timer)clearInterval(timer);
         if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
         speechRec=null;mic.style.cssText="";mic.textContent="\ud83c\udfa4 Dictate";
-        if(chunks.length)await transcribeBlob(new Blob(chunks,{type:rec.mimeType||"audio/webm"}),cta,hint);
+        await live(true);   // final, most-accurate pass over the full clip
+        if(cta.value&&!/\s$/.test(cta.value)){cta.value+=" ";captureText=cta.value;}
       };
-      speechRec=rec;try{rec.start();recUI();}catch(e){hint.textContent="Couldn't start recording.";speechRec=null;}
+      speechRec=rec;try{rec.start(1000);recUI();timer=setInterval(()=>live(false),4000);}catch(e){hint.textContent="Couldn't start recording.";speechRec=null;}
     };
     row.appendChild(mic);
     if(speechRec)recUI();   // returning to Capture mid-recording: reflect the running state
   }}
-// Send a recorded audio blob to /api/transcribe (Groq Whisper) and append the returned text to the Capture box.
-async function transcribeBlob(blob,cta,hint){
-  hint.textContent="Transcribing…";
-  try{
-    const bytes=new Uint8Array(await blob.arrayBuffer());let bin="";const CH=0x8000;
-    for(let i=0;i<bytes.length;i+=CH)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH));
-    const r=await fetch(TRANSCRIBE_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({audio:btoa(bin),mime:blob.type||"audio/webm"})});
-    const data=await r.json();
-    if(!r.ok)throw new Error(data.error||("HTTP "+r.status));
-    const txt=(data.text||"").trim();
-    if(txt){cta.value=(cta.value.trim()?cta.value.replace(/\s+$/,"")+" ":"")+txt+" ";captureText=cta.value;}
-    hint.textContent=txt?"":"No speech detected.";
-  }catch(e){hint.textContent="Transcription failed: "+(e.message||"error");console.error(e);}
+// POST a recorded audio blob to /api/transcribe (Groq Whisper); returns the transcript text ("" if none).
+async function transcribeAudio(blob){
+  const bytes=new Uint8Array(await blob.arrayBuffer());let bin="";const CH=0x8000;
+  for(let i=0;i<bytes.length;i+=CH)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH));
+  const r=await fetch(TRANSCRIBE_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({audio:btoa(bin),mime:blob.type||"audio/webm"})});
+  const data=await r.json();
+  if(!r.ok)throw new Error(data.error||("HTTP "+r.status));
+  return (data.text||"").trim();
 }
 
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
