@@ -369,6 +369,7 @@ let focusTaskId=null;        // id of a task to scroll to + highlight on the nex
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
 let roadmapView="list";      // list | timeline | kanban
 let rmSort="manual";         // manual | start | target | added | az | za
+let rmSearch="";             // free-text search over roadmap title/detail; "" = off
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
 let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (collapsed by default for space)
 let rmFilterOpen=true;       // is the area Filter row expanded?
@@ -1348,7 +1349,8 @@ function rmPersonMatch(r){
   if(rmPeopleActive.has(UNASSIGNED)&&!has)return true;
   return (r.assignees||[]).some(n=>rmPeopleActive.has(n));
 }
-function rmFilteredTargets(){const shown=new Set(rmShown());return DB.roadmap.filter(r=>shown.has(r.area)&&rmPersonMatch(r));}
+function rmSearchMatch(r){const q=rmSearch.trim().toLowerCase();if(!q)return true;return (r.title||"").toLowerCase().includes(q)||(r.detail||"").toLowerCase().includes(q);}
+function rmFilteredTargets(){const shown=new Set(rmShown());return DB.roadmap.filter(r=>shown.has(r.area)&&rmPersonMatch(r)&&rmSearchMatch(r));}
 // Group targets into per-assignee buckets (+ an "Unassigned" bucket when shown by the filter).
 function groupByPerson(targets){
   const names=rmPeopleActive?roster().filter(m=>rmPeopleActive.has(m.name)).map(m=>m.name):roster().map(m=>m.name);
@@ -1639,7 +1641,10 @@ function rmScrollRow(labelClass,labelText){
   return{row,scroll,add};
 }
 function renderRoadmap(m){
-  m=m||document.getElementById("main");m.innerHTML="";
+  m=m||document.getElementById("main");
+  // Preserve search-box focus + caret across the per-keystroke re-render (capture before innerHTML teardown).
+  const _rmSe=document.getElementById("rmSearch");const _rmRefocus=!!(_rmSe&&document.activeElement===_rmSe);const _rmCaret=_rmRefocus?(_rmSe.selectionStart??_rmSe.value.length):0;
+  m.innerHTML="";
   if(rmActive===null)rmActive=new Set(DB.areas.map(a=>a.name));
   rmActive=new Set([...rmActive].filter(n=>DB.areas.some(a=>a.name===n)));
   m.insertAdjacentHTML("beforeend",'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"><div class="pagehead" style="margin:0;">Roadmap</div><p class="pagesub" style="margin:0;">The overarching plan across the business.</p></div>');
@@ -1722,6 +1727,9 @@ function renderRoadmap(m){
   pmAdd.append(pi,pb);manageWrap.appendChild(pm);
   const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"],["plot","Plot"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
+  const rmS=document.createElement("input");rmS.type="search";rmS.className="ctrl";rmS.id="rmSearch";rmS.placeholder="Search roadmap\u2026";rmS.value=rmSearch;rmS.style.cssText="min-width:150px;max-width:240px;margin-left:8px;";
+  rmS.oninput=()=>{rmSearch=rmS.value;renderRoadmap();};
+  bar.appendChild(rmS);
   if(roadmapView==="list"||roadmapView==="kanban"){
     const sw=document.createElement("div");sw.style.cssText="display:flex;align-items:center;gap:7px;margin-left:auto;";
     const sl=document.createElement("span");sl.className="cmeta";sl.textContent="Sort:";
@@ -1766,6 +1774,7 @@ function renderRoadmap(m){
   peoT.onclick=()=>{rmPeopleOpen=!rmPeopleOpen;pf.style.display=rmPeopleOpen?"":"none";peoT.classList.toggle("on",rmPeopleOpen);rmStickTop();rmUpdateArrows();};
   tools.append(fl,pf,bar);
   m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
+  if(_rmRefocus){rmS.focus();try{rmS.setSelectionRange(_rmCaret,_rmCaret);}catch(_){}}
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
   else if(roadmapView==="plot")renderPlot(m);
@@ -1784,7 +1793,7 @@ function renderRoadmapList(m){
   }
   rmShown().forEach(area=>{
     const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
-    const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
+    const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r)&&rmSearchMatch(r));
     // Collapsible section: clicking the header hides this area's cards (header-only). State in rmCollapsed survives re-renders.
     const key="area:"+area;const collapsed=rmCollapsed.has(key);
     const head=document.createElement("div");head.className="areahead";head.style.cursor="pointer";head.title=collapsed?"Click to expand":"Click to collapse";
@@ -1823,7 +1832,7 @@ function renderKanban(m){
   if(rmKbMode==="area"){
     rmShown().forEach(area=>{
       const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
-      const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
+      const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r)&&rmSearchMatch(r));
       const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
       appendKanban(m,items);
     });
@@ -1996,7 +2005,7 @@ function renderTimeline(m){
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
       const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
-      const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r));
+      const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r)&&rmSearchMatch(r));
       const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';m.appendChild(head);
       appendTimeline(m,items,true);
     });
