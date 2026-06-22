@@ -364,6 +364,7 @@ let taskRmOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
+let agendaPlanOpen=true;       // is the "Plan a meeting" section expanded? (collapsible to save space)
 let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
 let taskSecCollapsed=new Set(); // labels of task sections collapsed to header-only; survives live re-renders
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
@@ -2094,8 +2095,11 @@ function renderAgendas(m){
   m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agendas</div><p class="pagesub">Plan a meeting around roadmap items. Describe it and Claude drafts the agenda from open roadmap items, or build one by hand.</p>');
   const plan=document.createElement("div");plan.className="hero";plan.style.padding="16px";
-  plan.innerHTML='<h2 style="font-size:15px;margin:0 0 8px;">Plan a meeting</h2><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open roadmap items and attendees.</span></div>';
+  plan.innerHTML='<h2 id="planHead" style="font-size:15px;margin:0;cursor:pointer;user-select:none;"><span id="planChev" style="display:inline-block;width:13px;font-size:11px;color:var(--muted);">'+(agendaPlanOpen?"▾":"▸")+'</span> Plan a meeting</h2>'+
+    '<div id="planBody" style="margin-top:8px;'+(agendaPlanOpen?"":"display:none;")+'"><textarea id="planText" class="ctrl" style="min-height:60px;" placeholder="e.g. Weekly dev sync — cover the cache rollout, the CI/CD work, and anything blocked."></textarea><div class="row" style="display:flex;gap:12px;margin-top:10px;"><button class="btn primary" id="planBtn">Plan meeting</button><span class="hint">Claude picks the relevant open roadmap items and attendees.</span></div></div>';
   m.appendChild(plan);document.getElementById("planBtn").onclick=planMeeting;
+  {const head=document.getElementById("planHead"),pbody=document.getElementById("planBody"),chev=document.getElementById("planChev");
+   head.onclick=()=>{agendaPlanOpen=!agendaPlanOpen;pbody.style.display=agendaPlanOpen?"":"none";chev.textContent=agendaPlanOpen?"▾":"▸";};}
   // Create by hand — button sits inline in the Plan-a-meeting row; the form drops in below.
   const addBtn=document.createElement("button");addBtn.className="btn";addBtn.textContent="+ Create agenda by hand";
   const addBox=document.createElement("div");addBox.className="hero";addBox.style.cssText="padding:16px;display:none;margin:8px 0;";
@@ -2114,7 +2118,7 @@ function renderAgendas(m){
   else{
     // Collapse/expand-all toggle — flips by whether every shown agenda is already collapsed.
     const allCol=shownAg.every(a=>agendaCollapsed.has(a.id));
-    const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="0 0 10px";
+    const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.margin="14px 0 10px";
     collExp.textContent=allCol?"Expand all":"Collapse all";
     collExp.onclick=()=>{if(allCol)agendaCollapsed.clear();else shownAg.forEach(a=>agendaCollapsed.add(a.id));renderAgendas();};
     m.appendChild(collExp);
