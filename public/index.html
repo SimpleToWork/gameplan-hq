@@ -2110,7 +2110,7 @@ function renderAgendas(m){
   m.appendChild(addBox);
   if(!DB.agendas.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas yet</div>Plan one above, then attach roadmap items.</div>');return;}
   // Search box + collapse toggle on one row.
-  const agbar=document.createElement("div");agbar.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;";
+  const agbar=document.createElement("div");agbar.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:20px 0 10px;";
   const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agendaSearch";agS.placeholder="Search agendas\u2026";agS.value=agendaSearch;agS.style.cssText="flex:1;min-width:160px;max-width:280px;";
   agS.oninput=()=>{agendaSearch=agS.value;renderAgendas();};
   agbar.appendChild(agS);
