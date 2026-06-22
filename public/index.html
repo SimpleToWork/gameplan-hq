@@ -593,7 +593,7 @@ async function captureTasks(){
     const cats=(captureCats&&captureCats.size)?CATS.filter(c=>captureCats.has(c)):CATS;
     const catFallback=(captureCats&&captureCats.size)?cats[0]:"Admin";
     const p='Convert this team member’s plain-language plan into structured tasks for an internal board. '+
-      'Disciplines (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
+      'Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'. '+
       'These tasks already exist — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":["existing title it duplicated"]}. '+
@@ -682,7 +682,7 @@ function proposalCard(t,onToggle){
   cb.onchange=()=>{t._include=cb.checked;d.classList.toggle("off",!cb.checked);body.querySelectorAll("input,select,textarea").forEach(el=>el.disabled=!cb.checked);if(onToggle)onToggle();};
   const meta=document.createElement("div");meta.className="dmeta";
   meta.append(
-    dfield("Discipline",ghostSelect(CATS,t.category,v=>{t.category=v;})),
+    dfield("Category",ghostSelect(CATS,t.category,v=>{t.category=v;})),
     dfield("Priority",ghostSelect(PRIORITIES,t.priority,v=>{t.priority=v;})),
     dfield("Owner",ghostSelect(roster().map(mm=>mm.name),(t.assignees&&t.assignees[0])||identity,v=>{t.assignees=[v];})));
   const cx=document.createElement("textarea");cx.className="dctx";cx.placeholder="Add context or notes…";cx.value=t.context||"";cx.oninput=()=>{t.context=cx.value;};
@@ -735,28 +735,28 @@ async function renameArea(area,newName){
 }
 /* ---------- Discipline ops ---------- */
 async function addDiscipline(name){
-  if(DB.disciplines.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That discipline already exists.","err");return false;}
+  if(DB.disciplines.some(d=>d.name.toLowerCase()===name.toLowerCase())){banner("That category already exists.","err");return false;}
   const used=DB.disciplines.map(d=>d.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.disciplines.length%AREA_POOL.length];
   const order=DB.disciplines.reduce((mx,d)=>Math.max(mx,d.order??0),-1)+1;
-  try{await fbAdd("disciplines",{name,color,order});banner("Added discipline \u201c"+name+"\u201d.","ok");return true;}catch(e){banner(e.message,"err");return false;}
+  try{await fbAdd("disciplines",{name,color,order});banner("Added category \u201c"+name+"\u201d.","ok");return true;}catch(e){banner(e.message,"err");return false;}
 }
 async function setDiscipline(id,patch){try{await fbUpdate("disciplines",id,patch);}catch(e){banner(e.message,"err");}}
 async function renameDiscipline(d,newName){
   if(newName===d.name)return;
-  if(DB.disciplines.some(x=>x.id!==d.id&&x.name.toLowerCase()===newName.toLowerCase())){banner("A discipline with that name already exists.","err");return;}
+  if(DB.disciplines.some(x=>x.id!==d.id&&x.name.toLowerCase()===newName.toLowerCase())){banner("A category with that name already exists.","err");return;}
   try{
     await fbUpdate("disciplines",d.id,{name:newName});
     // Migrate references stored by name so nothing is orphaned: task.category and member.disciplines[].
     for(const t of DB.tasks){ if(t.category===d.name) await fbUpdate("tasks",t.id,{category:newName}); }
     for(const mem of DB.members){ if(Array.isArray(mem.disciplines)&&mem.disciplines.includes(d.name)) await fbUpdate("members",mem.id,{disciplines:mem.disciplines.map(c=>c===d.name?newName:c)}); }
-    banner("Renamed discipline to \u201c"+newName+"\u201d.","ok");
+    banner("Renamed category to \u201c"+newName+"\u201d.","ok");
   }catch(e){banner(e.message,"err");}
 }
 async function removeDiscipline(d){
-  if(DB.disciplines.length<=1){banner("Keep at least one discipline.","err");return;}
+  if(DB.disciplines.length<=1){banner("Keep at least one category.","err");return;}
   const n=DB.tasks.filter(t=>!t.trashed&&t.category===d.name).length;
   if(n){banner("\u201c"+d.name+"\u201d is used by "+n+" task"+(n!==1?"s":"")+" \u2014 reassign them first.","err");return;}
-  try{await fbDelete("disciplines",d.id);banner("Removed discipline \u201c"+d.name+"\u201d.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbDelete("disciplines",d.id);banner("Removed category \u201c"+d.name+"\u201d.","ok");}catch(e){banner(e.message,"err");}
 }
 async function reorderDiscipline(draggedId,targetId,before){
   if(draggedId===targetId)return;
@@ -830,7 +830,7 @@ function buildTaskPrompt(task,q){
   const rm=task.roadmapId?DB.roadmap.find(r=>r.id===task.roadmapId):null;
   return "I'm working on a task from our team's board. Context:\n\n"+
     "Task: "+task.title+"\n"+
-    "Discipline: "+task.category+"\n"+
+    "Category: "+task.category+"\n"+
     "Priority: "+task.priority+"\n"+
     "Status: "+task.status+"\n"+
     (task.context?"Context/notes: "+task.context+"\n":"")+
@@ -853,7 +853,7 @@ function render(){const m=document.getElementById("main");
 
 function renderCapture(m){m=m||document.getElementById("main");
   m.innerHTML='<div class="hero"><h2>What are you working on?</h2>'+
-    '<p>Write it however it comes out. Claude drafts tasks — filed under the right discipline and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
+    '<p>Write it however it comes out. Claude drafts tasks — filed under the right category and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
     '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button>'+
     '<span class="hint" id="capHint"></span></div>'+
@@ -862,7 +862,7 @@ function renderCapture(m){m=m||document.getElementById("main");
   // Discipline picker — a multi-select colour-toggle row (like the Tasks filters): the AI may assign drafted
   // tasks ONLY to the selected disciplines (one per task). "All disciplines" = no limit. Persists across tab switches.
   const dRow=document.createElement("div");dRow.className="views";dRow.style.margin="10px 0 0";
-  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.title="Limit which disciplines the AI may assign to drafted tasks (none selected = any discipline)";dLab.textContent="Disciplines:";dRow.appendChild(dLab);
+  const dLab=document.createElement("span");dLab.className="cmeta";dLab.style.cssText="align-self:center;margin-right:4px;";dLab.title="Limit which categories the AI may assign to drafted tasks (none selected = any category)";dLab.textContent="Categories:";dRow.appendChild(dLab);
   const ctgl=(label,color,on,onClick)=>{const b=document.createElement("button");b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";b.onclick=onClick;return b;};
   // Re-seed the picker from the signed-in member's profile disciplines (can't reuse the guarded applyCaptureCatsDefault mid-session).
   const profileCats=()=>{const mm=member(identity);const dc=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];return dc.length?new Set(dc):null;};
@@ -871,9 +871,9 @@ function renderCapture(m){m=m||document.getElementById("main");
     // Multi-select: each discipline toggles independently; the AI picks one per task ONLY from the selected set.
     // No selection = the AI may use any discipline. Reset returns to the member's profile default; Clear empties the selection.
     CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",!!(captureCats&&captureCats.has(c)),()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();captureCats.has(c)?captureCats.delete(c):captureCats.add(c);if(!captureCats.size)captureCats=null;rebuildD();})));
-    const reset=document.createElement("button");reset.textContent="Reset";reset.title="Reset to your profile disciplines";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();rebuildD();};
+    const reset=document.createElement("button");reset.textContent="Reset";reset.title="Reset to your profile categories";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();rebuildD();};
     dRow.appendChild(reset);
-    if(captureCats&&captureCats.size){const clr=document.createElement("button");clr.textContent="Clear";clr.title="Clear selected disciplines (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;rebuildD();};dRow.appendChild(clr);}
+    if(captureCats&&captureCats.size){const clr=document.createElement("button");clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;rebuildD();};dRow.appendChild(clr);}
   };
   rebuildD();
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
@@ -1133,7 +1133,7 @@ function renderTasks(m){
   const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)).length;
   const trashN=DB.tasks.filter(t=>t.trashed).length;
   const head=document.createElement("div");
-  head.innerHTML='<div class="barrow"><div style="flex:1 1 auto;min-width:0;"><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' disciplines. Edits save live for the whole team.</p></div></div>';
+  head.innerHTML='<div class="barrow"><div style="flex:1 1 auto;min-width:0;"><div class="pagehead">Tasks</div><p class="pagesub" style="margin-bottom:0;">'+open+' open across '+CATS.length+' categories. Edits save live for the whole team.</p></div></div>';
   m.appendChild(head);
   const addBtn=document.createElement("button");addBtn.className="btn";addBtn.style.cssText="margin:0;flex:0 0 auto;white-space:nowrap;";addBtn.textContent="+ Add task";
   // Sit the Add-task button flush-right in the title row: the title block grows (flex:1), the button never shrinks/wraps.
@@ -1150,7 +1150,7 @@ function renderTasks(m){
   const dueI=document.createElement("input");dueI.className="ctrl";dueI.type="date";
   const fg=document.createElement("div");fg.className="formgrid";fg.style.gridTemplateColumns="2fr 1fr 1fr 1fr";
   const c1=document.createElement("div");c1.className="field";c1.innerHTML='<label>Title</label>';c1.appendChild(titleI);
-  const c2=document.createElement("div");c2.className="field";c2.innerHTML='<label>Discipline</label>';c2.appendChild(catS);
+  const c2=document.createElement("div");c2.className="field";c2.innerHTML='<label>Category</label>';c2.appendChild(catS);
   const c3=document.createElement("div");c3.className="field";c3.innerHTML='<label>Priority</label>';c3.appendChild(priS);
   const c4=document.createElement("div");c4.className="field";c4.innerHTML='<label>Due date</label>';c4.appendChild(dueI);
   fg.append(c1,c2,c3,c4);
@@ -1187,7 +1187,7 @@ function renderTasks(m){
   // each toggle independently. Filters and the grouping option are decoupled into separate groups; open
   // state survives live re-renders via the task*Open vars, and collapsed groups show an active marker.
   const TIME_OPTS=[["all","Any time"],["today","Today"],["week","This week"],["month","This month"],["past","Past due"],["next","Next month"],["future","Future"]];
-  const GROUP_OPTS=[["category","Discipline"],["timeframe","Timeframe"],["person","Person"]];
+  const GROUP_OPTS=[["category","Category"],["timeframe","Timeframe"],["person","Person"]];
   const labelOf=(opts,k)=>{const o=opts.find(x=>x[0]===k);return o?o[1]:k;};
   const whoN=taskPerson?taskPerson.size:0, catN=taskCategory?taskCategory.size:0;
   // Colour-coded filter chip: filled with the entity's colour when active, neutral with a colour dot when not.
@@ -1224,7 +1224,7 @@ function renderTasks(m){
   if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
   // Discipline group (by category) — buttons carry each discipline's colour from CAT_COLOR.
   const cf=document.createElement("div");cf.className="views";cf.style.margin="0 0 12px";
-  const clab=document.createElement("span");clab.className="cmeta";clab.style.cssText="align-self:center;margin-right:4px;";clab.textContent="Discipline:";cf.appendChild(clab);
+  const clab=document.createElement("span");clab.className="cmeta";clab.style.cssText="align-self:center;margin-right:4px;";clab.textContent="Category:";cf.appendChild(clab);
   CATS.forEach(cat=>{const on=!!(taskCategory&&taskCategory.has(cat));
     cf.appendChild(colorTgl(cat,CAT_COLOR[cat]||"#888",on,()=>{taskCatDefaulted=true;if(!taskCategory)taskCategory=new Set();taskCategory.has(cat)?taskCategory.delete(cat):taskCategory.add(cat);if(!taskCategory.size)taskCategory=null;renderTasks();}));});
   if(taskCategory){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskCatDefaulted=true;taskCategory=null;renderTasks();};cf.appendChild(clr);}
@@ -1261,7 +1261,7 @@ function renderTasks(m){
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
   const whoT=mkGroup("Who",()=>taskWhoOpen,v=>{taskWhoOpen=v;},(whoN?' ('+whoN+')':''),pf);
-  const catT=mkGroup("Discipline",()=>taskCatOpen,v=>{taskCatOpen=v;},(catN?' ('+catN+')':''),cf);
+  const catT=mkGroup("Category",()=>taskCatOpen,v=>{taskCatOpen=v;},(catN?' ('+catN+')':''),cf);
   const stageN=taskStage?taskStage.size:0;
   const stageT=mkGroup("Stage",()=>taskStageOpen,v=>{taskStageOpen=v;},(stageN?' ('+stageN+')':''),sf);
   const rmLabel=!taskRoadmap?'':taskRoadmap.targetId==="__none__"?' · Unlinked':taskRoadmap.targetId?(' · '+((DB.roadmap.find(r=>r.id===taskRoadmap.targetId)||{}).title||'target')):(' · '+taskRoadmap.area);
@@ -1477,7 +1477,7 @@ async function captureForTarget(r,extra,btn,out){
     const existing=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed).map(t=>t.title);
     const p='Turn this roadmap target into a short list of concrete tasks for an internal board — only the tasks genuinely needed to move it forward. '+
       'Be conservative, like a careful planner: prefer a few substantial tasks over many granular ones; do NOT pad, over-decompose, or invent busywork, and if the target is already well covered, return few or none. '+
-      'Disciplines (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
+      'Categories (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). '+
       'Roadmap target: "'+r.title+'"'+(r.detail?' — '+r.detail:'')+' [area: '+r.area+', phase: '+(phaseOf(r)||"—")+']. '+
       'These tasks already exist for this target — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
@@ -1976,7 +1976,7 @@ function renderTimeline(m){
   [["all","Combined"],["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
   // Bar colour-coding — independent of the layout grouping above.
   const cblab=document.createElement("span");cblab.className="cmeta";cblab.style.cssText="align-self:center;margin:0 4px 0 14px;";cblab.textContent="Colour by:";tb.appendChild(cblab);
-  [["area","Discipline"],["phase","Phase"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
+  [["area","Category"],["phase","Phase"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
@@ -2391,7 +2391,7 @@ function renderTeam(m){
   });
   const addMemberModal=()=>fieldModal("Add member","Name","Add member",addMember,{email:true});
   const addDomainModal=()=>fieldModal("Add domain","Domain name (e.g. Data Pipeline)","Add domain",addDomain);
-  const addDisciplineModal=()=>fieldModal("Add discipline","Discipline name (e.g. QA)","Add discipline",addDiscipline);
+  const addDisciplineModal=()=>fieldModal("Add category","Category name (e.g. QA)","Add category",addDiscipline);
   sectionHead("Members",roster().length,addMemberModal,"+ Add member");
   const grid=document.createElement("div");grid.className="grid";
   roster().forEach(mem=>{
@@ -2412,7 +2412,7 @@ function renderTeam(m){
     // shown as OUTLINED chips so a glance tells them apart from the filled domain chips above.
     const mdisc=Array.isArray(mem.disciplines)?mem.disciplines.filter(c=>CATS.includes(c)):[];
     const dd=document.createElement("div");dd.className="chips";dd.style.cssText="margin-top:4px;align-items:center;";
-    dd.insertAdjacentHTML("beforeend",'<span class="cmeta" style="margin-right:5px;font-weight:600;">Disciplines</span>');
+    dd.insertAdjacentHTML("beforeend",'<span class="cmeta" style="margin-right:5px;font-weight:600;">Categories</span>');
     if(mdisc.length)mdisc.forEach(c=>{const col=CAT_COLOR[c]||"#888";const ch=document.createElement("span");ch.className="chip";ch.style.cssText="background:transparent;color:"+col+";border:1px solid "+col+";";ch.textContent=c;dd.appendChild(ch);});
     else dd.insertAdjacentHTML("beforeend",'<span class="cmeta">none</span>');
     card.appendChild(dd);
@@ -2425,7 +2425,7 @@ function renderTeam(m){
     const re=document.createElement("input");re.className="ctrl";re.type="email";re.value=mem.email||"";re.placeholder="email — for Meet invites";
     // Default-disciplines multi-select for this member (drives the Capture picker pre-population).
     const memDisc=new Set(mdisc);
-    const dlab=document.createElement("label");dlab.className="cmeta";dlab.textContent="Default disciplines";
+    const dlab=document.createElement("label");dlab.className="cmeta";dlab.textContent="Default categories";
     const dpick=document.createElement("div");dpick.className="views";dpick.style.margin="0";
     const renderPicks=()=>{dpick.innerHTML="";CATS.forEach(c=>{const on=memDisc.has(c);const col=CAT_COLOR[c]||"#888";const b=document.createElement("button");b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":col)+';margin-right:6px;vertical-align:middle;"></span>'+esc(c);if(on)b.style.cssText="background:"+col+";border-color:"+col+";color:#fff;";b.onclick=()=>{memDisc.has(c)?memDisc.delete(c):memDisc.add(c);renderPicks();};dpick.appendChild(b);});};
     renderPicks();
@@ -2462,14 +2462,14 @@ function renderTeam(m){
   m.appendChild(dgrid);
   m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
   // Disciplines manager — create/rename/recolour/reorder/remove the task categories (CATS) used app-wide.
-  sectionHead("Disciplines",DB.disciplines.length,addDisciplineModal,"+ Add discipline","Task categories used across Capture, Tasks and filters \u2014 colour-coded everywhere.");
+  sectionHead("Categories",DB.disciplines.length,addDisciplineModal,"+ Add category","Task categories used across Capture, Tasks and filters \u2014 colour-coded everywhere.");
   const csorted=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0));
   const cgrid=document.createElement("div");cgrid.className="grid";
   csorted.forEach((d,idx)=>{
     const card=document.createElement("div");card.className="card discd";card.draggable=true;
     const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:8px;";
     const grip=document.createElement("span");grip.textContent="\u2807";grip.title="Drag to reorder";grip.style.cssText="cursor:grab;color:var(--muted,#7a7f88);flex:none;";head.appendChild(grip);
-    const sw=document.createElement("input");sw.type="color";sw.value=(d.color||"#888888");sw.title="Discipline colour";sw.className="cswatch";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
+    const sw=document.createElement("input");sw.type="color";sw.value=(d.color||"#888888");sw.title="Category colour";sw.className="cswatch";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
     sw.onchange=()=>setDiscipline(d.id,{color:sw.value});
     const nm=document.createElement("div");nm.className="ctitle";nm.style.color=d.color||"#333";nm.textContent=d.name;
     head.append(sw,nm);card.appendChild(head);
