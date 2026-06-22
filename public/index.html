@@ -355,6 +355,7 @@ let taskStage=null;          // Set of active stages (statuses) to filter tasks 
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
+let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
 let taskWhoOpen=false;
@@ -516,7 +517,18 @@ function taskBucket(t){
 }
 // Build ordered sections [{label,color,items}] for the chosen Group-by mode over already-filtered tasks.
 function taskSections(list){
-  const sortP=arr=>arr.sort((a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2));
+  // Within-section ordering. Each mode returns a comparator with priority as the tiebreaker so order is
+  // deterministic; missing values (no assignee / no date) sort to the end. JS sort is stable.
+  const prank=t=>(PRANK[t.priority]??2);
+  const firstAssignee=t=>{const a=(t.assignees||[]).filter(Boolean);return a.length?a[0].toLowerCase():null;};
+  const cmp={
+    priority:(a,b)=>prank(a)-prank(b),
+    status:(a,b)=>{const r=(STATUSES.indexOf(a.status)+1||99)-(STATUSES.indexOf(b.status)+1||99);return r||prank(a)-prank(b);},
+    person:(a,b)=>{const pa=firstAssignee(a),pb=firstAssignee(b);if(pa!==pb){if(pa===null)return 1;if(pb===null)return -1;return pa.localeCompare(pb);}return prank(a)-prank(b);},
+    entry:(a,b)=>{const da=a.createdAt||"",db=b.createdAt||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
+    target:(a,b)=>{const da=a.due||"",db=b.due||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
+  };
+  const sortP=arr=>arr.sort(cmp[taskSort]||cmp.priority);
   if(taskGroup==="timeframe")
     return TIME_BUCKETS.map(([k,lbl,,fg])=>({label:lbl,color:fg,items:sortP(list.filter(t=>taskBucket(t)===k))})).filter(s=>s.items.length);
   if(taskGroup==="person"){
@@ -1272,6 +1284,12 @@ function renderTasks(m){
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
   GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
   vb.appendChild(gb);
+  // Sort-by — orders cards within each section (also a display option, not a filter). Sits beside Group-by.
+  const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"]];
+  const sb=document.createElement("div");sb.className="views";sb.style.cssText="margin:0;margin-left:10px;";
+  const sortLab=document.createElement("span");sortLab.className="cmeta";sortLab.style.cssText="align-self:center;margin-right:4px;";sortLab.textContent="Sort by:";sb.appendChild(sortLab);
+  SORT_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskSort===k)b.classList.add("on");b.onclick=()=>{taskSort=k;renderTasks();};sb.appendChild(b);});
+  vb.appendChild(sb);
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
   const whoT=mkGroup("Who",()=>taskWhoOpen,v=>{taskWhoOpen=v;},(whoN?' ('+whoN+')':''),pf);
