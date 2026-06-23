@@ -1136,6 +1136,8 @@ function taskCard(t){
   const ar=document.createElement("div");ar.className="avas";ar.style.marginTop="2px";
   (t.assignees&&t.assignees.length?t.assignees:[]).slice(0,4).forEach(n=>{const mm=member(n);const a=document.createElement("div");a.className="ava";a.style.background=mm?mm.color:"#9aa0a8";a.textContent=initials(n);a.title=n;ar.appendChild(a);});
   if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
+  // Provenance label: who created the task, set apart from the assignee avatars above. Display-only; legacy tasks with no createdBy fall back to "Unknown".
+  const by=document.createElement("span");by.className="cmeta";by.style.cssText="margin-left:8px;white-space:nowrap;";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
   d.appendChild(ar);
   const crow=document.createElement("div");crow.className="crow";
   // Discipline select is tinted with its discipline colour so the category reads at a glance.
