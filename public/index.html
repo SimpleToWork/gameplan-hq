@@ -1372,12 +1372,12 @@ function taskRoadmapSelect(t){
 function taskTable(items){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
-  tbl.innerHTML='<thead><tr><th>Task</th><th>Description</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
+  tbl.innerHTML='<thead><tr><th>Task</th><th>Description</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Created by</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
   items.forEach(t=>{
     const k=sd.key(t);
-    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="10">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
+    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="11">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
     prevKey=k;
     const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
     const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -1402,6 +1402,10 @@ function taskTable(items){
     const av=avatarsRow(t.assignees);who.appendChild(av||document.createTextNode("—"));
     const aBtn=document.createElement("button");aBtn.type="button";aBtn.className="tt-asgbtn";aBtn.textContent="✎";aBtn.title="Edit assignees";
     aBtn.onclick=()=>openTaskAssignPop(aBtn,t);who.appendChild(aBtn);tdWho.appendChild(who);
+    // Created by — provenance column (display-only). Avatar + name mirrors the Who column; legacy tasks with no createdBy show "—".
+    const tdCreated=document.createElement("td");
+    if(t.createdBy){const cw=document.createElement("div");cw.className="tt-who";const cav=avatarsRow([t.createdBy]);if(cav){cav.style.marginTop="0";cw.appendChild(cav);}const cn=document.createElement("span");cn.className="tt-sub";cn.style.marginTop="0";cn.textContent=t.createdBy;cn.title=t.createdBy;cw.appendChild(cn);tdCreated.appendChild(cw);}
+    else tdCreated.innerHTML='<span class="tt-sub">—</span>';
     // Target — inline date editor.
     const tdDue=document.createElement("td");const dueIn=document.createElement("input");dueIn.type="date";dueIn.className="mini";dueIn.value=t.due||"";dueIn.title="Target date";
     if(overdue)dueIn.style.cssText+=";color:#c0392b;font-weight:600;border-color:#c0392b55;";
@@ -1416,7 +1420,7 @@ function taskTable(items){
     const tdAsk=document.createElement("td");const qBtn=document.createElement("button");qBtn.type="button";qBtn.className="tt-asgbtn";qBtn.title="Ask Claude";qBtn.setAttribute("aria-label","Ask Claude");
     qBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
     qBtn.onclick=()=>openTaskAskPop(qBtn,t);tdAsk.appendChild(qBtn);
-    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdDue,tdRm,tdNotes,tdAsk);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdAsk);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
