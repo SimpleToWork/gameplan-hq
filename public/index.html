@@ -286,6 +286,13 @@
   .tasktable .avas{margin-top:0;}
   .tasktable tr.tt-sep td{background:var(--canvas);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:6px 12px;cursor:default;}
   .tasktable tr.tt-sep:hover td{background:var(--canvas);}
+  /* Column-header value-picker filter (Tasks / Roadmap / Agendas tables) */
+  .colfilter{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;background:none;border:none;padding:0;margin:0;cursor:pointer;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+  .colfilter:hover{color:var(--accent,#4646c8);}
+  .colfilter.on{color:var(--accent,#4646c8);}
+  .colfilter .cf-caret{font-size:8px;opacity:.65;}
+  .colfilter .cf-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#4646c8);display:inline-block;}
+  .colfilter-pop label.opt{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;padding:1px 0;}
   /* tasks chart (stacked status columns; one column per Group-by section) */
   .taskchart-wrap{margin-top:6px;}
   .taskchart-legend{display:flex;gap:15px;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:var(--muted);}
@@ -540,6 +547,7 @@ function resetTaskFiltersToDefault(){
   taskTime="today";taskDateField="due";
   taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";
   taskCategory=null;taskCatDefaulted=true; // clear disciplines and keep them cleared — no domain re-seed on reset
+  tableColFilters.tasks={};                 // also drop any table column-header filters
   renderTasks();
 }
 // Roadmap phases (ordered). phaseOf() reads the new `phase` field, falling back to the legacy `horizon`.
@@ -1380,10 +1388,71 @@ function taskRoadmapSelect(t){
 // Editable "Table" layout: every column is a live field editor backed by the same setTask functions as the cards.
 // The title cell still opens the full card (notes, description, Ask Claude); all other cells edit inline.
 // Honours the active Sort — a spanning sub-header row marks each sort run, matching the card view's dividers.
+/* ---------- Table column filters (value-picker dropdowns in table headers) ---------- */
+// Per-table active filters: { field: Set(allowedValues) }. Absent/empty Set = that column is not filtered.
+let tableColFilters={tasks:{},roadmap:{},agendas:{}};
+let taskColOpts=null; // option lists for the Tasks table's header dropdowns; recomputed each table render in renderTasks
+// True if item passes every active column filter. Within a column = OR (any selected value), across columns = AND.
+// accessors[field](item) returns the item's value, or an array of values (e.g. assignees) — match if any is selected.
+function colFiltersMatch(item,filters,accessors){
+  for(const f in filters){const set=filters[f];if(!set||!set.size)continue;
+    const v=accessors[f](item);const vals=Array.isArray(v)?v:[v];
+    if(!vals.some(x=>set.has(x)))return false;}
+  return true;
+}
+// Distinct present values for a column across `rows`, ordered by `order` (canonical list) with any extras appended.
+function colOptions(rows,accessor,order){
+  const present=new Set();rows.forEach(r=>{const v=accessor(r);(Array.isArray(v)?v:[v]).forEach(x=>present.add(x));});
+  const opts=order?order.filter(o=>present.has(o)):[...present].sort((a,b)=>String(a).localeCompare(String(b)));
+  if(order)present.forEach(p=>{if(!order.includes(p))opts.push(p);});
+  return opts;
+}
+// A <th> whose label is a button opening a body-mounted value-picker for `field`. Selecting a proper subset filters
+// the column; checking all / none clears it. An active filter shows an accent dot + tinted label.
+function colFilterTh(label,field,options,filters,reRender){
+  const th=document.createElement("th");
+  const on=!!(filters[field]&&filters[field].size);
+  const btn=document.createElement("button");btn.type="button";btn.className="colfilter"+(on?" on":"");
+  btn.innerHTML=esc(label)+' <span class="cf-caret">▾</span>'+(on?'<span class="cf-dot"></span>':'');
+  btn.title=on?(label+": "+[...filters[field]].map(v=>v===""?"—":v).join(", ")):("Filter by "+label);
+  btn.onclick=()=>openColFilterPop(btn,label,options,filters,field,reRender);
+  th.appendChild(btn);return th;
+}
+function openColFilterPop(anchor,label,options,filters,field,reRender){
+  const {pop,place}=floatTaskPop(anchor);pop.classList.add("colfilter-pop");
+  const cur=filters[field];
+  const h=document.createElement("div");h.className="cmeta";h.style.cssText="font-weight:600;margin-bottom:4px;";h.textContent="Filter: "+label;pop.appendChild(h);
+  if(!options.length)pop.insertAdjacentHTML("beforeend",'<div class="cmeta">No values</div>');
+  options.forEach(v=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=cur?cur.has(v):true;cb.dataset.val=v;l.append(cb,document.createTextNode(" "+(v===""?"— (none)":v)));pop.appendChild(l);});
+  const row=document.createElement("div");row.style.cssText="display:flex;gap:6px;margin-top:6px;";
+  const apply=document.createElement("button");apply.className="btn primary sm";apply.textContent="Apply";
+  apply.onclick=()=>{const sel=Array.from(pop.querySelectorAll("input:checked")).map(x=>x.dataset.val);
+    if(sel.length&&sel.length<options.length)filters[field]=new Set(sel);else delete filters[field]; // all-or-none = no filter
+    pop.remove();reRender();};
+  const clr=document.createElement("button");clr.className="btn sm";clr.textContent="Clear";
+  clr.onclick=()=>{delete filters[field];pop.remove();reRender();};
+  row.append(apply,clr);pop.appendChild(row);place();
+}
+// Value accessors per table (key → reader). Multi-value readers return an array (assignees/attendees); "" = none/unassigned.
+const TASK_COL_ACC={
+  status:t=>t.status||"",priority:t=>t.priority||"",category:t=>t.category||"",
+  who:t=>(t.assignees&&t.assignees.length?t.assignees:[""]),
+  createdby:t=>t.createdBy||"",
+  rmarea:t=>{const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return r&&r.area?r.area:"";}
+};
+const RM_COL_ACC={ area:r=>r.area||"", phase:r=>phaseOf(r)||"", asg:r=>(r.assignees&&r.assignees.length?r.assignees:[""]) };
+const AG_COL_ACC={ att:a=>(a.attendees&&a.attendees.length?a.attendees:[""]) };
+const plainTh=t=>{const th=document.createElement("th");th.textContent=t;return th;};
 function taskTable(items,secLabel){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
-  tbl.innerHTML='<thead><tr><th>Task</th><th>Description</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Created by</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
+  // Header — categorical columns carry a value-picker filter (global state in tableColFilters.tasks, applied in
+  // renderTasks; options in taskColOpts). Falls back to a plain header when opts aren't computed (non-table paths).
+  const thead=document.createElement("thead");const htr=document.createElement("tr");
+  const F=tableColFilters.tasks,o=taskColOpts;
+  const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),plainTh("Target"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask")].forEach(th=>htr.appendChild(th));
+  thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
   const fval=secLabel!==undefined?(taskSecSortFilter[secLabel]||""):"";   // active sort-value filter for this section (set by a divider's Filter button)
@@ -1794,9 +1863,9 @@ function renderTasks(m){
   trow.style.top=(hh+vb.offsetHeight-1)+"px";     // second sticky bar: stacked below the (now-measured) Group/Sort row
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
-  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim();
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim()||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";renderTasks();};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";tableColFilters.tasks={};renderTasks();};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -1821,7 +1890,20 @@ function renderTasks(m){
   m.append(trow,panelWrap);
   panelWrap.style.top=(hh+vb.offsetHeight+trow.offsetHeight-1)+"px"; // stacked below trow, now that trow's height is known
   if(_refocusSearch){searchInp.focus();try{searchInp.setSelectionRange(_searchCaret,_searchCaret);}catch(_){}}
-  const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
+  // Table layout adds per-column header filters (tableColFilters.tasks). They apply only in table mode; options for the
+  // dropdowns come from the page-filtered set (before column filters) so every value stays selectable. taskColOpts is
+  // read by taskTable; null in card/chart layouts (no column controls there).
+  const _tableMode=taskLayout==="table";
+  const _base=DB.tasks.filter(t=>taskFilter(t));
+  taskColOpts=_tableMode?{
+    status:colOptions(_base,TASK_COL_ACC.status,STATUSES),
+    priority:colOptions(_base,TASK_COL_ACC.priority,PRIORITIES),
+    category:colOptions(_base,TASK_COL_ACC.category,CATS),
+    who:colOptions(_base,TASK_COL_ACC.who,roster().map(m=>m.name)),
+    createdby:colOptions(_base,TASK_COL_ACC.createdby,roster().map(m=>m.name)),
+    rmarea:colOptions(_base,TASK_COL_ACC.rmarea,areaNames())
+  }:null;
+  const sections=taskSections(_tableMode?_base.filter(t=>colFiltersMatch(t,tableColFilters.tasks,TASK_COL_ACC)):_base);
   // Chart layout: a single stacked-column chart (one column per Group-by section, segments by status) instead of the
   // section list. Consumes the same filtered+grouped `sections`, so every filter and the Group-by selection drive it.
   if(taskLayout==="chart"){renderTasksChart(m,sections);return;}
@@ -2376,12 +2458,24 @@ function renderRoadmapList(m){
 // filters (rmFilteredTargets) and the Sort dropdown (sortTargets) as the List/Kanban views.
 function renderRoadmapTable(m){
   if(!DB.roadmap.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No targets yet</div>Capture above, or add one by hand.</div>');return;}
-  const rows=sortTargets(rmFilteredTargets());
-  if(!rows.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No matching targets</div>Adjust the area, people, or search filters above.</div>');return;}
+  const base=sortTargets(rmFilteredTargets());
+  if(!base.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No matching targets</div>Adjust the area, people, or search filters above.</div>');return;}
+  // Per-column header filters (Area / Phase / Assignees). Options come from `base` (page-filtered, pre-column) so all
+  // values stay selectable; rows are `base` narrowed by the active column filters.
+  const F=tableColFilters.roadmap;
+  const rows=base.filter(r=>colFiltersMatch(r,F,RM_COL_ACC));
   const wrap=document.createElement("div");wrap.className="rmtable-wrap";
   const tbl=document.createElement("table");tbl.className="rmtable";
-  tbl.innerHTML='<thead><tr><th>Target</th><th>Description</th><th>Area</th><th>Phase</th><th>Start</th><th>Target date</th><th>Assignees</th><th>Tasks</th></tr></thead>';
+  const thead=document.createElement("thead");const htr=document.createElement("tr");
+  [plainTh("Target"),plainTh("Description"),
+   colFilterTh("Area","area",colOptions(base,RM_COL_ACC.area,areaNames()),F,renderRoadmap),
+   colFilterTh("Phase","phase",colOptions(base,RM_COL_ACC.phase,phaseNames()),F,renderRoadmap),
+   plainTh("Start"),plainTh("Target date"),
+   colFilterTh("Assignees","asg",colOptions(base,RM_COL_ACC.asg,roster().map(m=>m.name)),F,renderRoadmap),
+   plainTh("Tasks")].forEach(th=>htr.appendChild(th));
+  thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
+  if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=8;td.className="cmeta";td.style.padding="14px 12px";td.textContent="No targets match the column filters.";tr.appendChild(td);tb.appendChild(tr);}
   rows.forEach(r=>{
     const ac=areaColor(r.area);const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
     const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
@@ -2952,8 +3046,17 @@ function renderAgendas(m){
 function renderAgendasTable(m,rows){
   const wrap=document.createElement("div");wrap.className="agtable-wrap";
   const t=document.createElement("table");t.className="agtable";
-  t.innerHTML='<thead><tr><th>Agenda</th><th>Description</th><th>When</th><th>Attendees</th><th>RSVP</th><th>Items</th><th>Meet</th></tr></thead>';
+  // Attendees column carries a value-picker filter (by member). Options from the unfiltered `rows`; the displayed
+  // set is `rows` narrowed by the active column filter.
+  const base=rows.slice();const F=tableColFilters.agendas;
+  rows=base.filter(a=>colFiltersMatch(a,F,AG_COL_ACC));
+  const thead=document.createElement("thead");const htr=document.createElement("tr");
+  [plainTh("Agenda"),plainTh("Description"),plainTh("When"),
+   colFilterTh("Attendees","att",colOptions(base,AG_COL_ACC.att,roster().map(m=>m.name)),F,renderAgendas),
+   plainTh("RSVP"),plainTh("Items"),plainTh("Meet")].forEach(th=>htr.appendChild(th));
+  thead.appendChild(htr);t.appendChild(thead);
   const tb=document.createElement("tbody");
+  if(!rows.length&&base.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.className="at-sub";td.style.padding="14px 12px";td.textContent="No agendas match the attendee filter.";tr.appendChild(td);tb.appendChild(tr);}
   rows.forEach(a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
     const tr=document.createElement("tr");tr.tabIndex=0;tr.title="Open this agenda";
