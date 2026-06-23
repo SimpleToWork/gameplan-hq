@@ -294,8 +294,20 @@
   .tc-total{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:4px;}
   .tc-bar{width:100%;max-width:84px;display:flex;flex-direction:column;border-radius:7px 7px 0 0;overflow:hidden;min-height:3px;}
   .tc-seg{min-height:3px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:600;line-height:1;}
-  .tc-label{font-size:11.5px;color:var(--muted);margin-top:8px;text-align:center;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:5px;justify-content:center;}
+  .tc-label{font-size:11.5px;color:var(--muted);margin-top:8px;text-align:center;max-width:120px;display:flex;align-items:center;gap:5px;justify-content:center;}
   .tc-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;}
+  .tc-lname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .taskchart-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .taskchart-cap{font-size:12px;color:var(--muted);}
+  .taskchart-cap b{color:var(--ink);font-weight:600;}
+  /* horizontal bars orientation */
+  .taskchart.bars{flex-direction:column;align-items:stretch;gap:10px;overflow-x:hidden;padding:4px 0 0;}
+  .tc-row{display:flex;align-items:center;gap:10px;}
+  .tc-rlabel{flex:0 0 132px;width:132px;display:flex;align-items:center;gap:5px;justify-content:flex-end;font-size:11.5px;color:var(--muted);min-width:0;}
+  .tc-rbar-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:8px;}
+  .tc-rbar{height:24px;display:flex;border-radius:0 6px 6px 0;overflow:hidden;min-width:3px;}
+  .tc-rseg{min-width:3px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:600;line-height:1;}
+  .tc-rtotal{font-size:12px;font-weight:600;color:var(--ink);flex:none;}
   /* agendas table (read-only overview) */
   .agtable-wrap{overflow-x:auto;margin-top:6px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);}
   .agtable{border-collapse:collapse;width:100%;font-size:13px;min-width:640px;}
@@ -428,6 +440,7 @@ let taskGroup="category";    // how task cards are grouped into sections: catego
 let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
 let taskSortDir="asc";       // sort direction within the chosen Sort-by: "asc" | "desc" (in-memory, like taskSort)
 let taskLayout=(()=>{const v=localStorage.getItem("gp_taskLayout");return (v==="table"||v==="chart")?v:"card";})(); // "card" (editable cards) | "table" (row click → card) | "chart" (stacked status bars by group)
+let taskChartOrient=(localStorage.getItem("gp_taskChartOrient")==="bar")?"bar":"col"; // chart orientation: "col" (vertical columns) | "bar" (horizontal bars)
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
 let taskWhoOpen=false;
@@ -1392,41 +1405,81 @@ function taskTable(items){
   makeColumnsResizable(tbl,"tasks");
   return wrap;
 }
-// Chart layout for Tasks — one stacked column per Group-by section, each split by status (so the Done segment reads
-// as "completed" and the whole stack is the status breakdown). Driven by the same filtered+grouped `sections`, so
-// Group by chooses what the columns represent and every active filter applies. Saturated status colours come from
-// ST_COLOR[status][1] (the text colour) since the [0] fills are too pale to tell apart in a chart.
+// The stack dimension for the Tasks chart, chosen by the active Sort-by. priority/person/roadmap give distinct
+// stack contexts; status is the default. The two date sorts (entry/target) aren't categorical, so they fall back to
+// status. Returns {name, keyOf, keys (present, ordered), colorOf, labelOf}; colours reuse the app's existing maps.
+function chartStackDim(items){
+  if(taskSort==="priority")
+    return {name:"Priority",keyOf:t=>t.priority||"—",keys:PRIORITIES.filter(p=>items.some(t=>(t.priority||"—")===p)),colorOf:k=>(PRI_COLOR[k]?PRI_COLOR[k][1]:"#888"),labelOf:k=>k};
+  if(taskSort==="person"){
+    const ka=t=>{const a=(t.assignees||[]).filter(Boolean);return a.length?a[0]:"Unassigned";};
+    const keys=[];roster().forEach(mm=>{if(items.some(t=>ka(t).toLowerCase()===mm.name.toLowerCase()))keys.push(mm.name);});
+    if(items.some(t=>ka(t)==="Unassigned"))keys.push("Unassigned");
+    return {name:"Assignee",keyOf:ka,keys,colorOf:k=>{if(k==="Unassigned")return "#8a8a8a";const mm=member(k);return mm&&mm.color?mm.color:"#8a8a8a";},labelOf:k=>k};
+  }
+  if(taskSort==="roadmap"){
+    const ka=t=>{const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return (r&&r.area)?r.area:"Unlinked";};
+    const keys=[...new Set(items.map(ka))].sort((a,b)=>a==="Unlinked"?1:b==="Unlinked"?-1:a.localeCompare(b));
+    return {name:"Roadmap area",keyOf:ka,keys,colorOf:k=>k==="Unlinked"?"#9aa0a8":areaColor(k),labelOf:k=>k};
+  }
+  // status (explicit) + entry/target fall back to status (dates aren't a categorical stack).
+  return {name:"Status",keyOf:t=>t.status,keys:STATUSES.filter(s=>items.some(t=>t.status===s)),colorOf:k=>(ST_COLOR[k]?ST_COLOR[k][1]:"#888"),labelOf:k=>k};
+}
+// Chart layout for Tasks — one stacked bar per Group-by section. Group by chooses what each bar represents; Sort by
+// chooses how each bar is split (the stack dimension, via chartStackDim); the View orientation toggle switches between
+// vertical columns and horizontal bars. Driven by the same filtered+grouped `sections`, so every active filter applies.
 function renderTasksChart(m,sections){
   if(!sections.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks to chart</div>Nothing matches the current filters.</div>');return;}
-  const stColor=st=>(ST_COLOR[st]?ST_COLOR[st][1]:"#888");
+  const allItems=sections.flatMap(s=>s.items);
+  const dim=chartStackDim(allItems);
   const maxTotal=Math.max(1,...sections.map(s=>s.items.length));
+  const groupName={category:"Category",timeframe:"Timeframe",person:"Person"}[taskGroup]||"Group";
+  const segCount=(items,k)=>items.filter(t=>dim.keyOf(t)===k).length;
   const wrap=document.createElement("div");wrap.className="taskchart-wrap";
-  // Legend — only the statuses actually present in the current data.
-  const present=STATUSES.filter(st=>sections.some(s=>s.items.some(t=>t.status===st)));
+  // Header: caption (what drives the chart) + the Columns/Bars orientation toggle.
+  const head=document.createElement("div");head.className="taskchart-head";
+  const cap=document.createElement("span");cap.className="taskchart-cap";cap.innerHTML='Grouped by <b>'+esc(groupName)+'</b> · Stacked by <b>'+esc(dim.name)+'</b>';
+  const orient=document.createElement("div");orient.className="views";orient.style.margin="0";
+  [["col","Columns"],["bar","Bars"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskChartOrient===k)b.classList.add("on");b.onclick=()=>{if(taskChartOrient===k)return;taskChartOrient=k;try{localStorage.setItem("gp_taskChartOrient",k);}catch(e){}renderTasks();};orient.appendChild(b);});
+  head.append(cap,orient);wrap.appendChild(head);
+  // Legend — the stack dimension's present keys.
   const legend=document.createElement("div");legend.className="taskchart-legend";
-  present.forEach(st=>{const it=document.createElement("span");it.className="tcl-item";it.innerHTML='<span class="tcl-sw" style="background:'+stColor(st)+'"></span>'+esc(st);legend.appendChild(it);});
+  dim.keys.forEach(k=>{const it=document.createElement("span");it.className="tcl-item";it.innerHTML='<span class="tcl-sw" style="background:'+dim.colorOf(k)+'"></span>'+esc(dim.labelOf(k));legend.appendChild(it);});
   wrap.appendChild(legend);
-  const plot=document.createElement("div");plot.className="taskchart";
-  sections.forEach(sec=>{
-    const total=sec.items.length;
-    const col=document.createElement("div");col.className="tc-col";
-    const cellplot=document.createElement("div");cellplot.className="tc-plot";
-    const totEl=document.createElement("div");totEl.className="tc-total";totEl.textContent=total;cellplot.appendChild(totEl);
-    const bar=document.createElement("div");bar.className="tc-bar";bar.style.height=(total/maxTotal*100)+"%";
-    // Segments in STATUSES order (top→bottom); flex:n makes each proportional to its count within the column.
-    STATUSES.forEach(st=>{const n=sec.items.filter(t=>t.status===st).length;if(!n)return;
-      const seg=document.createElement("div");seg.className="tc-seg";seg.style.flexGrow=n;seg.style.background=stColor(st);
-      seg.title=sec.label+" · "+st+": "+n+" of "+total;
-      if((n/total)>=0.16)seg.textContent=n;                 // inline count only when the segment is tall enough to fit it
-      bar.appendChild(seg);});
-    cellplot.appendChild(bar);col.appendChild(cellplot);
-    const lab=document.createElement("div");lab.className="tc-label";lab.textContent=sec.label;lab.title=sec.label+" ("+total+")";
-    // Tint the label with the group's own colour dot, matching the section headers.
-    const dot=document.createElement("span");dot.className="tc-dot";dot.style.background=sec.color;lab.insertBefore(dot,lab.firstChild);
-    col.appendChild(lab);
-    plot.appendChild(col);
-  });
-  wrap.appendChild(plot);m.appendChild(wrap);
+  // One segmented bar per section. Segments follow dim.keys order; flex-grow makes each proportional to its count.
+  if(taskChartOrient==="bar"){
+    const plot=document.createElement("div");plot.className="taskchart bars";
+    sections.forEach(sec=>{
+      const total=sec.items.length;
+      const row=document.createElement("div");row.className="tc-row";
+      const lab=document.createElement("div");lab.className="tc-rlabel";lab.title=sec.label+" ("+total+")";
+      const dot=document.createElement("span");dot.className="tc-dot";dot.style.background=sec.color;
+      const nm=document.createElement("span");nm.className="tc-lname";nm.textContent=sec.label;lab.append(dot,nm);
+      const track=document.createElement("div");track.className="tc-rbar-wrap";
+      const bar=document.createElement("div");bar.className="tc-rbar";bar.style.width=(total/maxTotal*100)+"%";
+      dim.keys.forEach(k=>{const n=segCount(sec.items,k);if(!n)return;const seg=document.createElement("div");seg.className="tc-rseg";seg.style.flexGrow=n;seg.style.background=dim.colorOf(k);seg.title=sec.label+" · "+dim.labelOf(k)+": "+n+" of "+total;if((n/total)>=0.16)seg.textContent=n;bar.appendChild(seg);});
+      const tot=document.createElement("span");tot.className="tc-rtotal";tot.textContent=total;
+      track.append(bar,tot);row.append(lab,track);plot.appendChild(row);
+    });
+    wrap.appendChild(plot);
+  }else{
+    const plot=document.createElement("div");plot.className="taskchart";
+    sections.forEach(sec=>{
+      const total=sec.items.length;
+      const col=document.createElement("div");col.className="tc-col";
+      const cellplot=document.createElement("div");cellplot.className="tc-plot";
+      const totEl=document.createElement("div");totEl.className="tc-total";totEl.textContent=total;cellplot.appendChild(totEl);
+      const bar=document.createElement("div");bar.className="tc-bar";bar.style.height=(total/maxTotal*100)+"%";
+      dim.keys.forEach(k=>{const n=segCount(sec.items,k);if(!n)return;const seg=document.createElement("div");seg.className="tc-seg";seg.style.flexGrow=n;seg.style.background=dim.colorOf(k);seg.title=sec.label+" · "+dim.labelOf(k)+": "+n+" of "+total;if((n/total)>=0.16)seg.textContent=n;bar.appendChild(seg);});
+      cellplot.appendChild(bar);col.appendChild(cellplot);
+      const lab=document.createElement("div");lab.className="tc-label";lab.title=sec.label+" ("+total+")";
+      const dot=document.createElement("span");dot.className="tc-dot";dot.style.background=sec.color;
+      const nm=document.createElement("span");nm.className="tc-lname";nm.textContent=sec.label;lab.append(dot,nm);
+      col.appendChild(lab);plot.appendChild(col);
+    });
+    wrap.appendChild(plot);
+  }
+  m.appendChild(wrap);
 }
 // ---- Resizable table columns (shared by the Tasks/Roadmap/Agenda tables) ----
 // Widths persist per table in localStorage (gp_colw_<key>) and re-apply on every render — required because these
