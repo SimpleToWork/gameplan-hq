@@ -261,6 +261,21 @@
   .rmtable .rt-detail{font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px;}
   .rmtable .avas{margin-top:0;}
   .rmtable tr.flash{animation:taskflash 1.6s ease-out;}
+  /* tasks table (dense read-only overview; row click → card) — mirrors .rmtable */
+  .tasktable-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);}
+  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:720px;}
+  .tasktable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;padding:9px 12px;border-bottom:1px solid var(--line);background:#f3f4f7;white-space:nowrap;}
+  .tasktable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
+  .tasktable tr:last-child td{border-bottom:none;}
+  .tasktable tbody tr{cursor:pointer;}
+  .tasktable tbody tr:hover{background:#f7f8fa;}
+  .tasktable tbody tr:focus{outline:2px solid var(--accent,#4646c8);outline-offset:-2px;}
+  .tasktable tbody tr.flash{animation:taskflash 1.6s ease-out;}
+  .tasktable .tt-title{font-weight:500;color:var(--ink);}
+  .tasktable .tt-sub{font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tasktable .avas{margin-top:0;}
+  .tasktable tr.tt-sep td{background:var(--canvas);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:6px 12px;cursor:default;}
+  .tasktable tr.tt-sep:hover td{background:var(--canvas);}
   /* agendas table (read-only overview) */
   .agtable-wrap{overflow-x:auto;margin-top:6px;border:1px solid var(--line);border-radius:var(--r);}
   .agtable{border-collapse:collapse;width:100%;font-size:13px;min-width:640px;}
@@ -382,6 +397,7 @@ let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=p
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
+let taskLayout=(localStorage.getItem("gp_taskLayout")==="table")?"table":"card"; // "card" (full editable cards) | "table" (read-only overview; row click → that card)
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
 let taskWhoOpen=false;
@@ -1196,6 +1212,40 @@ function trashCard(t){
   return d;
 }
 
+// Dense, read-only overview of one section's tasks (the "Table" layout). Mirrors the Agenda/Roadmap tables:
+// clicking a row switches back to the Cards layout and scrolls/flashes that task, where every field is editable.
+// Honours the active Sort — a spanning sub-header row marks each sort run, matching the card view's dividers.
+function taskTable(items){
+  const wrap=document.createElement("div");wrap.className="tasktable-wrap";
+  const tbl=document.createElement("table");tbl.className="tasktable";
+  tbl.innerHTML='<thead><tr><th>Task</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Target</th><th>Roadmap</th></tr></thead>';
+  const tb=document.createElement("tbody");
+  const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
+  items.forEach(t=>{
+    const k=sd.key(t);
+    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="7">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
+    prevKey=k;
+    const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
+    const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
+    const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
+    const catCol=CAT_COLOR[t.category]||"#888";
+    const tr=document.createElement("tr");tr.dataset.taskId=t.id;tr.tabIndex=0;tr.title="Open this task";
+    // Row click → jump to the Cards layout and focus this task (focusTaskId drives the scroll+flash in renderTasks).
+    const open=()=>{taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}taskCollapsed.delete(t.id);focusTaskId=t.id;renderTasks();};
+    tr.onclick=open;tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}};
+    tr.innerHTML='<td><div class="tt-title">'+esc(t.title)+'</div>'+(t.context?'<div class="tt-sub">'+esc(t.context)+'</div>':'')+'</td>'+
+      '<td><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+esc(t.status)+'</span></td>'+
+      '<td><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+esc(t.priority)+'</span></td>'+
+      '<td><span class="chip" style="background:'+catCol+'22;color:'+catCol+'">'+esc(t.category||"—")+'</span></td>'+
+      '<td class="tt-asg"></td>'+
+      (dd?'<td class="cmeta"'+(overdue?' style="color:#c0392b;font-weight:600;"':'')+'>'+esc(t.due)+(overdue?' · overdue':'')+'</td>':'<td class="cmeta">—</td>')+
+      (rm?'<td><span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span></td>':'<td class="cmeta">—</td>');
+    const av=avatarsRow(t.assignees);tr.querySelector(".tt-asg").appendChild(av||document.createTextNode("—"));
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb);wrap.appendChild(tbl);
+  return wrap;
+}
 // Status-based view (the main row). Timeframe + person filters are layered on top in taskFilter.
 function taskViewMatch(t){
   if(taskView==="done")return t.status==="Done";
@@ -1379,6 +1429,12 @@ function renderTasks(m){
   SORT_OPTS.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(taskSort===k)o.selected=true;sortSel.appendChild(o);});
   sortSel.onchange=()=>{taskSort=sortSel.value;renderTasks();};sb.appendChild(sortSel);
   vb.appendChild(sb);
+  // Layout — Cards (full editable cards) vs Table (dense read-only overview; row click jumps to the card). Mirrors the
+  // Agenda/Roadmap layout toggles; the choice persists across reloads in gp_taskLayout. Sits beside Group-by / Sort-by.
+  const lb=document.createElement("div");lb.className="views";lb.style.cssText="margin:0;margin-left:10px;";
+  const layLab=document.createElement("span");layLab.className="cmeta";layLab.style.cssText="align-self:center;margin-right:4px;";layLab.textContent="View:";lb.appendChild(layLab);
+  [["card","Cards"],["table","Table"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskLayout===k)b.classList.add("on");b.onclick=()=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};lb.appendChild(b);});
+  vb.appendChild(lb);
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
   const whoT=mkGroup("Who",()=>taskWhoOpen,v=>{taskWhoOpen=v;},(whoN?' ('+whoN+')':''),pf);
@@ -1413,7 +1469,7 @@ function renderTasks(m){
   searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
   trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
-  trow.append(collExp);
+  if(taskLayout!=="table")trow.append(collExp);  // per-card collapse is meaningless in the table layout
   // Third sticky bar: the expanded filter-option rows, so the selectable options stay in reach (not just their toggles)
   // while scrolling. z-4 tucks it under trow (z-5). When every group is collapsed the child rows are display:none, so it
   // has zero height and is invisible; its shadow then coincides with trow's. Its `top` is set after it's measured below.
@@ -1455,12 +1511,16 @@ function renderTasks(m){
     }
     wrap.appendChild(headEl);
     if(!col){
-      const grid=document.createElement("div");grid.className="grid";
-      const sd=sortDividers(taskSort);const multi=new Set(sec.items.map(sd.key)).size>1;let prevKey;
-      // Label every sort group incl. the first — but only when the section has >1 group, so single-group
-      // sections (and the degenerate Group==Sort case) don't show a divider that just repeats the header.
-      sec.items.forEach(t=>{const k=sd.key(t);if(multi&&(prevKey===undefined||k!==prevKey))grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
-      wrap.appendChild(grid);
+      if(taskLayout==="table"){
+        wrap.appendChild(taskTable(sec.items));
+      }else{
+        const grid=document.createElement("div");grid.className="grid";
+        const sd=sortDividers(taskSort);const multi=new Set(sec.items.map(sd.key)).size>1;let prevKey;
+        // Label every sort group incl. the first — but only when the section has >1 group, so single-group
+        // sections (and the degenerate Group==Sort case) don't show a divider that just repeats the header.
+        sec.items.forEach(t=>{const k=sd.key(t);if(multi&&(prevKey===undefined||k!==prevKey))grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
+        wrap.appendChild(grid);
+      }
     }
     m.appendChild(wrap);
   });
