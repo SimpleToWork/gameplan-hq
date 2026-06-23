@@ -2304,6 +2304,9 @@ function renderRoadmap(m){
   pf.style.display=rmPeopleOpen?"":"none";
   peoT.onclick=()=>{rmPeopleOpen=!rmPeopleOpen;pf.style.display=rmPeopleOpen?"":"none";peoT.classList.toggle("on",rmPeopleOpen);rmStickTop();rmUpdateArrows();};
   tools.append(fl,pf,bar);
+  // The Timeline's Layout/Colour-by row lives inside the sticky toolbar (one sticky block — no extra offset math)
+  // so it stays pinned while the timeline scrolls. Timeline-only; other views don't have this row.
+  if(roadmapView==="timeline")tools.append(timelineControlRow());
   m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
   if(_rmRefocus){rmS.focus();try{rmS.setSelectionRange(_rmCaret,_rmCaret);}catch(_){}}
   if(roadmapView==="timeline")renderTimeline(m);
@@ -2557,8 +2560,10 @@ function appendTimeline(m,targets,compactEmpty){
   }
   if(undated.length){const d=document.createElement("div");d.className="cmeta";d.style.margin="8px 0 4px";d.textContent="No target date ("+undated.length+"): "+undated.map(r=>r.title).join(", ");m.appendChild(d);}
 }
-function renderTimeline(m){
-  const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
+// The Timeline's Layout / Colour-by controls. Built into the sticky .rmtools header by renderRoadmap (only for the
+// Timeline view) so it stays in reach while the timeline frames scroll. Each button re-renders via renderRoadmap.
+function timelineControlRow(){
+  const tb=document.createElement("div");tb.className="views";tb.style.margin="4px 0 2px";
   const lglab=document.createElement("span");lglab.className="cmeta";lglab.style.cssText="align-self:center;margin-right:4px;";lglab.textContent="Layout:";tb.appendChild(lglab);
   [["all","Combined"],["area","By area"],["person","By person"],["status","By status"],["phase","By phase"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
   // Bar colour-coding — independent of the layout grouping above.
@@ -2566,7 +2571,9 @@ function renderTimeline(m){
   // First three colour a target by one of its own properties (solid bar); the last three break the bar into a
   // multi-colour stack from its linked tasks (see rmBarSegments) — by individual task, by task status, by task area.
   [["area","Category"],["phase","Phase"],["person","Person"],["tasks","Tasks"],["tstatus","Status"],["tcat","Area"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
-  m.appendChild(tb);
+  return tb;
+}
+function renderTimeline(m){
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
       const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
