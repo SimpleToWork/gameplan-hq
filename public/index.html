@@ -159,7 +159,7 @@
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
-  .card[data-task-id]:hover{border-color:var(--accent,#4646c8);}
+  .card[data-task-id]:hover{border-color:#b5b5e9;border-color:color-mix(in srgb,var(--accent,#4646c8) 40%,#fff);}
   @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
   .card.flash{animation:taskflash 1.6s ease-out;}
   .target.flash{animation:taskflash 1.6s ease-out;}
