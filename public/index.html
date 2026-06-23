@@ -103,6 +103,8 @@
   .draft .dctx:focus{outline:none;border-color:var(--accent);background:var(--surface);color:var(--ink);}
   .review-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:15px;padding-top:15px;border-top:1px solid var(--line);}
   .review-skip{font-size:12px;color:var(--faint);margin-top:11px;}
+  .skip-link{color:var(--accent,#4646c8);text-decoration:underline;cursor:pointer;}
+  .skip-link::after{content:" \2197";font-size:10px;text-decoration:none;}
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
@@ -754,7 +756,21 @@ function buildReviewPanel(added,skipped,container,opts){
   const refresh=()=>{const n=added.filter(x=>x._include).length;approve.textContent="Approve & add "+n+" task"+(n!==1?"s":"");approve.disabled=!n;};
   added.forEach(t=>list.appendChild(proposalCard(t,refresh,!opts.hideRoadmap)));
   panel.appendChild(list);
-  if(skipped.length){const sk=document.createElement("div");sk.className="review-skip";sk.textContent="Skipped (already on the board): "+skipped.join(", ");panel.appendChild(sk);}
+  if(skipped.length){
+    // Each skipped title duplicated an existing task — make it a link that scrolls to + flashes that task
+    // (goToTask). Resolve title→task by normalised match; fall back to plain text when it can't be resolved.
+    const sk=document.createElement("div");sk.className="review-skip";sk.appendChild(document.createTextNode("Skipped (already on the board): "));
+    const norm=s=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
+    skipped.forEach((title,i)=>{
+      if(i)sk.appendChild(document.createTextNode(", "));
+      const key=norm(title);const matches=DB.tasks.filter(t=>!t.trashed&&norm(t.title)===key);
+      const hit=matches.find(isTaskOpen)||matches[0];
+      if(hit){const a=document.createElement("a");a.className="skip-link";a.href="#";a.textContent=title;a.title="Go to this task";
+        a.onclick=e=>{e.preventDefault();if(opts.onDiscard)opts.onDiscard();goToTask(hit.id);};sk.appendChild(a);}
+      else sk.appendChild(document.createTextNode(title));
+    });
+    panel.appendChild(sk);
+  }
   const discard=document.createElement("button");discard.className="btn";discard.textContent="Discard";discard.onclick=()=>{opts.onDiscard?opts.onDiscard():container.innerHTML="";};
   approve.onclick=async()=>{
     const chosen=added.filter(t=>t._include);
