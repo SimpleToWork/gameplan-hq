@@ -1556,6 +1556,7 @@ function makeColumnsResizable(table,key){
 function taskViewMatch(t){
   if(taskView==="done")return t.status==="Done";
   if(taskView==="archived")return t.status==="Archived";
+  if(taskView==="working")return t.status==="Working on it";
   if(taskView==="mine")return isTaskOpen(t)&&(t.assignees||[]).some(a=>a.toLowerCase()===identity.toLowerCase());
   if(taskView==="top")return isTaskOpen(t)&&(t.priority==="Critical"||t.priority==="High");
   return isTaskOpen(t);
@@ -1636,7 +1637,7 @@ function renderTasks(m){
   // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
   // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
   const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
-  [["all","All open"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
+  [["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
   m.appendChild(vb);
   if(taskView==="trash"){
     const trashed=DB.tasks.filter(t=>t.trashed).slice().sort((a,b)=>(b.trashedAt||"").localeCompare(a.trashedAt||""));
@@ -1858,7 +1859,7 @@ function renderTasks(m){
     }
     m.appendChild(wrap);
   });
-  if(!sections.length){const filtered=taskTime!=="all"||taskPerson||taskCategory;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
+  if(!sections.length){const filtered=taskTime!=="all"||taskPerson||taskCategory;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="working"?"Nothing in progress.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
   // Scroll to + briefly highlight a task we were asked to focus (e.g. "Go to task" from Capture). Cleared only
   // once the card actually exists, so a snapshot-driven re-render can retry if the task isn't in DB yet.
   if(focusTaskId){requestAnimationFrame(()=>{const card=m.querySelector('[data-task-id="'+focusTaskId+'"]');if(card){focusTaskId=null;card.scrollIntoView({behavior:"smooth",block:"center"});card.classList.add("flash");setTimeout(()=>card.classList.remove("flash"),1600);}});}
