@@ -281,6 +281,19 @@
   .tasktable .avas{margin-top:0;}
   .tasktable tr.tt-sep td{background:var(--canvas);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:6px 12px;cursor:default;}
   .tasktable tr.tt-sep:hover td{background:var(--canvas);}
+  /* tasks chart (stacked status columns; one column per Group-by section) */
+  .taskchart-wrap{margin-top:6px;}
+  .taskchart-legend{display:flex;gap:15px;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:var(--muted);}
+  .tcl-item{display:inline-flex;align-items:center;gap:6px;}
+  .tcl-sw{width:11px;height:11px;border-radius:3px;display:inline-block;flex:none;}
+  .taskchart{display:flex;align-items:flex-end;gap:16px;overflow-x:auto;padding:8px 2px 0;}
+  .tc-col{flex:1 1 0;min-width:56px;max-width:130px;display:flex;flex-direction:column;align-items:center;}
+  .tc-plot{height:300px;width:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;}
+  .tc-total{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:4px;}
+  .tc-bar{width:100%;max-width:84px;display:flex;flex-direction:column;border-radius:7px 7px 0 0;overflow:hidden;min-height:3px;}
+  .tc-seg{min-height:3px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:600;line-height:1;}
+  .tc-label{font-size:11.5px;color:var(--muted);margin-top:8px;text-align:center;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:5px;justify-content:center;}
+  .tc-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;}
   /* agendas table (read-only overview) */
   .agtable-wrap{overflow-x:auto;margin-top:6px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);}
   .agtable{border-collapse:collapse;width:100%;font-size:13px;min-width:640px;}
@@ -412,7 +425,7 @@ let taskSearch="";           // free-text search over task title/context/assigne
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
 let taskSortDir="asc";       // sort direction within the chosen Sort-by: "asc" | "desc" (in-memory, like taskSort)
-let taskLayout=(localStorage.getItem("gp_taskLayout")==="table")?"table":"card"; // "card" (full editable cards) | "table" (read-only overview; row click → that card)
+let taskLayout=(()=>{const v=localStorage.getItem("gp_taskLayout");return (v==="table"||v==="chart")?v:"card";})(); // "card" (editable cards) | "table" (row click → card) | "chart" (stacked status bars by group)
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
 let taskWhoOpen=false;
@@ -1364,6 +1377,42 @@ function taskTable(items){
   makeColumnsResizable(tbl,"tasks");
   return wrap;
 }
+// Chart layout for Tasks — one stacked column per Group-by section, each split by status (so the Done segment reads
+// as "completed" and the whole stack is the status breakdown). Driven by the same filtered+grouped `sections`, so
+// Group by chooses what the columns represent and every active filter applies. Saturated status colours come from
+// ST_COLOR[status][1] (the text colour) since the [0] fills are too pale to tell apart in a chart.
+function renderTasksChart(m,sections){
+  if(!sections.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No tasks to chart</div>Nothing matches the current filters.</div>');return;}
+  const stColor=st=>(ST_COLOR[st]?ST_COLOR[st][1]:"#888");
+  const maxTotal=Math.max(1,...sections.map(s=>s.items.length));
+  const wrap=document.createElement("div");wrap.className="taskchart-wrap";
+  // Legend — only the statuses actually present in the current data.
+  const present=STATUSES.filter(st=>sections.some(s=>s.items.some(t=>t.status===st)));
+  const legend=document.createElement("div");legend.className="taskchart-legend";
+  present.forEach(st=>{const it=document.createElement("span");it.className="tcl-item";it.innerHTML='<span class="tcl-sw" style="background:'+stColor(st)+'"></span>'+esc(st);legend.appendChild(it);});
+  wrap.appendChild(legend);
+  const plot=document.createElement("div");plot.className="taskchart";
+  sections.forEach(sec=>{
+    const total=sec.items.length;
+    const col=document.createElement("div");col.className="tc-col";
+    const cellplot=document.createElement("div");cellplot.className="tc-plot";
+    const totEl=document.createElement("div");totEl.className="tc-total";totEl.textContent=total;cellplot.appendChild(totEl);
+    const bar=document.createElement("div");bar.className="tc-bar";bar.style.height=(total/maxTotal*100)+"%";
+    // Segments in STATUSES order (top→bottom); flex:n makes each proportional to its count within the column.
+    STATUSES.forEach(st=>{const n=sec.items.filter(t=>t.status===st).length;if(!n)return;
+      const seg=document.createElement("div");seg.className="tc-seg";seg.style.flexGrow=n;seg.style.background=stColor(st);
+      seg.title=sec.label+" · "+st+": "+n+" of "+total;
+      if((n/total)>=0.16)seg.textContent=n;                 // inline count only when the segment is tall enough to fit it
+      bar.appendChild(seg);});
+    cellplot.appendChild(bar);col.appendChild(cellplot);
+    const lab=document.createElement("div");lab.className="tc-label";lab.textContent=sec.label;lab.title=sec.label+" ("+total+")";
+    // Tint the label with the group's own colour dot, matching the section headers.
+    const dot=document.createElement("span");dot.className="tc-dot";dot.style.background=sec.color;lab.insertBefore(dot,lab.firstChild);
+    col.appendChild(lab);
+    plot.appendChild(col);
+  });
+  wrap.appendChild(plot);m.appendChild(wrap);
+}
 // ---- Resizable table columns (shared by the Tasks/Roadmap/Agenda tables) ----
 // Widths persist per table in localStorage (gp_colw_<key>) and re-apply on every render — required because these
 // tables are rebuilt from scratch on each render. The table stays table-layout:auto (content-sized) until the first
@@ -1593,7 +1642,7 @@ function renderTasks(m){
   // Agenda/Roadmap layout toggles; the choice persists across reloads in gp_taskLayout. Sits beside Group-by / Sort-by.
   const lb=document.createElement("div");lb.className="views";lb.style.cssText="margin:0;margin-left:10px;";
   const layLab=document.createElement("span");layLab.className="cmeta";layLab.style.cssText="align-self:center;margin-right:4px;";layLab.textContent="View:";lb.appendChild(layLab);
-  [["card","Cards"],["table","Table"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskLayout===k)b.classList.add("on");b.onclick=()=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};lb.appendChild(b);});
+  [["card","Cards"],["table","Table"],["chart","Chart"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskLayout===k)b.classList.add("on");b.onclick=()=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};lb.appendChild(b);});
   vb.appendChild(lb);
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
@@ -1629,7 +1678,7 @@ function renderTasks(m){
   searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
   trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
-  if(taskLayout!=="table")trow.append(collExp);  // per-card collapse is meaningless in the table layout
+  if(taskLayout==="card")trow.append(collExp);  // per-card collapse only applies to the card layout (not table/chart)
   // Third sticky bar: the expanded filter-option rows, so the selectable options stay in reach (not just their toggles)
   // while scrolling. z-4 tucks it under trow (z-5). When every group is collapsed the child rows are display:none, so it
   // has zero height and is invisible; its shadow then coincides with trow's. Its `top` is set after it's measured below.
@@ -1639,6 +1688,9 @@ function renderTasks(m){
   panelWrap.style.top=(hh+vb.offsetHeight+trow.offsetHeight-1)+"px"; // stacked below trow, now that trow's height is known
   if(_refocusSearch){searchInp.focus();try{searchInp.setSelectionRange(_searchCaret,_searchCaret);}catch(_){}}
   const sections=taskSections(DB.tasks.filter(t=>taskFilter(t)));
+  // Chart layout: a single stacked-column chart (one column per Group-by section, segments by status) instead of the
+  // section list. Consumes the same filtered+grouped `sections`, so every filter and the Group-by selection drive it.
+  if(taskLayout==="chart"){renderTasksChart(m,sections);return;}
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecCollapsed.
   if(sections.length){
