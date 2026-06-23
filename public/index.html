@@ -157,6 +157,9 @@
   .cat-count{font-size:12px;color:var(--faint);}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:9px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
+  /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
+  .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
+  .card[data-task-id]:hover{border-color:var(--accent,#4646c8);}
   @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
   .card.flash{animation:taskflash 1.6s ease-out;}
   .target.flash{animation:taskflash 1.6s ease-out;}
@@ -272,7 +275,7 @@
   .tasktable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;padding:9px 12px;border-bottom:1px solid var(--line);background:#f3f4f7;white-space:nowrap;}
   .tasktable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
   .tasktable tr:last-child td{border-bottom:none;}
-  .tasktable tbody tr{cursor:default;}
+  .tasktable tbody tr{cursor:pointer;}
   .tasktable tbody tr:hover{background:#f7f8fa;}
   .tasktable tbody tr.flash{animation:taskflash 1.6s ease-out;}
   .tasktable td .mini{max-width:100%;}
