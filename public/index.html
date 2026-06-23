@@ -344,7 +344,7 @@
       <button data-page="tasks">Tasks</button>
       <button data-page="roadmap">Roadmap</button>
       <button data-page="agendas">Agendas</button>
-      <button data-page="team">Team</button>
+      <button data-page="team">Settings</button>
     </div>
   </header>
   <div class="setupwarn" id="setupwarn"></div>
@@ -385,7 +385,7 @@ try{
 }catch(e){ console.error("Firebase init failed",e); }
 
 // `email` binds a Google login to a roster member (see resolveIdentity). The AUTHORITATIVE emails
-// live on each member's Firestore profile (edited on the Team page); memberByEmail() checks the live
+// live on each member's Firestore profile (edited on the Settings page); memberByEmail() checks the live
 // roster first, so these seed values only matter for a fresh/offline DB and are overridden by the
 // real profile emails. Keep Ricky's correct; the rest are placeholders.
 const TEAM=[
@@ -398,7 +398,7 @@ const TEAM=[
 ];
 let CATS=["AI","Dev-Ops","Front-End","UI/UX","ETL","Back-End","Sales","Operations","Admin"];   // live: rebuilt from DB.disciplines once it syncs; the literals are the pre-seed fallback
 let CAT_COLOR={"AI":"#7F77DD","Dev-Ops":"#378ADD","Front-End":"#1D9E75","UI/UX":"#D4537E","ETL":"#BA7517","Back-End":"#D85A30","Sales":"#E24B4A","Operations":"#C9A227","Admin":"#888780"};
-// Disciplines are user-managed (Team page) and live in the 'disciplines' collection; these are the seed defaults.
+// Disciplines are user-managed (Settings page) and live in the 'disciplines' collection; these are the seed defaults.
 const DEFAULT_DISCIPLINES=CATS.map((name,i)=>({name,color:CAT_COLOR[name],order:i}));
 const PRIORITIES=["Critical","High","Medium","Low"];
 const PRANK={"Critical":0,"High":1,"Medium":2,"Low":3};
@@ -2153,7 +2153,7 @@ function renderRoadmap(m){
   m.appendChild(addBox);
   const tools=document.createElement("div");tools.className="rmtools";
   // collapse toggles for the Filter and People rows — frees up vertical space.
-  // (Areas & Phases are now managed on the Team page; the roadmap keeps only its view filters.)
+  // (Areas & Phases are now managed on the Settings page; the roadmap keeps only its view filters.)
   const ctrlbar=document.createElement("div");ctrlbar.className="rmtoolbar-ctrl";
   const filT=document.createElement("button");filT.type="button";filT.className="btn sm rmtgl"+(rmFilterOpen?" on":"");filT.innerHTML='<span class="tgchev">▾</span>Filters';
   const peoT=document.createElement("button");peoT.type="button";peoT.className="btn sm rmtgl"+(rmPeopleOpen?" on":"");peoT.innerHTML='<span class="tgchev">▾</span>People'+(rmPeopleActive&&rmPeopleActive.size?' ('+rmPeopleActive.size+')':'');
@@ -2691,7 +2691,7 @@ function renderAgendas(m){
     }
     el.appendChild(meet);
     const eStat=attendeeEmailStats(a);
-    if(eStat.missing.length){el.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;color:var(--danger,#a32d2d);">⚠ No email for '+esc(eStat.missing.join(", "))+' — they won’t get an invite. Add it on the Team page.</div>');}
+    if(eStat.missing.length){el.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;color:var(--danger,#a32d2d);">⚠ No email for '+esc(eStat.missing.join(", "))+' — they won’t get an invite. Add it on the Settings page.</div>');}
     // inline edit form (hidden until Edit)
     const editBox=document.createElement("div");editBox.style.cssText="display:none;margin:10px 0;";
     const closeEdit=()=>{editBox.style.display="none";editBtn.textContent="Edit";};
@@ -2913,7 +2913,7 @@ async function createMeetForAgenda(a,quiet){
     await fbUpdate("agendas",a.id,{meetLink:data.meetLink||"",calendarEventId:data.eventId||"",calendarHtmlLink:data.htmlLink||""});
     const s=attendeeEmailStats(a);
     let msg="Google Meet link added. Invited "+s.invited+" of "+s.total+".";
-    if(s.missing.length)msg+=" No email on file for "+s.missing.join(", ")+" — add it on the Team page to invite them.";
+    if(s.missing.length)msg+=" No email on file for "+s.missing.join(", ")+" — add it on the Settings page to invite them.";
     banner(msg,"ok");
   }catch(e){if(!quiet)banner(e.message,"err");console.warn("Meet create:",e.message);}
 }
@@ -3029,7 +3029,7 @@ function openModal(title, build){
 }
 function renderTeam(m){
   m=m||document.getElementById("main");m.innerHTML="";
-  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Team</div><p class="pagesub">Your people and their domains — areas of expertise that show who has authority over a kind of development.</p>');
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Settings</div><p class="pagesub">Your people, their domains, and the categories, areas &amp; phases used across the board.</p>');
   // Each section's "+ Add" button lives top-right of its header and opens a modal (no inline add rows).
   const sectionHead=(name,count,onAdd,addLabel,sub)=>{
     const h=document.createElement("div");h.className="areahead";
