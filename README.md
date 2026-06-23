@@ -9,8 +9,9 @@ static hosting on Vercel with a custom domain.
 ```
 Browser (public/index.html)
    │  ├─ Firestore SDK ───────────► Firebase (tasks, roadmap, agendas, areas, agents)
-   │  ├─ fetch("/api/claude") ────► Vercel function (api/claude.js) ──► Anthropic API
-   │  └─ fetch("/api/github") ────► Vercel function (api/github.js) ──► GitHub API (Agent spec sync)
+   │  ├─ fetch("/api/claude") ────► Vercel function (api/claude.js) ─────► Anthropic API
+   │  ├─ fetch("/api/github") ────► Vercel function (api/github.js) ─────► GitHub API (Agent spec sync)
+   │  └─ fetch("/api/agent-run") ─► Vercel function (api/agent-run.js) ──► Anthropic API + tools (Agent run loop)
 ```
 
 - **No build step.** The front end is a single vanilla HTML file — no React, no bundler, no
@@ -27,6 +28,7 @@ gameplan-hq/
 ├── public/index.html   ← the main app
 ├── api/claude.js       ← serverless Anthropic proxy
 ├── api/github.js       ← GitHub App proxy (Agent spec ↔ git repo sync)
+├── api/agent-run.js    ← Agent run loop (Claude tool-use: http_request + emit_connector_spec)
 ├── vercel.json         ← routing config
 ├── package.json        ← minimal, for Vercel
 ├── .env.example        ← required env vars
@@ -135,11 +137,28 @@ Common first-run errors: `503` = env vars missing/not redeployed; `GitHub 404` o
 App isn't installed on that repo (step 3) or the repo URL is wrong; `GitHub 403` = the App is
 missing Contents: write.
 
+### Running an agent (Phase 3a)
+
+Each agent card has a **▶ Run** button. It opens a panel where you give the agent an input (for
+a connector agent, a data-source description) and optional secrets, then runs a synchronous
+Claude **tool-use loop** in `api/agent-run.js`. The agent gets two tools: `http_request` (probe
+the source) and `emit_connector_spec` (terminal — returns the structured connector spec). The
+panel shows the step-by-step transcript and the emitted spec; each run is saved to the
+`agentRuns` collection (secrets are **not** stored).
+
+Uses the same `ANTHROPIC_API_KEY` as the Claude proxy — no extra env var. **Phase 3a has no
+sandbox yet**, so `http_request` runs in the function behind an SSRF guard (http/https only;
+private/internal IPs blocked) — point it at **public** sources only. Sandboxed execution,
+generated-code tools, and durable long-running runs are Phase 3b/3c. Secrets are passed per-run
+and substituted server-side: set a header value to `secret:NAME` and the runtime fills it in
+from the secrets you entered (the model and the saved transcript never see the real value).
+
 ## Local data model
 
 - Firestore collections: `tasks`, `roadmap`, `agendas`, `areas`, `members`, `domains`,
-  `phases`, `disciplines`, `agents`. They auto-create on first write — no manual setup, but the
-  authenticated rules (below) allowlist collections by name, so new ones must be added there.
+  `phases`, `disciplines`, `agents`, `agentRuns`. They auto-create on first write — no manual
+  setup, but the authenticated rules (below) allowlist collections by name, so new ones must be
+  added there.
 - Team (hardcoded in the `TEAM` array): Ricky Schweky, Joe Harari, Gabe Lesser, yoni,
   Nathan Mosseri, Harel Baruchi.
 - Disciplines: AI, Dev-Ops, Front-End, UI/UX, ETL, Back-End, Sales, Operations, Admin.

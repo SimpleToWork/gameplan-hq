@@ -14,7 +14,7 @@ service cloud.firestore {
       allow read, write: if request.auth != null
         && request.auth.token.email_verified == true
         && request.auth.token.email.matches('.*@merchantsbi[.]com$')
-        && collection in ['tasks', 'roadmap', 'agendas', 'areas', 'members', 'domains', 'phases', 'disciplines', 'agents'];
+        && collection in ['tasks', 'roadmap', 'agendas', 'areas', 'members', 'domains', 'phases', 'disciplines', 'agents', 'agentRuns'];
     }
   }
 }
