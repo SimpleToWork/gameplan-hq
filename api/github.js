@@ -9,7 +9,8 @@
 // The App must be installed on the org/repos with Contents: read & write permission.
 //
 // POST body:
-//   { op:"read",  repoUrl, path }                       → { found, sha, spec, lastCommit }
+//   { op:"list" }                                        → { repos:[{fullName,url,private}], installations }
+//   { op:"read",  repoUrl, path }                        → { found, sha, spec, lastCommit }
 //   { op:"write", repoUrl, path, spec, message? }        → { sha, commit }
 import crypto from "node:crypto";
 
@@ -120,9 +121,25 @@ export default async function handler(req, res){
     return res.status(503).json({ error:"GitHub App not configured — set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY" });
 
   const { op, repoUrl, path, spec, message } = req.body || {};
-  if(!path) return res.status(400).json({ error:"path required" });
 
   try{
+    // List the repos this App's installations can access — powers the repo dropdown and Connected repos area.
+    if(op==="list"){
+      const jwt = appJwt();
+      const insts = await ghJson("https://api.github.com/app/installations", { Authorization:`Bearer ${jwt}` });
+      const installations = [], repos = [];
+      for(const inst of insts){
+        installations.push({ account: inst.account && inst.account.login, manageUrl: inst.html_url });
+        const tok = await ghJson(`https://api.github.com/app/installations/${inst.id}/access_tokens`, { Authorization:`Bearer ${jwt}` }, "POST");
+        const rr = await ghJson("https://api.github.com/installation/repositories?per_page=100", { Authorization:`token ${tok.token}` });
+        (rr.repositories||[]).forEach(r => repos.push({ fullName: r.full_name, url: r.html_url, private: r.private }));
+      }
+      const seen = new Set();
+      const uniq = repos.filter(r => !seen.has(r.fullName) && seen.add(r.fullName)).sort((a,b)=>a.fullName.localeCompare(b.fullName));
+      return res.status(200).json({ repos: uniq, installations });
+    }
+
+    if(!path) return res.status(400).json({ error:"path required" });
     const { owner, repo } = parseRepo(repoUrl);
     const token = await installToken(owner, repo, appJwt());
     const auth = { Authorization:`token ${token}` };

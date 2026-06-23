@@ -122,12 +122,14 @@ Node's built-in `crypto`.
 - `GITHUB_APP_PRIVATE_KEY` — the `.pem` contents (paste with real newlines, or with literal
   `\n`; the function normalizes both).
 
-**Using it:** in an agent's editor, set the **Repo URL** (`github.com/owner/repo`) and **Repo
-path** (e.g. `agents/connector-id.md`), then **↑ Commit to repo** (creates the file/path if
-missing, updates in place otherwise) or **↓ Pull from repo** (reads the file back into the
-editor). The spec is stored as Markdown with YAML frontmatter — structured fields and the
-`tools` list in the frontmatter, the prose (summary, system prompt, inputs, outputs, notes)
-under fixed `##` headings — so it reads well in GitHub and round-trips losslessly.
+**Using it:** in an agent's editor, pick a **Repo** from the dropdown (populated with the repos
+the App is installed on) and set a **Repo path** (e.g. `agents/connector-id.md`), then **↑
+Commit to repo** (creates the file/path if missing, updates in place otherwise) or **↓ Pull
+from repo** (reads the file back into the editor). The connected-repo list is also shown under
+**Settings → Connected repos**, with a Refresh and a "Manage on GitHub" link. The spec is stored
+as Markdown with YAML frontmatter — structured fields and the `tools` list in the frontmatter,
+the prose (summary, system prompt, inputs, outputs, notes) under fixed `##` headings — so it
+reads well in GitHub and round-trips losslessly.
 
 Common first-run errors: `503` = env vars missing/not redeployed; `GitHub 404` on sync = the
 App isn't installed on that repo (step 3) or the repo URL is wrong; `GitHub 403` = the App is

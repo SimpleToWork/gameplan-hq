@@ -459,6 +459,9 @@ let agendaScrollTo=null;       // id of an agenda to scroll+flash to after the n
 let taskSecExpanded=new Set();  // labels of task sections the user has expanded; sections render collapsed (header-only) by default each session
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
+let ghRepos=null;            // cached repos the GitHub App can access [{fullName,url,private}]; null = not loaded yet
+let ghInstalls=null;         // cached GitHub App installations [{account,manageUrl}]
+let ghReposErr=null;         // last error from loading connected repos (e.g. "App not configured"); shown in Settings
 let roadmapView="list";      // list | timeline | kanban | plot | table
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmSearch="";             // free-text search over roadmap title/detail; "" = off
@@ -3325,6 +3328,32 @@ function renderTeam(m){
     pgrid.appendChild(card);
   });
   m.appendChild(pgrid);
+
+  // Connected repos (GitHub App) — read-only list of repos agents can sync specs to. Install/remove happens
+  // on GitHub; this reflects whatever the App can access. Loads async and repaints in place.
+  const rhead=document.createElement("div");rhead.className="areahead";
+  const rtitle=document.createElement("span");rtitle.className="nm";rtitle.textContent="Connected repos";
+  const rcount=document.createElement("span");rcount.className="cat-count";
+  const refresh=document.createElement("button");refresh.className="btn sm";refresh.style.marginLeft="auto";refresh.textContent="↻ Refresh";
+  rhead.append(rtitle,rcount,refresh);m.appendChild(rhead);
+  m.insertAdjacentHTML("beforeend",'<p class="pagesub">Repos the GitHub App can sync agent specs to. Install or remove the App on repos in GitHub, then Refresh.</p>');
+  const rlist=document.createElement("div");rlist.className="grid";m.appendChild(rlist);
+  const paintRepos=()=>{
+    rcount.textContent=ghRepos?ghRepos.length:"";rlist.innerHTML="";
+    if(ghRepos===null){rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">Loading…</div>');return;}
+    if(ghReposErr)rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(ghReposErr)+' — see the Agents setup in the README.</div>');
+    else if(!ghRepos.length)rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">No connected repos yet — install the GitHub App on a repo, then Refresh.</div>');
+    ghRepos.forEach(r=>{
+      const card=document.createElement("div");card.className="card";card.style.cssText="display:flex;align-items:center;gap:9px;";
+      const t=document.createElement("span");t.className="ctitle";t.style.flex="1";t.textContent=r.fullName;
+      const chip=document.createElement("span");chip.className="chip";chip.textContent=r.private?"private":"public";
+      const open=document.createElement("a");open.className="btn sm";open.textContent="Open ↗";open.href=r.url;open.target="_blank";open.rel="noopener";
+      card.append(t,chip,open);rlist.appendChild(card);
+    });
+    (ghInstalls||[]).forEach(i=>{if(!i.manageUrl)return;const a=document.createElement("a");a.className="btn sm";a.style.marginTop="6px";a.textContent="Manage "+(i.account?"@"+i.account:"")+" on GitHub →";a.href=i.manageUrl;a.target="_blank";a.rel="noopener";rlist.appendChild(a);});
+  };
+  paintRepos();loadGhRepos().then(paintRepos).catch(paintRepos);
+  refresh.onclick=()=>{ghRepos=null;ghReposErr=null;paintRepos();loadGhRepos(true).then(paintRepos).catch(paintRepos);};
 }
 
 /* ---------- Auth gate ---------- */
@@ -3370,6 +3399,14 @@ async function githubSync(payload){
   if(!r.ok)throw new Error(typeof j.error==="string"?j.error:("git sync failed ("+r.status+")"));
   return j;
 }
+// Load (and cache) the repos the GitHub App can sync to. Used by the editor's repo dropdown and the
+// Settings → Connected repos list. Caches in ghRepos/ghInstalls; force=true refetches. Never throws.
+async function loadGhRepos(force){
+  if(ghRepos!==null&&!force)return ghRepos;
+  try{const res=await githubSync({op:"list"});ghRepos=res.repos||[];ghInstalls=res.installations||[];ghReposErr=null;}
+  catch(e){ghReposErr=e.message;if(ghRepos===null)ghRepos=[];}
+  return ghRepos;
+}
 // Modal editor used for both new and existing agents. The "Draft with Claude" button fills the fields below; the
 // user always reviews/edits before saving (mirrors Capture's draft-then-approve flow).
 function agentModal(existing){
@@ -3380,6 +3417,18 @@ function agentModal(existing){
     const inp=v=>{const i=document.createElement("input");i.className="ctrl";i.style.width="100%";i.value=v||"";return i;};
     const area=(v,h)=>{const t=document.createElement("textarea");t.className="ctrl";t.style.cssText="width:100%;min-height:"+(h||50)+"px;";t.value=v||"";return t;};
     const sel=(opts,v)=>{const s=document.createElement("select");s.className="ctrl";s.style.width="100%";opts.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===v)op.selected=true;s.appendChild(op);});return s;};
+    // Repo picker: a dropdown of the GitHub App's connected repos (value = repo URL). Loads async and refills;
+    // preserves a current value not in the list (e.g. a legacy hand-typed URL) so editing never loses it.
+    const repoSel=cur=>{
+      const s=document.createElement("select");s.className="ctrl";s.style.width="100%";
+      const fill=()=>{const val=s.value||cur||"";s.innerHTML="";
+        const b=document.createElement("option");b.value="";b.textContent=ghRepos===null?"Loading repos…":(ghReposErr?"No connected repos — see Settings":(ghRepos.length?"— select a repo —":"No connected repos — add in Settings"));s.appendChild(b);
+        (ghRepos||[]).forEach(r=>{const o=document.createElement("option");o.value=r.url;o.textContent=r.fullName+(r.private?" (private)":"");s.appendChild(o);});
+        if(val&&!(ghRepos||[]).some(r=>r.url===val)){const o=document.createElement("option");o.value=val;o.textContent=val;s.appendChild(o);}
+        s.value=val;};
+      fill();loadGhRepos().then(fill).catch(fill);
+      return s;
+    };
     const dDesc=area("",55);dDesc.placeholder="Describe the data source or what this agent should do…";
     field("Describe & draft with Claude",dDesc);
     const draftBtn=document.createElement("button");draftBtn.className="btn";draftBtn.textContent="✨ Draft with Claude";
@@ -3390,7 +3439,7 @@ function agentModal(existing){
       fSummary=field("Summary",area(a.summary,45)),fPrompt=field("System prompt",area(a.systemPrompt,90)),
       fTools=field("Tools (one per line)",area((a.tools||[]).join("\n"),55)),fInputs=field("Inputs",area(a.inputs,40)),
       fOutputs=field("Outputs",area(a.outputs,40)),fNotes=field("Notes — auth, pagination, rate limits",area(a.notes,55)),
-      fRepoUrl=field("Repo URL (github.com/owner/repo)",inp(a.repoUrl)),fRepoPath=field("Repo path (e.g. agents/connector-id.md)",inp(a.repoPath));
+      fRepoUrl=field("Repo (connected repos)",repoSel(a.repoUrl)),fRepoPath=field("Repo path (e.g. agents/connector-id.md)",inp(a.repoPath));
     draftBtn.onclick=async()=>{
       const d=dDesc.value.trim();if(!d){draftHint.textContent="Write a description first.";return;}
       draftBtn.disabled=true;draftBtn.innerHTML='<span class="spin"></span> Drafting';draftHint.textContent="";
