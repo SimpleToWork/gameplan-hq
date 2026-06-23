@@ -463,7 +463,7 @@ let rmSearch="";             // free-text search over roadmap title/detail; "" =
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmPeopleOpen=false;      // is the People filter row expanded? (collapsed by default)
-let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
+let rmTlMode="all";          // timeline layout / swimlane breakdown: all (one combined frame) | area | person | status | phase
 let rmColorBy="area";        // timeline bar colour: area (discipline) | phase | person
 let rmTlLabelW=170;          // width (px) of the timeline title column — draggable to read full titles
 let rmKbMode="all";          // kanban layout: all (one board) | area (one board per area) | person (one per assignee)
@@ -1883,6 +1883,21 @@ function groupByPerson(targets){
   if(!rmPeopleActive||rmPeopleActive.has(UNASSIGNED)){const un=targets.filter(r=>!(r.assignees&&r.assignees.length));if(un.length)groups.push({name:"Unassigned",color:"#8a8a8a",items:un});}
   return groups;
 }
+// Group targets by status — one bucket per present status, in STATUSES order, coloured from ST_COLOR. {name,color,items}.
+function rmStatusGroups(targets){
+  return STATUSES.filter(s=>targets.some(r=>(r.status||"Not started")===s))
+    .map(s=>({name:s,color:(ST_COLOR[s]&&ST_COLOR[s][1])||"#8a8a8a",items:targets.filter(r=>(r.status||"Not started")===s)}));
+}
+// Group targets by phase (the roadmap's time-frame dimension) — one bucket per present phase, plus a "No phase"
+// bucket for targets whose phase is unset or no longer a defined phase. {name,color,items}.
+function rmPhaseGroups(targets){
+  const names=phaseNames();
+  const groups=names.filter(p=>targets.some(r=>phaseOf(r)===p))
+    .map(p=>({name:p,color:phaseColor(p),items:targets.filter(r=>phaseOf(r)===p)}));
+  const none=targets.filter(r=>!names.includes(phaseOf(r)));
+  if(none.length)groups.push({name:"No phase",color:"#8a8a8a",items:none});
+  return groups;
+}
 // Compact avatar cluster for a target's assignees. Returns null when unassigned (no placeholder clutter).
 function avatarsRow(names){
   const list=names||[];
@@ -2499,7 +2514,7 @@ function appendTimeline(m,targets,compactEmpty){
 function renderTimeline(m){
   const tb=document.createElement("div");tb.className="views";tb.style.margin="0 0 12px";
   const lglab=document.createElement("span");lglab.className="cmeta";lglab.style.cssText="align-self:center;margin-right:4px;";lglab.textContent="Layout:";tb.appendChild(lglab);
-  [["all","Combined"],["area","By area"],["person","By person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
+  [["all","Combined"],["area","By area"],["person","By person"],["status","By status"],["phase","By phase"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
   // Bar colour-coding — independent of the layout grouping above.
   const cblab=document.createElement("span");cblab.className="cmeta";cblab.style.cssText="align-self:center;margin:0 4px 0 14px;";cblab.textContent="Colour by:";tb.appendChild(cblab);
   [["area","Category"],["phase","Phase"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
@@ -2512,15 +2527,23 @@ function renderTimeline(m){
       appendTimeline(m,items,true);
     });
   }else if(rmTlMode==="person"){
-    const groups=groupByPerson(rmFilteredTargets());
-    if(!groups.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No assigned targets</div>Assign people to targets (Assign on a card) to see them grouped here.</div>');return;}
-    groups.forEach(g=>{
-      const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+g.color+'"></span><span class="nm">'+esc(g.name)+'</span><span class="cat-count">'+g.items.length+'</span>';m.appendChild(head);
-      appendTimeline(m,g.items,true);
-    });
+    rmTimelineSwimlanes(m,groupByPerson(rmFilteredTargets()),"No assigned targets","Assign people to targets (Assign on a card) to see them grouped here.");
+  }else if(rmTlMode==="status"){
+    rmTimelineSwimlanes(m,rmStatusGroups(rmFilteredTargets()),"No targets to plot","Nothing matches the current filters.");
+  }else if(rmTlMode==="phase"){
+    rmTimelineSwimlanes(m,rmPhaseGroups(rmFilteredTargets()),"No targets to plot","Nothing matches the current filters.");
   }else{
     appendTimeline(m,rmFilteredTargets(),false);
   }
+}
+// Render one timeline frame per swimlane group ({name,color,items}); each gets a coloured header + its own dated frame.
+// Shared by the By-person/By-status/By-phase layouts. Empty group set → a single empty-state notice.
+function rmTimelineSwimlanes(m,groups,emptyTitle,emptyHint){
+  if(!groups.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(emptyTitle)+'</div>'+esc(emptyHint)+'</div>');return;}
+  groups.forEach(g=>{
+    const head=document.createElement("div");head.className="areahead";head.innerHTML='<span class="dot" style="background:'+g.color+'"></span><span class="nm">'+esc(g.name)+'</span><span class="cat-count">'+g.items.length+'</span>';m.appendChild(head);
+    appendTimeline(m,g.items,true);
+  });
 }
 
 async function planMeeting(){
