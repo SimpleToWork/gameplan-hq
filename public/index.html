@@ -1666,7 +1666,8 @@ function renderTasks(m){
           if(taskGroup==="person"){taskPerson=new Set([val]);}
           else{taskCatDefaulted=true;taskCategory=new Set([val]);}
           renderTasks();};
-        headEl.appendChild(fb);
+        // Sit immediately to the right of the group label text (before the count), not at the row's end.
+        headEl.insertBefore(fb,headEl.querySelector(".cat-count"));
       }
     }
     wrap.appendChild(headEl);
