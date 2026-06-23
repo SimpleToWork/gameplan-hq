@@ -159,14 +159,13 @@
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
-  .card[data-task-id]:hover{border-color:#b5b5e9;border-color:color-mix(in srgb,var(--accent,#4646c8) 40%,#fff);}
+  .card[data-task-id]:hover{border-color:#9d9dde;border-color:color-mix(in srgb,var(--accent,#4646c8) 55%,#fff);}
   @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
   .card.flash{animation:taskflash 1.6s ease-out;}
   .target.flash{animation:taskflash 1.6s ease-out;}
-  /* Persistent "you are working in this task" indicator — set on the Go-to-Task target. Outlives the 1.6s flash. */
-  .card.active{border-color:var(--accent,#4646c8);box-shadow:0 0 0 1px var(--accent,#4646c8);}
-  .tasktable tbody tr.active td{background:#f4f4fd;}
-  .tasktable tbody tr.active td:first-child{box-shadow:inset 3px 0 0 var(--accent,#4646c8);}
+  /* Persistent "you are working in this task" indicator — set on click / Go-to-Task. Bolder than the hover preview and
+     wins over it (equal specificity to the hover rule, but declared later). Table active rules live in .tasktable below. */
+  .card[data-task-id].active{border-color:var(--accent,#4646c8);box-shadow:0 0 0 2px var(--accent,#4646c8);}
   .chips{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
@@ -276,7 +275,12 @@
   .tasktable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
   .tasktable tr:last-child td{border-bottom:none;}
   .tasktable tbody tr{cursor:pointer;}
-  .tasktable tbody tr:hover{background:#f7f8fa;}
+  /* Hover = light lavender row + a soft accent left bar (the row-equivalent of a card's hover border). */
+  .tasktable tbody tr:hover td{background:#f3f3fb;}
+  .tasktable tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 #b9b9ec;}
+  /* Active (clicked / Go-to-Task) = stronger lavender + full accent bar; declared after hover so it always wins. */
+  .tasktable tbody tr.active td{background:#e3e3fb;}
+  .tasktable tbody tr.active td:first-child{box-shadow:inset 3px 0 0 var(--accent,#4646c8);}
   .tasktable tbody tr.flash{animation:taskflash 1.6s ease-out;}
   .tasktable td .mini{max-width:100%;}
   .tasktable td input[type=date].mini{max-width:150px;}
