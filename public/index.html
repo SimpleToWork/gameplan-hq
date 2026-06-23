@@ -294,6 +294,8 @@
   .agtable .at-sub{color:var(--muted);font-size:11.5px;}
   .agtable .at-link{color:var(--accent,#4646c8);text-decoration:none;font-weight:600;}
   .agtable .at-link:hover{text-decoration:underline;}
+  /* standalone Description column (shared by all three table views) — read-only, clamped to 2 lines with a full-text tooltip */
+  .tbl-desc{color:var(--muted);font-size:12px;line-height:1.35;max-width:340px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;}
   /* resizable table columns (shared by .rmtable/.tasktable/.agtable) — a drag grip on each header's right edge */
   .tasktable th,.agtable th{position:relative;}  /* .rmtable th is already position:sticky (a positioned ancestor) */
   .col-resizer{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2;touch-action:none;-webkit-user-select:none;user-select:none;}
@@ -1309,12 +1311,12 @@ function taskRoadmapSelect(t){
 function taskTable(items){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
-  tbl.innerHTML='<thead><tr><th>Task</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
+  tbl.innerHTML='<thead><tr><th>Task</th><th>Description</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
   items.forEach(t=>{
     const k=sd.key(t);
-    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="9">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
+    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="10">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
     prevKey=k;
     const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
     const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -1325,7 +1327,10 @@ function taskTable(items){
     const titleEl=document.createElement("div");titleEl.className="tt-title";titleEl.textContent=t.title;titleEl.title="Open full editor (notes, description, Ask Claude)";
     titleEl.onclick=()=>{taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}taskCollapsed.delete(t.id);focusTaskId=t.id;renderTasks();};
     tdTask.appendChild(titleEl);
-    if(t.context){const sub=document.createElement("div");sub.className="tt-sub";sub.textContent=t.context;tdTask.appendChild(sub);}
+    // Description — its own column (the task's context/notes); read-only, clamped, full text on hover.
+    const tdDesc=document.createElement("td");
+    if(t.context){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=t.context;dv.title=t.context;tdDesc.appendChild(dv);}
+    else tdDesc.innerHTML='<span class="tt-sub">—</span>';
     // Status / Priority — colour-coded selects (tint mirrors the read-only chips they replace).
     const tdSt=document.createElement("td");const stSel=mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v}));stSel.style.cssText+=";background:"+sc[0]+";color:"+sc[1]+";border-color:"+sc[1]+"44;font-weight:600;";tdSt.appendChild(stSel);
     const tdPri=document.createElement("td");const priSel=mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v}));priSel.style.cssText+=";background:"+pc[0]+";color:"+pc[1]+";border-color:"+pc[1]+"44;font-weight:600;";tdPri.appendChild(priSel);
@@ -1350,7 +1355,7 @@ function taskTable(items){
     const tdAsk=document.createElement("td");const qBtn=document.createElement("button");qBtn.type="button";qBtn.className="tt-asgbtn";qBtn.title="Ask Claude";qBtn.setAttribute("aria-label","Ask Claude");
     qBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
     qBtn.onclick=()=>openTaskAskPop(qBtn,t);tdAsk.appendChild(qBtn);
-    tr.append(tdTask,tdSt,tdPri,tdCat,tdWho,tdDue,tdRm,tdNotes,tdAsk);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdDue,tdRm,tdNotes,tdAsk);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
@@ -2168,20 +2173,22 @@ function renderRoadmapTable(m){
   if(!rows.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No matching targets</div>Adjust the area, people, or search filters above.</div>');return;}
   const wrap=document.createElement("div");wrap.className="rmtable-wrap";
   const tbl=document.createElement("table");tbl.className="rmtable";
-  tbl.innerHTML='<thead><tr><th>Target</th><th>Area</th><th>Phase</th><th>Start</th><th>Target date</th><th>Assignees</th><th>Tasks</th></tr></thead>';
+  tbl.innerHTML='<thead><tr><th>Target</th><th>Description</th><th>Area</th><th>Phase</th><th>Start</th><th>Target date</th><th>Assignees</th><th>Tasks</th></tr></thead>';
   const tb=document.createElement("tbody");
   rows.forEach(r=>{
     const ac=areaColor(r.area);const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
     const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
     const tr=document.createElement("tr");tr.dataset.rid=r.id;
-    const titleCell='<td><div class="rt-title">'+esc(r.title)+'</div>'+(r.detail?'<div class="rt-detail">'+esc(r.detail)+'</div>':'')+'</td>';
+    const titleCell='<td><div class="rt-title">'+esc(r.title)+'</div></td>';
     const areaCell='<td><span class="chip" style="background:'+ac+'22;color:'+ac+'">'+esc(r.area)+'</span></td>';
     const phaseCell='<td><span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span></td>';
     const startCell='<td class="cmeta">'+esc(r.start||"—")+'</td>';
     const targetCell='<td class="cmeta">'+esc(r.target||"—")+'</td>';
     const tasksCell='<td>'+(linked.length?'<span class="linkcount">'+done+'/'+linked.length+'</span>':'<span class="cmeta">—</span>')+'</td>';
-    tr.innerHTML=titleCell+areaCell+phaseCell+startCell+targetCell+'<td class="rt-asg"></td>'+tasksCell;
+    tr.innerHTML=titleCell+'<td class="rt-desc"></td>'+areaCell+phaseCell+startCell+targetCell+'<td class="rt-asg"></td>'+tasksCell;
     const ttEl=tr.querySelector(".rt-title");ttEl.title="Open details";ttEl.onclick=()=>openRoadmapModal(r);
+    // Description column — read-only, clamped, full text on hover (DOM-set so quotes in detail are safe).
+    const dc=tr.querySelector(".rt-desc");if(r.detail){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=r.detail;dv.title=r.detail;dc.appendChild(dv);}else dc.innerHTML='<span class="cmeta">—</span>';
     const av=avatarsRow(r.assignees);tr.querySelector(".rt-asg").appendChild(av||document.createTextNode("—"));
     tb.appendChild(tr);
   });
@@ -2724,7 +2731,7 @@ function renderAgendas(m){
 function renderAgendasTable(m,rows){
   const wrap=document.createElement("div");wrap.className="agtable-wrap";
   const t=document.createElement("table");t.className="agtable";
-  t.innerHTML='<thead><tr><th>Agenda</th><th>When</th><th>Attendees</th><th>RSVP</th><th>Items</th><th>Meet</th><th>Notes</th></tr></thead>';
+  t.innerHTML='<thead><tr><th>Agenda</th><th>Description</th><th>When</th><th>Attendees</th><th>RSVP</th><th>Items</th><th>Meet</th></tr></thead>';
   const tb=document.createElement("tbody");
   rows.forEach(a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
@@ -2733,6 +2740,10 @@ function renderAgendasTable(m,rows){
     tr.onclick=open;tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}};
     // Title (+ created-by)
     const cT=document.createElement("td");cT.innerHTML='<div class="at-title">'+esc(a.title||"Untitled")+'</div>'+(a.createdBy?'<div class="at-sub">by '+esc(a.createdBy)+'</div>':'');tr.appendChild(cT);
+    // Description — the agenda's meeting notes, read-only and clamped (full text on hover).
+    const cD=document.createElement("td");const dtxt=(a.notes||"").trim();
+    if(dtxt){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=dtxt;dv.title=dtxt;cD.appendChild(dv);}else cD.innerHTML='<span class="at-sub">—</span>';
+    tr.appendChild(cD);
     // When
     const cW=document.createElement("td");cW.innerHTML=a.date?(esc(a.date)+(a.time?'<div class="at-sub">'+esc(a.time)+(a.tz?" "+esc(a.tz):"")+'</div>':'')):'<span class="at-sub">No date</span>';tr.appendChild(cW);
     // Attendees count
@@ -2750,8 +2761,6 @@ function renderAgendasTable(m,rows){
     if(a.meetLink){const lk=document.createElement("a");lk.href=a.meetLink;lk.target="_blank";lk.rel="noopener";lk.textContent="Join";lk.className="at-link";lk.onclick=e=>e.stopPropagation();cM.appendChild(lk);}
     else cM.innerHTML='<span class="at-sub">—</span>';
     tr.appendChild(cM);
-    // Notes presence
-    const cN=document.createElement("td");cN.innerHTML=(a.notes&&a.notes.trim())?'✓':'<span class="at-sub">—</span>';tr.appendChild(cN);
     tb.appendChild(tr);
   });
   t.appendChild(tb);wrap.appendChild(t);m.appendChild(wrap);
