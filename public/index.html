@@ -435,6 +435,7 @@ let taskCategory=null;       // Set of disciplines (categories) to filter tasks 
 let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
+let taskSubSearch={};        // per sort-by sub-section search, keyed "<sectionLabel>\u241F<sortKey>" → query; cleared when Sort-by/Group-by change (keys go stale)
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
 let taskSortDir="asc";       // sort direction within the chosen Sort-by: "asc" | "desc" (in-memory, like taskSort)
@@ -649,11 +650,21 @@ function sortDividers(mode){
   if(mode==="roadmap"){const tt=id=>DB.roadmap.find(r=>r.id===id);return {key:t=>{const r=tt(t.roadmapId);return r?r.id:"";},label:t=>{const r=tt(t.roadmapId);return r?(r.title||"Untitled target"):"No roadmap";}};}
   return {key:t=>t.priority||"",label:t=>t.priority||"No priority"}; // priority (default)
 }
-// Full-width hairline divider with the new group's label; spans every grid column so it forces a row break.
-function sortSepEl(label){
+// Full-width hairline divider with the sort group's label; spans every grid column so it forces a row break.
+// When runKey is given, the divider also carries a mini free-text search that filters only this sub-section's
+// cards (state in taskSubSearch[runKey]); shown/total appears while a query is narrowing the run.
+function sortSepEl(label,runKey,query,total,shown){
   const s=document.createElement("div");
   s.style.cssText="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:5px 0 0;";
   s.innerHTML='<span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);white-space:nowrap;">'+esc(label||"")+'</span><span style="flex:1;height:1px;background:var(--line,#e6e6e3);"></span>';
+  if(runKey!==undefined){
+    if((query||"").trim()){const c=document.createElement("span");c.style.cssText="font-size:10px;color:var(--faint);white-space:nowrap;";c.textContent=shown+"/"+total;s.appendChild(c);}
+    const inp=document.createElement("input");inp.type="search";inp.className="ctrl";inp.placeholder="Filter…";inp.value=query||"";inp.setAttribute("data-subsearch",runKey);
+    inp.style.cssText="flex:0 0 auto;width:120px;font-size:11px;padding:1px 6px;";inp.title="Search within this sub-section";
+    inp.oninput=()=>{const v=inp.value;if(v.trim()==="")delete taskSubSearch[runKey];else taskSubSearch[runKey]=v;renderTasks();};
+    inp.onkeydown=e=>{if(e.key==="Escape"){delete taskSubSearch[runKey];renderTasks();}};
+    s.appendChild(inp);
+  }
   return s;
 }
 const initials=n=>{const p=(n||"").trim().split(/\s+/);return (p.length>1?p[0][0]+p[1][0]:(n||"?").slice(0,2)).toUpperCase();};
@@ -1534,10 +1545,13 @@ function taskViewMatch(t){
   if(taskView==="top")return isTaskOpen(t)&&(t.priority==="Critical"||t.priority==="High");
   return isTaskOpen(t);
 }
-function taskSearchMatch(t){
-  const q=taskSearch.trim().toLowerCase();if(!q)return true;
+// Free-text match over a task's title/context/assignees. Shared by the global search and the per
+// sort-by-sub-section "Filter…" boxes so both match identically. Empty/blank query matches everything.
+function taskTextMatch(t,q){
+  q=(q||"").trim().toLowerCase();if(!q)return true;
   return (t.title||"").toLowerCase().includes(q)||(t.context||"").toLowerCase().includes(q)||(t.assignees||[]).some(n=>(n||"").toLowerCase().includes(q));
 }
+function taskSearchMatch(t){return taskTextMatch(t,taskSearch);}
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
   return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t)&&taskSearchMatch(t);
@@ -1571,6 +1585,8 @@ function renderTasks(m){
   m=m||document.getElementById("main");
   // Was the search box focused before we tear down the DOM? Capture it (and the caret) so we can restore after.
   const _se=document.getElementById("taskSearch");const _refocusSearch=!!(_se&&document.activeElement===_se);const _searchCaret=_refocusSearch?(_se.selectionStart??_se.value.length):0;
+  // Same dance for a focused per-sub-section "Filter…" box (re-found by its data-subsearch key after rebuild).
+  const _ae=document.activeElement;const _subKey=(_ae&&_ae.getAttribute)?_ae.getAttribute("data-subsearch"):null;const _subCaret=_subKey!==null?(_ae.selectionStart??_ae.value.length):0;
   m.innerHTML="";
   const open=DB.tasks.filter(t=>!t.trashed&&isTaskOpen(t)).length;
   const trashN=DB.tasks.filter(t=>t.trashed).length;
@@ -1700,7 +1716,7 @@ function renderTasks(m){
   // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
   const gb=document.createElement("div");gb.className="views";gb.style.cssText="margin:0;margin-left:auto;";
   const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
-  GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;renderTasks();};gb.appendChild(b);});
+  GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;taskSubSearch={};renderTasks();};gb.appendChild(b);});
   vb.appendChild(gb);
   // Sort-by — orders cards within each section (also a display option, not a filter). Sits beside Group-by.
   const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["roadmap","Roadmap"]];
@@ -1708,7 +1724,7 @@ function renderTasks(m){
   const sortLab=document.createElement("span");sortLab.className="cmeta";sortLab.style.cssText="align-self:center;margin-right:4px;";sortLab.textContent="Sort by:";sb.appendChild(sortLab);
   const sortSel=document.createElement("select");sortSel.className="mini";  // dropdown (mirrors the roadmap-target select) — cleaner than a button row
   SORT_OPTS.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(taskSort===k)o.selected=true;sortSel.appendChild(o);});
-  sortSel.onchange=()=>{taskSort=sortSel.value;renderTasks();};sb.appendChild(sortSel);
+  sortSel.onchange=()=>{taskSort=sortSel.value;taskSubSearch={};renderTasks();};sb.appendChild(sortSel);
   // Direction toggle — flips ascending/descending for whichever Sort-by is active (applies to both Card and Table layouts).
   const dirBtn=document.createElement("button");dirBtn.className="btn sm";dirBtn.style.marginLeft="6px";
   const desc=taskSortDir==="desc";dirBtn.textContent=desc?"↓ Desc":"↑ Asc";dirBtn.title=desc?"Descending order — click for ascending":"Ascending order — click for descending";
@@ -1804,16 +1820,30 @@ function renderTasks(m){
         wrap.appendChild(taskTable(sec.items));
       }else{
         const grid=document.createElement("div");grid.className="grid";
-        const sd=sortDividers(taskSort);const multi=new Set(sec.items.map(sd.key)).size>1;let prevKey;
-        // Label every sort group incl. the first — but only when the section has >1 group, so single-group
-        // sections (and the degenerate Group==Sort case) don't show a divider that just repeats the header.
-        sec.items.forEach(t=>{const k=sd.key(t);if(multi&&(prevKey===undefined||k!==prevKey))grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
+        const sd=sortDividers(taskSort);const multi=new Set(sec.items.map(sd.key)).size>1;
+        if(!multi){
+          // One sort group only (incl. the degenerate Group==Sort case): no sub-section, so no divider/filter — render flat.
+          sec.items.forEach(t=>grid.appendChild(taskCard(t)));
+        }else{
+          // Items are pre-sorted by sd.key, so equal keys are contiguous → fold into runs, then render each run as a
+          // labelled divider carrying its own "Filter…" box, with that run's cards narrowed by taskSubSearch[runKey].
+          let prevKey;let run=null;const runs=[];
+          sec.items.forEach(t=>{const k=sd.key(t);if(prevKey===undefined||k!==prevKey){run={key:k,label:sd.label(t),items:[]};runs.push(run);}prevKey=k;run.items.push(t);});
+          runs.forEach(r=>{
+            const runKey=sec.label+"\u241F"+r.key;const q=taskSubSearch[runKey]||"";
+            const shown=r.items.filter(t=>taskTextMatch(t,q));
+            grid.appendChild(sortSepEl(r.label,runKey,q,r.items.length,shown.length));
+            shown.forEach(t=>grid.appendChild(taskCard(t)));
+          });
+        }
         wrap.appendChild(grid);
       }
     }
     m.appendChild(wrap);
   });
   if(!sections.length){const filtered=taskTime!=="all"||taskPerson||taskCategory;const msg=filtered?"No tasks match these filters.":taskView==="mine"?"Nothing assigned to you right now.":taskView==="top"?"No Critical or High tasks open.":taskView==="done"?"No completed tasks yet.":taskView==="archived"?"No archived tasks.":"Nothing open.";m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">'+esc(msg)+'</div></div>');}
+  // Restore focus + caret to the per-sub-section "Filter…" box that was focused before this rebuild (re-found by key).
+  if(_subKey!==null){const el=m.querySelector("[data-subsearch="+CSS.escape(_subKey)+"]");if(el){el.focus();try{el.setSelectionRange(_subCaret,_subCaret);}catch(_){}}}
   // Scroll to + briefly highlight a task we were asked to focus (e.g. "Go to task" from Capture). Cleared only
   // once the card actually exists, so a snapshot-driven re-render can retry if the task isn't in DB yet.
   if(focusTaskId){requestAnimationFrame(()=>{const card=m.querySelector('[data-task-id="'+focusTaskId+'"]');if(card){focusTaskId=null;card.scrollIntoView({behavior:"smooth",block:"center"});card.classList.add("flash");setTimeout(()=>card.classList.remove("flash"),1600);}});}
