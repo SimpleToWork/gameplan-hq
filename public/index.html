@@ -493,13 +493,15 @@ function applyCaptureCatsDefault(){
   captureCatsDefaulted=true;                            // roster is present: apply once and stop, match or not
   return true;
 }
-// Reset the Tasks filters to the same state a fresh page load produces: My tasks (or All for off-roster),
-// Today, Due date, no people/stage filter, and the discipline default re-seeded from the user's owned domains.
+// Reset the Tasks filters to a clean default: My tasks (or All for off-roster), Today, Due date, and no
+// people/stage/roadmap/discipline filter. Unlike a fresh page load, Reset does NOT pre-select disciplines from
+// the user's profile — it clears the Category filter (and sets taskCatDefaulted so the domain default won't
+// silently re-seed on the next data snapshot), matching "Clear all filters".
 function resetTaskFiltersToDefault(){
   taskView=identityUnknown?"all":"mine";
   taskTime="today";taskDateField="due";
   taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";
-  taskCategory=null;taskCatDefaulted=false;applyDomainDefault(); // re-run the one-shot domain default, like on login
+  taskCategory=null;taskCatDefaulted=true; // clear disciplines and keep them cleared — no domain re-seed on reset
   renderTasks();
 }
 // Roadmap phases (ordered). phaseOf() reads the new `phase` field, falling back to the legacy `horizon`.
