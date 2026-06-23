@@ -243,7 +243,7 @@
   .tl-row:hover .tl-handle{background:var(--line);}
   .tl-handle:hover,.tl-handle.dragging{background:var(--accent);}
   .tl-track{position:relative;flex:1;height:24px;background:#f1f2f5;border-radius:6px;min-width:240px;}
-  .tl-bar{position:absolute;top:0;height:24px;border-radius:6px;color:#fff;font-size:10.5px;line-height:24px;padding:0 7px;white-space:nowrap;overflow:hidden;min-width:16px;}
+  .tl-bar{position:absolute;top:0;height:24px;border-radius:6px;color:#fff;font-size:10.5px;line-height:24px;padding:0 7px;white-space:nowrap;overflow:hidden;min-width:16px;text-shadow:0 1px 2px rgba(0,0,0,.4);}
   /* roadmap kanban */
   .kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-items:start;}
   @media(max-width:680px){.kanban{grid-template-columns:1fr;}}
@@ -1857,6 +1857,41 @@ function rmBarColor(r){
   if(rmColorBy==="person"){const a=r.assignees||[];if(!a.length)return "#8a8a8a";const mm=member(a[0]);return mm&&mm.color?mm.color:"#8a8a8a";}
   return areaColor(r.area);
 }
+// Task status → bar colour (the dark half of the status chip pair).
+const taskStatusColor=s=>(ST_COLOR[s]&&ST_COLOR[s][1])||"#888";
+// Multi-colour segments for a target's bar, driven by the task-based Colour-by modes, computed over the
+// target's linked (non-trashed) tasks. Returns:
+//   null  → single-colour mode (Category/Phase/Person colour the target itself; use rmBarColor)
+//   []    → multi-colour mode but the target has no linked tasks (render a neutral bar)
+//   [...] → ordered {color,weight,label} segments; widths are proportional to weight
+function rmBarSegments(r){
+  if(rmColorBy!=="tasks"&&rmColorBy!=="tstatus"&&rmColorBy!=="tcat")return null;
+  const tasks=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);
+  if(!tasks.length)return [];
+  if(rmColorBy==="tasks") // one equal-width segment per task, coloured by that task's status
+    return tasks.map(t=>({color:taskStatusColor(t.status),weight:1,label:(t.title||"Task")+" · "+(t.status||"—")}));
+  if(rmColorBy==="tstatus") // grouped by task status, in STATUSES order
+    return STATUSES.filter(s=>tasks.some(t=>t.status===s)).map(s=>{const n=tasks.filter(t=>t.status===s).length;return {color:taskStatusColor(s),weight:n,label:s+" ("+n+")"};});
+  // tcat: grouped by task category/discipline ("Area")
+  const cats=[...new Set(tasks.map(t=>t.category||"—"))];
+  return cats.map(c=>{const n=tasks.filter(t=>(t.category||"—")===c).length;return {color:CAT_COLOR[c]||"#888",weight:n,label:c+" ("+n+")"};});
+}
+// Resolve a bar's CSS background from its segments: solid colour (single mode), neutral grey (no tasks),
+// or a hard-stop left→right linear-gradient that paints the proportional multi-colour stack.
+function rmBarBackground(segs,solid){
+  if(segs===null)return solid;
+  if(!segs.length)return "#c9ccd2";
+  const total=segs.reduce((a,s)=>a+s.weight,0)||1;let acc=0;
+  const stops=segs.map(s=>{const from=acc/total*100;acc+=s.weight;const to=acc/total*100;return s.color+" "+from.toFixed(2)+"% "+to.toFixed(2)+"%";});
+  return "linear-gradient(to right,"+stops.join(",")+")";
+}
+// Legend rows for the hover tip describing a multi-colour bar's segments (empty for single-colour / no-task bars).
+function rmBarBreakdownHTML(r){
+  const segs=rmBarSegments(r);
+  if(!segs||!segs.length)return "";
+  const rows=segs.map(s=>'<div class="pt-row"><span class="pt-pdot" style="background:'+s.color+'"></span><span class="pt-name">'+esc(s.label)+'</span></div>').join("");
+  return '<div class="pt-count" style="margin-top:6px;">Bar breakdown</div><div class="pt-list">'+rows+'</div>';
+}
 function rmShown(){ const names=areasSorted().map(a=>a.name); return rmActive?names.filter(n=>rmActive.has(n)):names; }
 // Sentinel used in rmPeopleActive to mean "targets with no assignees".
 const UNASSIGNED="__unassigned__";
@@ -2495,11 +2530,11 @@ function appendTimeline(m,targets,compactEmpty){
       const lbl=document.createElement("div");lbl.className="tl-label";lbl.textContent=r.title;lbl.title=r.title+" ("+r.area+")";
       const handle=document.createElement("div");handle.className="tl-handle";handle.title="Drag to widen the title column";handle.addEventListener("mousedown",startTlResize);
       const track=document.createElement("div");track.className="tl-track";
-      const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+ac+";cursor:pointer;";bar.addEventListener("click",()=>openRoadmapModal(r));
+      const bar=document.createElement("div");bar.className="tl-bar";bar.style.cssText="left:"+left+"%;width:"+width+"%;background:"+rmBarBackground(rmBarSegments(r),ac)+";cursor:pointer;";bar.addEventListener("click",()=>openRoadmapModal(r));
       const span2=r.start?(r.start+" → "+r.target):("by "+r.target);
       bar.textContent=span2+(linked.length?"  ("+done+"/"+linked.length+")":"");
-      // Same rich hover card as the Plot view.
-      bar.addEventListener("mouseenter",e=>{const t=plotTipEl();t.innerHTML=singleTipHTML(r);t.style.display="block";movePlotTip(e);});
+      // Same rich hover card as the Plot view, plus the multi-colour segment legend when a task-based Colour-by is active.
+      bar.addEventListener("mouseenter",e=>{const t=plotTipEl();t.innerHTML=singleTipHTML(r)+rmBarBreakdownHTML(r);t.style.display="block";movePlotTip(e);});
       bar.addEventListener("mousemove",movePlotTip);
       bar.addEventListener("mouseleave",hidePlotTip);
       track.appendChild(bar);row.append(lbl,handle,track);tl.appendChild(row);
@@ -2514,7 +2549,9 @@ function renderTimeline(m){
   [["all","Combined"],["area","By area"],["person","By person"],["status","By status"],["phase","By phase"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmTlMode===k)b.classList.add("on");b.onclick=()=>{rmTlMode=k;renderRoadmap();};tb.appendChild(b);});
   // Bar colour-coding — independent of the layout grouping above.
   const cblab=document.createElement("span");cblab.className="cmeta";cblab.style.cssText="align-self:center;margin:0 4px 0 14px;";cblab.textContent="Colour by:";tb.appendChild(cblab);
-  [["area","Category"],["phase","Phase"],["person","Person"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
+  // First three colour a target by one of its own properties (solid bar); the last three break the bar into a
+  // multi-colour stack from its linked tasks (see rmBarSegments) — by individual task, by task status, by task area.
+  [["area","Category"],["phase","Phase"],["person","Person"],["tasks","Tasks"],["tstatus","Status"],["tcat","Area"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(rmColorBy===k)b.classList.add("on");b.onclick=()=>{rmColorBy=k;renderRoadmap();};tb.appendChild(b);});
   m.appendChild(tb);
   if(rmTlMode==="area"){
     rmShown().forEach(area=>{
