@@ -103,8 +103,7 @@
   .draft .dctx:focus{outline:none;border-color:var(--accent);background:var(--surface);color:var(--ink);}
   .review-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:15px;padding-top:15px;border-top:1px solid var(--line);}
   .review-skip{font-size:12px;color:var(--faint);margin-top:11px;}
-  .skip-link{color:var(--accent,#4646c8);text-decoration:underline;cursor:pointer;}
-  .skip-link::after{content:" \2197";font-size:10px;text-decoration:none;}
+  .skiplink{color:var(--accent);text-decoration:underline;cursor:pointer;}
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
@@ -718,6 +717,25 @@ function extractJSON(text,kind){
 }
 
 /* ---------- Capture ---------- */
+// Resolve a Claude-reported skipped duplicate to a live task id so we can offer a jump to it.
+// Accepts the new {id,title} shape or a bare title string; matches by id first, then by
+// normalized title (Claude may paraphrase or older responses may omit the id). null = no match.
+function resolveSkip(s){
+  if(s&&typeof s==="object"){
+    if(s.id&&DB.tasks.some(t=>t.id===s.id&&!t.trashed))return s.id;
+    if(s.title){const m=DB.tasks.find(t=>!t.trashed&&(t.title||"").trim().toLowerCase()===(s.title||"").trim().toLowerCase());if(m)return m.id;}
+    return null;
+  }
+  const m=DB.tasks.find(t=>!t.trashed&&(t.title||"").trim().toLowerCase()===String(s||"").trim().toLowerCase());
+  return m?m.id:null;
+}
+function skipLabel(s){return s&&typeof s==="object"?(s.title||"task"):String(s);}
+// Append a skipped duplicate to host as a clickable jump-to-task link when it resolves, else plain text.
+function appendSkip(host,s){
+  const id=resolveSkip(s),label=skipLabel(s);
+  if(id){const a=document.createElement("a");a.className="skiplink";a.textContent=label;a.onclick=e=>{e.preventDefault();goToTask(id);};host.appendChild(a);}
+  else host.appendChild(document.createTextNode(label));
+}
 async function captureTasks(){
   const ta=document.getElementById("capText");const txt=ta.value.trim();
   if(!txt){banner("Write what you're working on first.","err");return;}
@@ -725,7 +743,7 @@ async function captureTasks(){
   const hint=document.getElementById("capHint");hint.textContent="Turning it into tasks and checking for duplicates…";
   const out=document.getElementById("capResult");out.innerHTML="";
   try{
-    const existing=DB.tasks.map(t=>t.title);
+    const existing=DB.tasks.map(t=>({id:t.id,title:t.title}));
     // Disciplines the AI may choose from: the user-selected subset, or all when nothing is selected.
     const cats=(captureCats&&captureCats.size)?CATS.filter(c=>captureCats.has(c)):CATS;
     const catFallback=(captureCats&&captureCats.size)?cats[0]:"Admin";
@@ -733,7 +751,8 @@ async function captureTasks(){
       'Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'. '+
       'These tasks already exist — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
-      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":["existing title it duplicated"]}. '+
+      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":[{"id","title"}]}. '+
+      'In skipped, copy the id and title of the existing task each input duplicated, exactly as given above. '+
       'assignee = a named person if explicitly named for that task, otherwise "'+identity+'". '+EXTRACT_GUARD+'\nPlan:\n"""'+txt+'"""';
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
@@ -742,7 +761,7 @@ async function captureTasks(){
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
-      skipped.forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.textContent="Already there: "+s;out.appendChild(d);});
+      skipped.forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.appendChild(document.createTextNode("Already there: "));appendSkip(d,s);out.appendChild(d);});
       banner("No new tasks to add.","ok");return;
     }
     // Review step — nothing is saved until the user approves. Shared panel (also used by the Roadmap breakdown).
@@ -768,21 +787,7 @@ function buildReviewPanel(added,skipped,container,opts){
   const refresh=()=>{const n=added.filter(x=>x._include).length;approve.textContent="Approve & add "+n+" task"+(n!==1?"s":"");approve.disabled=!n;};
   added.forEach(t=>list.appendChild(proposalCard(t,refresh,!opts.hideRoadmap)));
   panel.appendChild(list);
-  if(skipped.length){
-    // Each skipped title duplicated an existing task — make it a link that scrolls to + flashes that task
-    // (goToTask). Resolve title→task by normalised match; fall back to plain text when it can't be resolved.
-    const sk=document.createElement("div");sk.className="review-skip";sk.appendChild(document.createTextNode("Skipped (already on the board): "));
-    const norm=s=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
-    skipped.forEach((title,i)=>{
-      if(i)sk.appendChild(document.createTextNode(", "));
-      const key=norm(title);const matches=DB.tasks.filter(t=>!t.trashed&&norm(t.title)===key);
-      const hit=matches.find(isTaskOpen)||matches[0];
-      if(hit){const a=document.createElement("a");a.className="skip-link";a.href="#";a.textContent=title;a.title="Go to this task";
-        a.onclick=e=>{e.preventDefault();if(opts.onDiscard)opts.onDiscard();goToTask(hit.id);};sk.appendChild(a);}
-      else sk.appendChild(document.createTextNode(title));
-    });
-    panel.appendChild(sk);
-  }
+  if(skipped.length){const sk=document.createElement("div");sk.className="review-skip";sk.appendChild(document.createTextNode("Skipped (already on the board): "));skipped.forEach((s,i)=>{if(i)sk.appendChild(document.createTextNode(", "));appendSkip(sk,s);});panel.appendChild(sk);}
   const discard=document.createElement("button");discard.className="btn";discard.textContent="Discard";discard.onclick=()=>{opts.onDiscard?opts.onDiscard():container.innerHTML="";};
   approve.onclick=async()=>{
     const chosen=added.filter(t=>t._include);
@@ -1538,6 +1543,7 @@ function taskFilter(t){
 // Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
 // mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
 function goToTask(id){
+  const bd=document.getElementById("bdReview");if(bd)bd.remove(); // close the breakdown overlay if a jump fired from inside it
   focusTaskId=id;
   taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
   setPage("tasks");
@@ -1970,7 +1976,7 @@ async function removeTarget(r){
 async function captureForTarget(r,extra,btn,out){
   btn.disabled=true;const lbl=btn.textContent;btn.innerHTML='<span class="spin"></span> Generating';
   try{
-    const existing=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed).map(t=>t.title);
+    const existing=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed).map(t=>({id:t.id,title:t.title}));
     const p='Turn this roadmap target into a short list of concrete tasks for an internal board — only the tasks genuinely needed to move it forward. '+
       'Be conservative, like a careful planner: prefer a few substantial tasks over many granular ones; do NOT pad, over-decompose, or invent busywork, and if the target is already well covered, return few or none. '+
       'Categories (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
@@ -1978,7 +1984,8 @@ async function captureForTarget(r,extra,btn,out){
       'Roadmap target: "'+r.title+'"'+(r.detail?' — '+r.detail:'')+' [area: '+r.area+', phase: '+(phaseOf(r)||"—")+']. '+
       'These tasks already exist for this target — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
       (extra?'Extra guidance from the user: "'+extra+'". ':'')+
-      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}],"skipped":["existing title it duplicated"]}. '+EXTRACT_GUARD;
+      'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}],"skipped":[{"id","title"}]}. '+
+      'In skipped, copy the id and title of the existing task each input duplicated, exactly as given above. '+EXTRACT_GUARD;
     const text=await callClaude(p);const res=extractJSON(text,"object");
     // Mirror the Capture flow: draft → review → approve. Tasks carry roadmapId so approved ones link to this target.
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:r.id,_include:true}));
