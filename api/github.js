@@ -10,6 +10,7 @@
 //
 // POST body:
 //   { op:"list" }                                        → { repos:[{fullName,url,private}], installations }
+//   { op:"listFiles", repoUrl, path? (folder) }          → { files:[{path,sha}], truncated }
 //   { op:"read",  repoUrl, path }                        → { found, sha, spec, lastCommit }
 //   { op:"write", repoUrl, path, spec, message? }        → { sha, commit }
 import crypto from "node:crypto";
@@ -137,6 +138,21 @@ export default async function handler(req, res){
       const seen = new Set();
       const uniq = repos.filter(r => !seen.has(r.fullName) && seen.add(r.fullName)).sort((a,b)=>a.fullName.localeCompare(b.fullName));
       return res.status(200).json({ repos: uniq, installations });
+    }
+
+    // List the *.md spec files in a repo (optionally under a folder, via `path`) — powers auto-import sync.
+    if(op==="listFiles"){
+      const { owner, repo } = parseRepo(repoUrl);
+      const token = await installToken(owner, repo, appJwt());
+      const auth = { Authorization:`token ${token}` };
+      const info = await ghJson(`https://api.github.com/repos/${owner}/${repo}`, auth);
+      const branch = info.default_branch || "main";
+      const tree = await ghJson(`https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`, auth);
+      const dir = String(path||"").replace(/\/+$/,"");
+      const files = (tree.tree||[])
+        .filter(t => t.type==="blob" && t.path.endsWith(".md") && (!dir || t.path===dir || t.path.startsWith(dir+"/")))
+        .map(t => ({ path: t.path, sha: t.sha }));
+      return res.status(200).json({ files, truncated: !!tree.truncated });
     }
 
     if(!path) return res.status(400).json({ error:"path required" });

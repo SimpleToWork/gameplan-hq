@@ -133,6 +133,16 @@ as Markdown with YAML frontmatter — structured fields and the `tools` list in 
 the prose (summary, system prompt, inputs, outputs, notes) under fixed `##` headings — so it
 reads well in GitHub and round-trips losslessly.
 
+**Two-way sync / import:** agents can be created here *or* directly in the repo. **Settings →
+Connected repos → ⇄ Sync agents** reconciles a repo with the board: it scans `agents/*.md`,
+**imports** any spec file with no local agent, and for files that exist on both sides keeps the
+**newer** version (last-write-wins, comparing the file's git commit time against the agent's
+`updatedAt`) — pulling repo→board or pushing board→repo as needed. Local agents linked to the
+repo whose file is missing get pushed (created). Caveats: it **writes commits** (it's a manual
+button, never silent on load); last-write-wins means edits made to the same agent on both sides
+within the same window can overwrite each other (no line-merge); only the `agents/` folder is
+scanned, so spec files must live there.
+
 Common first-run errors: `503` = env vars missing/not redeployed; `GitHub 404` on sync = the
 App isn't installed on that repo (step 3) or the repo URL is wrong; `GitHub 403` = the App is
 missing Contents: write.

@@ -557,6 +557,8 @@ const phaseColor=name=>{const p=DB.phases.find(x=>x.name===name);return p?p.colo
 const phaseOf=r=>r.phase||r.horizon||"";
 
 const today=()=>new Date().toISOString().slice(0,10);
+const nowTs=()=>new Date().toISOString(); // full-precision timestamp; used as agent updatedAt for last-write-wins repo sync
+const normRepo=u=>String(u||"").replace(/\.git$/,"").replace(/\/+$/,"").toLowerCase(); // compare repo URLs ignoring .git/trailing-slash/case
 // Parse a "YYYY-MM-DD" string to a local midnight Date (null if blank/invalid).
 function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
 // The date a task's timeframe filtering/grouping keys off — due date or entry date (createdAt), per the toggle.
@@ -3476,7 +3478,15 @@ function renderTeam(m){
       const t=document.createElement("span");t.className="ctitle";t.style.flex="1";t.textContent=r.fullName;
       const chip=document.createElement("span");chip.className="chip";chip.textContent=r.private?"private":"public";
       const open=document.createElement("a");open.className="btn sm";open.textContent="Open ↗";open.href=r.url;open.target="_blank";open.rel="noopener";
-      card.append(t,chip,open);rlist.appendChild(card);
+      // Two-way sync: auto-import every agents/*.md in this repo + push/pull each by last-write-wins.
+      const sync=document.createElement("button");sync.className="btn sm";sync.textContent="⇄ Sync agents";sync.title="Import new specs from "+SYNC_DIR+"/ and push/pull existing ones (newest wins)";
+      sync.onclick=async()=>{
+        sync.disabled=true;sync.innerHTML='<span class="spin"></span> Syncing';
+        try{const c=await syncRepoAgents(r.url);banner("Synced "+r.fullName+": "+c.imported+" imported, "+c.pulled+" pulled, "+c.pushed+" pushed"+(c.skipped?", "+c.skipped+" unchanged":"")+(c.errors?", "+c.errors+" errors":"")+".","ok");}
+        catch(e){banner(e.message,"err");}
+        sync.disabled=false;sync.textContent="⇄ Sync agents";
+      };
+      card.append(t,chip,sync,open);rlist.appendChild(card);
     });
     (ghInstalls||[]).forEach(i=>{if(!i.manageUrl)return;const a=document.createElement("a");a.className="btn sm";a.style.marginTop="6px";a.textContent="Manage "+(i.account?"@"+i.account:"")+" on GitHub →";a.href=i.manageUrl;a.target="_blank";a.rel="noopener";rlist.appendChild(a);});
   };
@@ -3515,8 +3525,8 @@ async function draftAgentSpec(desc){
 }
 async function saveAgent(id,data){
   try{
-    if(id)await fbUpdate("agents",id,Object.assign({updatedAt:today()},data));
-    else await fbAdd("agents",Object.assign({status:"draft",createdBy:identity,createdAt:today(),updatedAt:today()},data));
+    if(id)await fbUpdate("agents",id,Object.assign({updatedAt:nowTs()},data));
+    else await fbAdd("agents",Object.assign({status:"draft",createdBy:identity,createdAt:today(),updatedAt:nowTs()},data));
     banner(id?"Saved agent.":"Created agent.","ok");return true;
   }catch(e){banner(e.message,"err");return false;}
 }
@@ -3541,6 +3551,45 @@ async function runAgent(payload){
   const j=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(typeof j.error==="string"?j.error:("run failed ("+r.status+")"));
   return j;
+}
+// Two-way sync of agent specs with a repo (auto-import + push/pull, last-write-wins by timestamp).
+// Scans <repo>/agents/*.md: file with no local agent → import (create); both exist → newer of {git commit
+// time, local updatedAt} wins (pull or push); local agent in this repo whose file is missing → push (create).
+// Returns counts. Writes commits, so it's behind an explicit "Sync" button, not silent on load.
+const SYNC_DIR="agents"; // folder convention scanned for agent spec files
+async function syncRepoAgents(repoUrl){
+  const norm=normRepo(repoUrl);
+  const {files}=await githubSync({op:"listFiles",repoUrl,path:SYNC_DIR});
+  const r={imported:0,pulled:0,pushed:0,skipped:0,errors:0};
+  const localForRepo=DB.agents.filter(a=>normRepo(a.repoUrl)===norm&&a.repoPath);
+  const seen=new Set();
+  const specFields=s=>({name:s.name,type:s.type,status:s.status,model:s.model,summary:s.summary,systemPrompt:s.systemPrompt,tools:s.tools||[],inputs:s.inputs,outputs:s.outputs,notes:s.notes});
+  for(const f of (files||[])){
+    seen.add(f.path);
+    try{
+      const res=await githubSync({op:"read",repoUrl,path:f.path});
+      if(!res.found)continue;
+      const repoTime=(res.lastCommit&&res.lastCommit.date)||"";
+      const local=localForRepo.find(a=>a.repoPath===f.path);
+      if(!local){
+        await fbAdd("agents",Object.assign(specFields(res.spec),{repoUrl,repoPath:f.path,lastCommitSha:res.sha||"",lastSyncedAt:today(),
+          createdBy:res.spec.createdBy||identity,createdAt:res.spec.createdAt||today(),updatedAt:repoTime||nowTs()}));
+        r.imported++;
+      }else{
+        const localTime=local.updatedAt||"";
+        if(repoTime>localTime){ await fbUpdate("agents",local.id,Object.assign(specFields(res.spec),{lastCommitSha:res.sha||"",lastSyncedAt:today(),updatedAt:repoTime})); r.pulled++; }
+        else if(localTime>repoTime){ const wr=await githubSync({op:"write",repoUrl,path:f.path,spec:Object.assign({},local,{repoUrl,repoPath:f.path})}); await fbUpdate("agents",local.id,{lastCommitSha:(wr.sha)||"",lastSyncedAt:today()}); r.pushed++; }
+        else r.skipped++;
+      }
+    }catch(e){r.errors++;}
+  }
+  // Local agents linked to this repo whose file isn't there yet → push (create the file).
+  for(const a of localForRepo){
+    if(seen.has(a.repoPath))continue;
+    try{ const wr=await githubSync({op:"write",repoUrl,path:a.repoPath,spec:Object.assign({},a)}); await fbUpdate("agents",a.id,{lastCommitSha:(wr.sha)||"",lastSyncedAt:today()}); r.pushed++; }
+    catch(e){r.errors++;}
+  }
+  return r;
 }
 // Modal editor used for both new and existing agents. The "Draft with Claude" button fills the fields below; the
 // user always reviews/edits before saving (mirrors Capture's draft-then-approve flow).
@@ -3620,7 +3669,7 @@ function agentModal(existing){
       const data=buildData();if(!data.name){syncHint.textContent="Give the agent a name first.";return;}
       commit.disabled=true;syncHint.innerHTML='<span class="spin"></span> Committing';
       try{
-        const spec=Object.assign({},data,{createdBy:a.createdBy||identity,createdAt:a.createdAt||today(),updatedAt:today()});
+        const spec=Object.assign({},data,{createdBy:a.createdBy||identity,createdAt:a.createdAt||today(),updatedAt:nowTs()});
         const res=await githubSync({op:"write",repoUrl:rp.u,path:rp.p,spec});
         // Persist locally too, recording the commit so the card can show sync state.
         await saveAgent(existing?a.id:null,Object.assign({},data,{lastCommitSha:res.sha||(res.commit&&res.commit.sha)||"",lastSyncedAt:today()}));
