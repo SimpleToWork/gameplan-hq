@@ -263,7 +263,7 @@
   .rmtable tr.flash{animation:taskflash 1.6s ease-out;}
   /* tasks table (dense read-only overview; row click → card) — mirrors .rmtable */
   .tasktable-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);}
-  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:720px;}
+  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:880px;}
   .tasktable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;padding:9px 12px;border-bottom:1px solid var(--line);background:#f3f4f7;white-space:nowrap;}
   .tasktable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
   .tasktable tr:last-child td{border-bottom:none;}
@@ -1229,20 +1229,63 @@ function trashCard(t){
 
 // Body-mounted assignee picker for the Tasks table. The table wrapper has overflow:auto (would clip an in-cell
 // popover), so this floats a fixed-position .pop next to the anchor and writes back via setTask on Apply.
+// Floating, body-mounted popover anchored to a table-cell button. The .tasktable-wrap has overflow:auto and would
+// clip an in-cell popover, so these field editors (assignees, notes, Ask Claude) float on document.body instead.
+// Returns {pop, place}; the caller fills `pop`, then calls place() again once its final size is known.
+function floatTaskPop(anchor){
+  document.querySelectorAll(".tt-floatpop").forEach(p=>p.remove());
+  const pop=document.createElement("div");pop.className="pop tt-floatpop open";
+  pop.style.cssText="position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:10px;min-width:200px;max-width:340px;max-height:70vh;overflow:auto;";
+  document.body.appendChild(pop);
+  const place=()=>{const r=anchor.getBoundingClientRect();pop.style.top=Math.max(8,Math.min(r.bottom+4,window.innerHeight-pop.offsetHeight-8))+"px";pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-pop.offsetWidth-8))+"px";};
+  place();
+  const close=e=>{if(e&&(pop.contains(e.target)||anchor.contains(e.target)))return;pop.remove();document.removeEventListener("mousedown",close);};
+  setTimeout(()=>document.addEventListener("mousedown",close),0);
+  return {pop,place};
+}
 function openTaskAssignPop(anchor,t){
-  document.querySelectorAll(".tt-asgpop").forEach(p=>p.remove());
-  const pop=document.createElement("div");pop.className="pop tt-asgpop open";
-  pop.style.cssText="position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:10px;min-width:180px;max-height:60vh;overflow:auto;";
+  const {pop,place}=floatTaskPop(anchor);
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";";l.append(cb,sw,document.createTextNode(mem.name));pop.appendChild(l);});
   const apply=document.createElement("button");apply.className="btn primary sm";apply.style.alignSelf="flex-start";apply.textContent="Apply";
   apply.onclick=()=>{setTask(t.id,{assignees:Array.from(pop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});pop.remove();};
-  pop.appendChild(apply);
-  document.body.appendChild(pop);
-  const r=anchor.getBoundingClientRect();
-  pop.style.top=Math.max(8,Math.min(r.bottom+4,window.innerHeight-pop.offsetHeight-8))+"px";
-  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-pop.offsetWidth-8))+"px";
-  const close=e=>{if(!pop.contains(e.target)&&e.target!==anchor){pop.remove();document.removeEventListener("mousedown",close);}};
-  setTimeout(()=>document.addEventListener("mousedown",close),0);
+  pop.appendChild(apply);place();
+}
+// Notes — the same per-user tagged notes as the card, floated for the table. Closes after adding (the re-render
+// rebuilds the table); reopen to see the appended note.
+function openTaskNotesPop(anchor,t){
+  const {pop,place}=floatTaskPop(anchor);
+  const notes=Array.isArray(t.notes)?t.notes:[];
+  const nlist=document.createElement("div");nlist.style.cssText="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto;";
+  if(notes.length){
+    notes.forEach(nt=>{
+      const mm=member(nt.by);const color=mm&&mm.color?mm.color:"#9aa0a8";
+      const row=document.createElement("div");row.style.cssText="border-left:3px solid "+color+";padding:1px 0 1px 8px;";
+      const meta=document.createElement("div");meta.style.cssText="display:flex;align-items:center;gap:6px;margin-bottom:2px;";
+      const av=document.createElement("span");av.className="ava";av.style.cssText="background:"+color+";width:18px;height:18px;font-size:9px;";av.textContent=initials(nt.by||"?");
+      meta.appendChild(av);
+      meta.insertAdjacentHTML("beforeend",'<span style="font-weight:600;font-size:12px;color:'+color+';">'+esc(nt.by||"Unknown")+'</span>'+(nt.at?'<span class="cmeta">'+esc(nt.at)+'</span>':''));
+      const body=document.createElement("div");body.style.cssText="white-space:pre-wrap;font-size:13px;";body.textContent=nt.text||"";
+      row.append(meta,body);nlist.appendChild(row);
+    });
+  }else{nlist.innerHTML='<div class="cmeta">No notes yet.</div>';}
+  const nta=document.createElement("textarea");nta.className="ctrl";nta.placeholder="Add a note… (tagged with your name)";nta.style.minHeight="60px";
+  const nAdd=document.createElement("button");nAdd.className="btn primary sm";nAdd.style.alignSelf="flex-start";nAdd.textContent="Add note as "+identity;
+  nAdd.onclick=()=>{const v=nta.value.trim();if(!v){banner("Note can’t be empty.","err");return;}addTaskNote(t.id,v);pop.remove();banner("Note added by "+identity+".","ok");};
+  pop.append(nlist,nta,nAdd);place();nta.focus();
+}
+// Ask Claude — the same prompt builder as the card, floated for the table.
+function openTaskAskPop(anchor,t){
+  const {pop,place}=floatTaskPop(anchor);
+  const qt=document.createElement("textarea");qt.className="ctrl";qt.placeholder="What do you want to ask about this task? (optional — leave blank for a general approach)";
+  const qBtn=document.createElement("button");qBtn.className="btn primary sm";qBtn.style.alignSelf="flex-start";qBtn.textContent="Build Claude prompt";
+  const pbox=document.createElement("textarea");pbox.className="promptbox";pbox.style.display="none";pbox.readOnly=true;
+  const prow=document.createElement("div");prow.style.cssText="display:none;gap:8px;flex-wrap:wrap;";
+  const copyB=document.createElement("button");copyB.className="btn sm";copyB.textContent="Copy prompt";
+  const openB=document.createElement("a");openB.className="btn sm";openB.textContent="Open Claude ↗";openB.href="https://claude.ai/new";openB.target="_blank";openB.rel="noopener";
+  prow.append(copyB,openB);
+  qBtn.onclick=()=>{pbox.value=buildTaskPrompt(t,qt.value);pbox.style.display="block";prow.style.display="flex";place();};
+  copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
+  pop.append(qt,qBtn,pbox,prow);place();qt.focus();
 }
 // Grouped roadmap <select> for a table cell: "No link" + one optgroup per area. Writes roadmapId via setTask.
 function taskRoadmapSelect(t){
@@ -1266,12 +1309,12 @@ function taskRoadmapSelect(t){
 function taskTable(items){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
-  tbl.innerHTML='<thead><tr><th>Task</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Target</th><th>Roadmap</th></tr></thead>';
+  tbl.innerHTML='<thead><tr><th>Task</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
   items.forEach(t=>{
     const k=sd.key(t);
-    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="7">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
+    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="9">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
     prevKey=k;
     const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
     const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -1299,7 +1342,15 @@ function taskTable(items){
     dueIn.onchange=()=>setTask(t.id,{due:dueIn.value||""});tdDue.appendChild(dueIn);
     // Roadmap — grouped select.
     const tdRm=document.createElement("td");tdRm.appendChild(taskRoadmapSelect(t));
-    tr.append(tdTask,tdSt,tdPri,tdCat,tdWho,tdDue,tdRm);
+    // Notes — opens the floating per-user notes editor; the button shows the current count.
+    const notes=Array.isArray(t.notes)?t.notes:[];
+    const tdNotes=document.createElement("td");const nBtn=document.createElement("button");nBtn.type="button";nBtn.className="tt-asgbtn";nBtn.textContent=notes.length?("Notes ("+notes.length+")"):"Notes";nBtn.title="View / add notes";
+    nBtn.onclick=()=>openTaskNotesPop(nBtn,t);tdNotes.appendChild(nBtn);
+    // Ask — opens the floating Claude prompt builder (same as the card's Ask Claude).
+    const tdAsk=document.createElement("td");const qBtn=document.createElement("button");qBtn.type="button";qBtn.className="tt-asgbtn";qBtn.title="Ask Claude";qBtn.setAttribute("aria-label","Ask Claude");
+    qBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
+    qBtn.onclick=()=>openTaskAskPop(qBtn,t);tdAsk.appendChild(qBtn);
+    tr.append(tdTask,tdSt,tdPri,tdCat,tdWho,tdDue,tdRm,tdNotes,tdAsk);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
