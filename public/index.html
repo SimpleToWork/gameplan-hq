@@ -289,6 +289,13 @@
   .agtable .at-sub{color:var(--muted);font-size:11.5px;}
   .agtable .at-link{color:var(--accent,#4646c8);text-decoration:none;font-weight:600;}
   .agtable .at-link:hover{text-decoration:underline;}
+  /* resizable table columns (shared by .rmtable/.tasktable/.agtable) — a drag grip on each header's right edge */
+  .tasktable th,.agtable th{position:relative;}  /* .rmtable th is already position:sticky (a positioned ancestor) */
+  .col-resizer{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2;touch-action:none;-webkit-user-select:none;user-select:none;}
+  .col-resizer::after{content:"";position:absolute;top:22%;right:4px;width:1px;height:56%;background:var(--line);transition:background .12s;}
+  .col-resizer:hover::after,.col-resizer.dragging::after{background:var(--accent,#4646c8);width:2px;}
+  body.col-resizing{cursor:col-resize;}
+  body.col-resizing *{cursor:col-resize!important;-webkit-user-select:none;user-select:none;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
 </style>
 </head>
@@ -1244,7 +1251,46 @@ function taskTable(items){
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
+  makeColumnsResizable(tbl,"tasks");
   return wrap;
+}
+// ---- Resizable table columns (shared by the Tasks/Roadmap/Agenda tables) ----
+// Widths persist per table in localStorage (gp_colw_<key>) and re-apply on every render — required because these
+// tables are rebuilt from scratch on each render. The table stays table-layout:auto (content-sized) until the first
+// drag, at which point the current column widths are frozen to px and the layout switches to fixed, so the default
+// look is preserved and the user takes over from there. Double-clicking a grip clears that column (lets it re-flex).
+const colwStoreKey=key=>"gp_colw_"+key;
+function loadColW(key,n){try{const a=JSON.parse(localStorage.getItem(colwStoreKey(key)));return (Array.isArray(a)&&a.length===n)?a:null;}catch(e){return null;}}
+function saveColW(key,cols){try{localStorage.setItem(colwStoreKey(key),JSON.stringify(cols.map(c=>{const w=parseInt(c.style.width,10);return isNaN(w)?null:w;})));}catch(e){}}
+// Apply the current widths to every on-screen table sharing this key (Tasks renders one table per group section).
+function syncColW(key,cols){const widths=cols.map(c=>c.style.width||"");document.querySelectorAll('table[data-colw-key="'+key+'"]').forEach(tb=>{const cg=tb.querySelector("colgroup");if(!cg)return;tb.style.tableLayout="fixed";Array.from(cg.children).forEach((c,i)=>{c.style.width=widths[i]||"";});});}
+function makeColumnsResizable(table,key){
+  const headRow=table.tHead&&table.tHead.rows[0];if(!headRow)return;
+  const ths=Array.from(headRow.cells);const n=ths.length;if(n<2)return;
+  table.dataset.colwKey=key;
+  let cg=table.querySelector("colgroup");
+  if(!cg){cg=document.createElement("colgroup");for(let i=0;i<n;i++)cg.appendChild(document.createElement("col"));table.insertBefore(cg,table.firstChild);}
+  const cols=Array.from(cg.children);
+  const saved=loadColW(key,n);
+  if(saved){table.style.tableLayout="fixed";cols.forEach((c,i)=>{if(saved[i]!=null)c.style.width=saved[i]+"px";});}
+  const MIN=48;
+  // Grip on every header but the last — the rightmost column flexes to absorb leftover width.
+  ths.forEach((th,i)=>{
+    if(i===n-1)return;
+    const grip=document.createElement("div");grip.className="col-resizer";grip.title="Drag to resize · double-click to reset";
+    grip.addEventListener("pointerdown",e=>{
+      e.preventDefault();e.stopPropagation();
+      if(table.style.tableLayout!=="fixed"){ths.forEach((h,j)=>{if(j<n-1)cols[j].style.width=h.offsetWidth+"px";});table.style.tableLayout="fixed";}
+      const startX=e.clientX,startW=ths[i].offsetWidth;
+      grip.classList.add("dragging");document.body.classList.add("col-resizing");
+      try{grip.setPointerCapture(e.pointerId);}catch(_){}
+      const move=ev=>{cols[i].style.width=Math.max(MIN,startW+(ev.clientX-startX))+"px";};
+      const up=()=>{grip.removeEventListener("pointermove",move);grip.removeEventListener("pointerup",up);grip.removeEventListener("pointercancel",up);grip.classList.remove("dragging");document.body.classList.remove("col-resizing");saveColW(key,cols);syncColW(key,cols);};
+      grip.addEventListener("pointermove",move);grip.addEventListener("pointerup",up);grip.addEventListener("pointercancel",up);
+    });
+    grip.addEventListener("dblclick",e=>{e.preventDefault();e.stopPropagation();cols[i].style.width="";saveColW(key,cols);syncColW(key,cols);});
+    th.appendChild(grip);
+  });
 }
 // Status-based view (the main row). Timeframe + person filters are layered on top in taskFilter.
 function taskViewMatch(t){
@@ -2033,6 +2079,7 @@ function renderRoadmapTable(m){
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);m.appendChild(wrap);
+  makeColumnsResizable(tbl,"roadmap");
   if(focusRoadmapId){requestAnimationFrame(()=>{const el=m.querySelector('tr[data-rid="'+focusRoadmapId+'"]');if(el){focusRoadmapId=null;el.scrollIntoView({behavior:"smooth",block:"center"});el.classList.add("flash");setTimeout(()=>el.classList.remove("flash"),1600);}});}
 }
 // Build one phase-column kanban board for a set of targets.
@@ -2601,6 +2648,7 @@ function renderAgendasTable(m,rows){
     tb.appendChild(tr);
   });
   t.appendChild(tb);wrap.appendChild(t);m.appendChild(wrap);
+  makeColumnsResizable(t,"agendas");
 }
 async function removeItemFromAgenda(agendaId,itemId){const a=DB.agendas.find(x=>x.id===agendaId);if(!a)return;try{await fbUpdate("agendas",agendaId,{roadmapIds:(a.roadmapIds||[]).filter(x=>x!==itemId)});}catch(e){banner(e.message,"err");}}
 
