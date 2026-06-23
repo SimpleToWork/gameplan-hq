@@ -409,6 +409,7 @@ let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=p
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
+let taskSortDir="asc";       // sort direction within the chosen Sort-by: "asc" | "desc" (in-memory, like taskSort)
 let taskLayout=(localStorage.getItem("gp_taskLayout")==="table")?"table":"card"; // "card" (full editable cards) | "table" (read-only overview; row click → that card)
 let taskCatDefaulted=false;  // once true, the per-user domain default for the discipline filter won't re-apply (also set when the user changes the discipline filter manually)
 let taskTimeOpen=false;      // Tasks filter/grouping menu — each group collapses independently (roadmap-style toolbar)
@@ -593,7 +594,9 @@ function taskSections(list){
     target:(a,b)=>{const da=a.due||"",db=b.due||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
     roadmap:(a,b)=>{const r=rrank(a)-rrank(b);return r||prank(a)-prank(b);},
   };
-  const sortP=arr=>arr.sort(cmp[taskSort]||cmp.priority);
+  // Apply the chosen comparator, then flip the whole result for descending (tiebreakers reverse too — fine for a direction toggle).
+  const cmpBase=cmp[taskSort]||cmp.priority;const sortDir=taskSortDir==="desc"?-1:1;
+  const sortP=arr=>arr.sort((a,b)=>sortDir*cmpBase(a,b));
   if(taskGroup==="timeframe")
     return TIME_BUCKETS.map(([k,lbl,,fg])=>({label:lbl,color:fg,items:sortP(list.filter(t=>taskBucket(t)===k))})).filter(s=>s.items.length);
   if(taskGroup==="person"){
@@ -1523,6 +1526,10 @@ function renderTasks(m){
   const sortSel=document.createElement("select");sortSel.className="mini";  // dropdown (mirrors the roadmap-target select) — cleaner than a button row
   SORT_OPTS.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(taskSort===k)o.selected=true;sortSel.appendChild(o);});
   sortSel.onchange=()=>{taskSort=sortSel.value;renderTasks();};sb.appendChild(sortSel);
+  // Direction toggle — flips ascending/descending for whichever Sort-by is active (applies to both Card and Table layouts).
+  const dirBtn=document.createElement("button");dirBtn.className="btn sm";dirBtn.style.marginLeft="6px";
+  const desc=taskSortDir==="desc";dirBtn.textContent=desc?"↓ Desc":"↑ Asc";dirBtn.title=desc?"Descending order — click for ascending":"Ascending order — click for descending";
+  dirBtn.onclick=()=>{taskSortDir=desc?"asc":"desc";renderTasks();};sb.appendChild(dirBtn);
   vb.appendChild(sb);
   // Layout — Cards (full editable cards) vs Table (dense read-only overview; row click jumps to the card). Mirrors the
   // Agenda/Roadmap layout toggles; the choice persists across reloads in gp_taskLayout. Sits beside Group-by / Sort-by.
