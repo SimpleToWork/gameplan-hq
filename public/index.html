@@ -372,6 +372,7 @@ const firebaseConfig = {
 };
 // Your serverless proxy that forwards {prompt} to Anthropic and returns {text}.
 const AI_ENDPOINT = "/api/claude"; // co-located Vercel function — same-origin, no CORS
+const GH_ENDPOINT = "/api/github"; // co-located Vercel function for Agent ↔ git repo sync (GitHub App)
 const MEET_ENDPOINT = "/api/calendar"; // co-located Vercel function — creates Calendar events w/ Meet links
 const TRANSCRIBE_ENDPOINT = "/api/transcribe"; // Vercel function — transcribes recorded audio (Capture voice-to-text)
 const FF_ENDPOINT = "/api/fireflies";  // co-located Vercel function — pulls a meeting transcript from Fireflies
@@ -3341,6 +3342,13 @@ async function saveAgent(id,data){
     banner(id?"Saved agent.":"Created agent.","ok");return true;
   }catch(e){banner(e.message,"err");return false;}
 }
+// Read/write an agent's spec file in its git repo via the GitHub App proxy. payload: {op,repoUrl,path,spec?,message?}.
+async function githubSync(payload){
+  const r=await fetch(GH_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(typeof j.error==="string"?j.error:("git sync failed ("+r.status+")"));
+  return j;
+}
 // Modal editor used for both new and existing agents. The "Draft with Claude" button fills the fields below; the
 // user always reviews/edits before saving (mirrors Capture's draft-then-approve flow).
 function agentModal(existing){
@@ -3361,7 +3369,7 @@ function agentModal(existing){
       fSummary=field("Summary",area(a.summary,45)),fPrompt=field("System prompt",area(a.systemPrompt,90)),
       fTools=field("Tools (one per line)",area((a.tools||[]).join("\n"),55)),fInputs=field("Inputs",area(a.inputs,40)),
       fOutputs=field("Outputs",area(a.outputs,40)),fNotes=field("Notes — auth, pagination, rate limits",area(a.notes,55)),
-      fRepoUrl=field("Repo URL (for Phase 2 git sync)",inp(a.repoUrl)),fRepoPath=field("Repo path (e.g. agents/connector-id.md)",inp(a.repoPath));
+      fRepoUrl=field("Repo URL (github.com/owner/repo)",inp(a.repoUrl)),fRepoPath=field("Repo path (e.g. agents/connector-id.md)",inp(a.repoPath));
     draftBtn.onclick=async()=>{
       const d=dDesc.value.trim();if(!d){draftHint.textContent="Write a description first.";return;}
       draftBtn.disabled=true;draftBtn.innerHTML='<span class="spin"></span> Drafting';draftHint.textContent="";
@@ -3375,13 +3383,49 @@ function agentModal(existing){
       }catch(e){draftHint.textContent=e.message;}
       draftBtn.disabled=false;draftBtn.textContent="✨ Draft with Claude";
     };
+    // Gather the current field values into an agent record (shared by Save and Commit-to-repo).
+    const buildData=()=>({name:fName.value.trim(),type:fType.value,status:fStatus.value,model:fModel.value,summary:fSummary.value.trim(),
+      systemPrompt:fPrompt.value.trim(),tools:fTools.value.split("\n").map(s=>s.trim()).filter(Boolean),
+      inputs:fInputs.value.trim(),outputs:fOutputs.value.trim(),notes:fNotes.value.trim(),
+      repoUrl:fRepoUrl.value.trim(),repoPath:fRepoPath.value.trim()});
+    // Fill the prose/structured fields into the editor from a spec returned by the git read.
+    const fillFrom=s=>{fName.value=s.name||fName.value;if(AGENT_TYPES.includes(s.type))fType.value=s.type;if(AGENT_STATUSES.includes(s.status))fStatus.value=s.status;
+      if(s.model)fModel.value=s.model;fSummary.value=s.summary||"";fPrompt.value=s.systemPrompt||"";fTools.value=(s.tools||[]).join("\n");
+      fInputs.value=s.inputs||"";fOutputs.value=s.outputs||"";fNotes.value=s.notes||"";};
+
+    // Git sync row — Pull reads the spec file into the editor; Commit writes the current fields back as a commit.
+    const repoRow=document.createElement("div");repoRow.className="row";repoRow.style.marginTop="8px";
+    const pull=document.createElement("button");pull.className="btn sm";pull.textContent="↓ Pull from repo";
+    const commit=document.createElement("button");commit.className="btn sm";commit.textContent="↑ Commit to repo";
+    const syncHint=document.createElement("span");syncHint.className="hint";syncHint.style.marginLeft="8px";
+    if(a.lastSyncedAt)syncHint.textContent="Last synced "+a.lastSyncedAt;
+    repoRow.append(pull,commit,syncHint);wrap.appendChild(repoRow);
+    const needRepo=()=>{const u=fRepoUrl.value.trim(),p=fRepoPath.value.trim();if(!u||!p){syncHint.textContent="Set a repo URL and path first.";return null;}return{u,p};};
+    pull.onclick=async()=>{
+      const rp=needRepo();if(!rp)return;
+      pull.disabled=true;syncHint.textContent="Reading…";
+      try{const res=await githubSync({op:"read",repoUrl:rp.u,path:rp.p});
+        if(!res.found){syncHint.textContent="No file at that path yet — Commit to create it.";}
+        else{fillFrom(res.spec);syncHint.textContent="Pulled"+(res.lastCommit?" (commit "+res.lastCommit.sha.slice(0,7)+")":"")+" — review, then Save.";}
+      }catch(e){syncHint.textContent=e.message;}
+      pull.disabled=false;
+    };
+    commit.onclick=async()=>{
+      const rp=needRepo();if(!rp)return;
+      const data=buildData();if(!data.name){syncHint.textContent="Give the agent a name first.";return;}
+      commit.disabled=true;syncHint.innerHTML='<span class="spin"></span> Committing';
+      try{
+        const spec=Object.assign({},data,{createdBy:a.createdBy||identity,createdAt:a.createdAt||today(),updatedAt:today()});
+        const res=await githubSync({op:"write",repoUrl:rp.u,path:rp.p,spec});
+        // Persist locally too, recording the commit so the card can show sync state.
+        await saveAgent(existing?a.id:null,Object.assign({},data,{lastCommitSha:res.sha||(res.commit&&res.commit.sha)||"",lastSyncedAt:today()}));
+        banner("Committed to repo.","ok");close();
+      }catch(e){syncHint.textContent=e.message;commit.disabled=false;}
+    };
+
     const save=document.createElement("button");save.className="btn primary";save.style.marginTop="10px";save.textContent=existing?"Save changes":"Create agent";
     save.onclick=async()=>{
-      const name=fName.value.trim();if(!name){draftHint.textContent="Give the agent a name.";return;}
-      const data={name,type:fType.value,status:fStatus.value,model:fModel.value,summary:fSummary.value.trim(),
-        systemPrompt:fPrompt.value.trim(),tools:fTools.value.split("\n").map(s=>s.trim()).filter(Boolean),
-        inputs:fInputs.value.trim(),outputs:fOutputs.value.trim(),notes:fNotes.value.trim(),
-        repoUrl:fRepoUrl.value.trim(),repoPath:fRepoPath.value.trim()};
+      const data=buildData();if(!data.name){draftHint.textContent="Give the agent a name.";return;}
       if(await saveAgent(existing?a.id:null,data))close();
     };
     wrap.appendChild(save);card.appendChild(wrap);
@@ -3389,7 +3433,7 @@ function agentModal(existing){
 }
 function renderAgents(m){
   m=m||document.getElementById("main");m.innerHTML="";
-  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agents</div><p class="pagesub">AI agents authored with Claude and saved to the board. Describe a data source or task, let Claude draft the spec, then refine it. Git sync to a repo comes in Phase 2.</p>');
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agents</div><p class="pagesub">AI agents authored with Claude and saved to the board. Describe a data source or task, let Claude draft the spec, refine it, then pull/commit it to a git repo to track and version it.</p>');
   const head=document.createElement("div");head.className="areahead";
   head.innerHTML='<span class="nm">Your agents</span><span class="cat-count">'+DB.agents.length+'</span>';
   const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent="+ New agent";add.onclick=()=>agentModal(null);
@@ -3402,7 +3446,7 @@ function renderAgents(m){
     ch.innerHTML='<div class="ctitle" style="flex:1;">'+esc(a.name||"Untitled")+'</div>';
     const tc=document.createElement("span");tc.className="chip";tc.textContent=a.type||"other";ch.appendChild(tc);
     card.appendChild(ch);
-    card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(a.status||"draft")+(a.model?' · '+esc(a.model):'')+(a.createdBy?' · by '+esc(a.createdBy):'')+'</div>');
+    card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(a.status||"draft")+(a.model?' · '+esc(a.model):'')+(a.createdBy?' · by '+esc(a.createdBy):'')+(a.lastSyncedAt?' · synced '+esc(a.lastSyncedAt):'')+'</div>');
     if(a.summary)card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">'+esc(a.summary)+'</div>');
     if((a.tools||[]).length){const tw=document.createElement("div");tw.className="chips";tw.style.marginTop="6px";a.tools.forEach(t=>{const c=document.createElement("span");c.className="chip";c.textContent=(String(t).split("—")[0]||t).trim();tw.appendChild(c);});card.appendChild(tw);}
     const foot=document.createElement("div");foot.className="row";foot.style.marginTop="8px";
