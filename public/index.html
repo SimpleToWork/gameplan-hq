@@ -267,11 +267,16 @@
   .tasktable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;padding:9px 12px;border-bottom:1px solid var(--line);background:#f3f4f7;white-space:nowrap;}
   .tasktable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
   .tasktable tr:last-child td{border-bottom:none;}
-  .tasktable tbody tr{cursor:pointer;}
+  .tasktable tbody tr{cursor:default;}
   .tasktable tbody tr:hover{background:#f7f8fa;}
-  .tasktable tbody tr:focus{outline:2px solid var(--accent,#4646c8);outline-offset:-2px;}
   .tasktable tbody tr.flash{animation:taskflash 1.6s ease-out;}
-  .tasktable .tt-title{font-weight:500;color:var(--ink);}
+  .tasktable td .mini{max-width:100%;}
+  .tasktable td input[type=date].mini{max-width:150px;}
+  .tasktable .tt-who{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .tasktable .tt-asgbtn{font-size:12px;line-height:1;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--muted);cursor:pointer;padding:3px 5px;}
+  .tasktable .tt-asgbtn:hover{color:var(--accent,#4646c8);border-color:var(--accent,#4646c8);}
+  .tasktable .tt-title{font-weight:500;color:var(--ink);cursor:pointer;}
+  .tasktable .tt-title:hover{text-decoration:underline;}
   .tasktable .tt-sub{font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .tasktable .avas{margin-top:0;}
   .tasktable tr.tt-sep td{background:var(--canvas);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:6px 12px;cursor:default;}
@@ -1219,8 +1224,41 @@ function trashCard(t){
   return d;
 }
 
-// Dense, read-only overview of one section's tasks (the "Table" layout). Mirrors the Agenda/Roadmap tables:
-// clicking a row switches back to the Cards layout and scrolls/flashes that task, where every field is editable.
+// Body-mounted assignee picker for the Tasks table. The table wrapper has overflow:auto (would clip an in-cell
+// popover), so this floats a fixed-position .pop next to the anchor and writes back via setTask on Apply.
+function openTaskAssignPop(anchor,t){
+  document.querySelectorAll(".tt-asgpop").forEach(p=>p.remove());
+  const pop=document.createElement("div");pop.className="pop tt-asgpop open";
+  pop.style.cssText="position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:10px;min-width:180px;max-height:60vh;overflow:auto;";
+  roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";";l.append(cb,sw,document.createTextNode(mem.name));pop.appendChild(l);});
+  const apply=document.createElement("button");apply.className="btn primary sm";apply.style.alignSelf="flex-start";apply.textContent="Apply";
+  apply.onclick=()=>{setTask(t.id,{assignees:Array.from(pop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});pop.remove();};
+  pop.appendChild(apply);
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=Math.max(8,Math.min(r.bottom+4,window.innerHeight-pop.offsetHeight-8))+"px";
+  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-pop.offsetWidth-8))+"px";
+  const close=e=>{if(!pop.contains(e.target)&&e.target!==anchor){pop.remove();document.removeEventListener("mousedown",close);}};
+  setTimeout(()=>document.addEventListener("mousedown",close),0);
+}
+// Grouped roadmap <select> for a table cell: "No link" + one optgroup per area. Writes roadmapId via setTask.
+function taskRoadmapSelect(t){
+  const s=document.createElement("select");s.className="mini";
+  const none=document.createElement("option");none.value="";none.textContent="— No roadmap —";if(!t.roadmapId)none.selected=true;s.appendChild(none);
+  const areas=areaNames().filter(an=>DB.roadmap.some(r=>r.area===an));
+  DB.roadmap.forEach(r=>{if(r.area&&!areas.includes(r.area))areas.push(r.area);});
+  areas.forEach(an=>{
+    const inArea=DB.roadmap.filter(r=>r.area===an);if(!inArea.length)return;
+    const og=document.createElement("optgroup");og.label=an;
+    inArea.forEach(r=>{const o=document.createElement("option");o.value=r.id;o.textContent=r.title||"Untitled target";if(t.roadmapId===r.id)o.selected=true;og.appendChild(o);});
+    s.appendChild(og);
+  });
+  if(t.roadmapId){s.style.cssText+=";background:#ecebfb;color:#4646c8;border-color:#4646c855;font-weight:600;";}
+  s.onchange=()=>setTask(t.id,{roadmapId:s.value||null});
+  return s;
+}
+// Editable "Table" layout: every column is a live field editor backed by the same setTask functions as the cards.
+// The title cell still opens the full card (notes, description, Ask Claude); all other cells edit inline.
 // Honours the active Sort — a spanning sub-header row marks each sort run, matching the card view's dividers.
 function taskTable(items){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
@@ -1233,21 +1271,32 @@ function taskTable(items){
     if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="7">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
     prevKey=k;
     const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
-    const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
     const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
     const catCol=CAT_COLOR[t.category]||"#888";
-    const tr=document.createElement("tr");tr.dataset.taskId=t.id;tr.tabIndex=0;tr.title="Open this task";
-    // Row click → jump to the Cards layout and focus this task (focusTaskId drives the scroll+flash in renderTasks).
-    const open=()=>{taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}taskCollapsed.delete(t.id);focusTaskId=t.id;renderTasks();};
-    tr.onclick=open;tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}};
-    tr.innerHTML='<td><div class="tt-title">'+esc(t.title)+'</div>'+(t.context?'<div class="tt-sub">'+esc(t.context)+'</div>':'')+'</td>'+
-      '<td><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+esc(t.status)+'</span></td>'+
-      '<td><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+esc(t.priority)+'</span></td>'+
-      '<td><span class="chip" style="background:'+catCol+'22;color:'+catCol+'">'+esc(t.category||"—")+'</span></td>'+
-      '<td class="tt-asg"></td>'+
-      (dd?'<td class="cmeta"'+(overdue?' style="color:#c0392b;font-weight:600;"':'')+'>'+esc(t.due)+(overdue?' · overdue':'')+'</td>':'<td class="cmeta">—</td>')+
-      (rm?'<td><span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span></td>':'<td class="cmeta">—</td>');
-    const av=avatarsRow(t.assignees);tr.querySelector(".tt-asg").appendChild(av||document.createTextNode("—"));
+    const tr=document.createElement("tr");tr.dataset.taskId=t.id;
+    // Task cell — title opens the full card editor (focusTaskId drives the scroll+flash in renderTasks).
+    const tdTask=document.createElement("td");
+    const titleEl=document.createElement("div");titleEl.className="tt-title";titleEl.textContent=t.title;titleEl.title="Open full editor (notes, description, Ask Claude)";
+    titleEl.onclick=()=>{taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}taskCollapsed.delete(t.id);focusTaskId=t.id;renderTasks();};
+    tdTask.appendChild(titleEl);
+    if(t.context){const sub=document.createElement("div");sub.className="tt-sub";sub.textContent=t.context;tdTask.appendChild(sub);}
+    // Status / Priority — colour-coded selects (tint mirrors the read-only chips they replace).
+    const tdSt=document.createElement("td");const stSel=mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v}));stSel.style.cssText+=";background:"+sc[0]+";color:"+sc[1]+";border-color:"+sc[1]+"44;font-weight:600;";tdSt.appendChild(stSel);
+    const tdPri=document.createElement("td");const priSel=mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v}));priSel.style.cssText+=";background:"+pc[0]+";color:"+pc[1]+";border-color:"+pc[1]+"44;font-weight:600;";tdPri.appendChild(priSel);
+    // Category — discipline select tinted with its colour, same as the card.
+    const tdCat=document.createElement("td");const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));catSel.style.cssText+=";background:"+catCol+"22;color:"+catCol+";border-color:"+catCol+"55;font-weight:600;";tdCat.appendChild(catSel);
+    // Who — avatars + an edit button that opens the body-mounted assignee picker.
+    const tdWho=document.createElement("td");const who=document.createElement("div");who.className="tt-who";
+    const av=avatarsRow(t.assignees);who.appendChild(av||document.createTextNode("—"));
+    const aBtn=document.createElement("button");aBtn.type="button";aBtn.className="tt-asgbtn";aBtn.textContent="✎";aBtn.title="Edit assignees";
+    aBtn.onclick=()=>openTaskAssignPop(aBtn,t);who.appendChild(aBtn);tdWho.appendChild(who);
+    // Target — inline date editor.
+    const tdDue=document.createElement("td");const dueIn=document.createElement("input");dueIn.type="date";dueIn.className="mini";dueIn.value=t.due||"";dueIn.title="Target date";
+    if(overdue)dueIn.style.cssText+=";color:#c0392b;font-weight:600;border-color:#c0392b55;";
+    dueIn.onchange=()=>setTask(t.id,{due:dueIn.value||""});tdDue.appendChild(dueIn);
+    // Roadmap — grouped select.
+    const tdRm=document.createElement("td");tdRm.appendChild(taskRoadmapSelect(t));
+    tr.append(tdTask,tdSt,tdPri,tdCat,tdWho,tdDue,tdRm);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
