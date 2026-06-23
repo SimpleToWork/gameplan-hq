@@ -448,7 +448,6 @@ let roadmapView="list";      // list | timeline | kanban | plot | table
 let rmSort="manual";         // manual | start | target | added | az | za
 let rmSearch="";             // free-text search over roadmap title/detail; "" = off
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
-let rmManageOpen=false;      // are the Areas + Phases manager rows expanded? (collapsed by default for space)
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmPeopleOpen=false;      // is the People filter row expanded? (collapsed by default)
 let rmTlMode="all";          // timeline layout: all (one combined frame) | area (one frame per area)
@@ -874,9 +873,9 @@ async function captureRoadmap(){
 
 /* ---------- Areas ---------- */
 async function addArea(name){
-  if(DB.areas.some(a=>a.name.toLowerCase()===name.toLowerCase())){banner("That area already exists.","err");return;}
+  if(DB.areas.some(a=>a.name.toLowerCase()===name.toLowerCase())){banner("That area already exists.","err");return false;}
   const used=DB.areas.map(a=>a.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.areas.length%AREA_POOL.length];
-  try{await fbAdd("areas",{name,color});banner("Added area “"+name+"”.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("areas",{name,color});banner("Added area “"+name+"”.","ok");return true;}catch(e){banner(e.message,"err");return false;}
 }
 async function removeArea(area){
   if(DB.areas.length<=1){banner("Keep at least one area.","err");return;}
@@ -937,10 +936,10 @@ async function reorderDiscipline(draggedId,targetId,before){
 }
 /* ---------- Phase ops ---------- */
 async function addPhase(name){
-  if(DB.phases.some(p=>p.name.toLowerCase()===name.toLowerCase())){banner("That phase already exists.","err");return;}
+  if(DB.phases.some(p=>p.name.toLowerCase()===name.toLowerCase())){banner("That phase already exists.","err");return false;}
   const used=DB.phases.map(p=>p.color);const color=AREA_POOL.find(c=>!used.includes(c))||AREA_POOL[DB.phases.length%AREA_POOL.length];
   const order=DB.phases.reduce((mx,p)=>Math.max(mx,p.order??0),-1)+1;
-  try{await fbAdd("phases",{name,color,order});banner("Added “"+name+"”.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("phases",{name,color,order});banner("Added “"+name+"”.","ok");return true;}catch(e){banner(e.message,"err");return false;}
 }
 async function setPhase(id,patch){try{await fbUpdate("phases",id,patch);}catch(e){banner(e.message,"err");}}
 async function renamePhase(ph,newName){
@@ -2093,65 +2092,13 @@ function renderRoadmap(m){
   capRight.append(addBtn,capHint);capHead.appendChild(capRight);
   m.appendChild(addBox);
   const tools=document.createElement("div");tools.className="rmtools";
-  // collapse toggles: one for Areas+Phases together, one for the Filter row — frees up vertical space
+  // collapse toggles for the Filter and People rows — frees up vertical space.
+  // (Areas & Phases are now managed on the Team page; the roadmap keeps only its view filters.)
   const ctrlbar=document.createElement("div");ctrlbar.className="rmtoolbar-ctrl";
-  const mgrT=document.createElement("button");mgrT.type="button";mgrT.className="btn sm rmtgl"+(rmManageOpen?" on":"");mgrT.innerHTML='<span class="tgchev">▾</span>Areas &amp; Phases';
   const filT=document.createElement("button");filT.type="button";filT.className="btn sm rmtgl"+(rmFilterOpen?" on":"");filT.innerHTML='<span class="tgchev">▾</span>Filters';
   const peoT=document.createElement("button");peoT.type="button";peoT.className="btn sm rmtgl"+(rmPeopleOpen?" on":"");peoT.innerHTML='<span class="tgchev">▾</span>People'+(rmPeopleActive&&rmPeopleActive.size?' ('+rmPeopleActive.size+')':'');
-  ctrlbar.append(mgrT,filT,peoT);
-  const manageWrap=document.createElement("div");manageWrap.style.display=rmManageOpen?"block":"none";
-  mgrT.onclick=()=>{rmManageOpen=!rmManageOpen;manageWrap.style.display=rmManageOpen?"block":"none";mgrT.classList.toggle("on",rmManageOpen);rmStickTop();rmUpdateArrows();};
-  tools.append(ctrlbar,manageWrap);
-  const {row:am,scroll:amScroll,add:amAdd}=rmScrollRow("cmeta rmrow-label","Areas:");
-  am.style.margin="6px 0 2px";
-  areasSorted().forEach(a=>{
-    const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+a.color+"22;color:"+a.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
-    const anm=document.createElement("span");anm.textContent=a.name;anm.style.cursor="pointer";anm.title="Click to rename area";chip.appendChild(anm);
-    const sw=document.createElement("input");sw.type="color";sw.value=a.color;sw.title="Area color";sw.className="cswatch";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setArea(a.id,{color:sw.value});
-    const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename area";ed.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:15px;line-height:1;padding:0;";
-    const x=document.createElement("button");x.textContent="×";x.title="Remove area";x.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:18px;line-height:1;padding:0;";
-    ed.onclick=()=>{
-      chip.innerHTML="";
-      const inp=document.createElement("input");inp.value=a.name;inp.style.cssText="border:1px solid "+a.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:130px;";
-      const ok=document.createElement("button");ok.textContent="✓";ok.title="Save";ok.style.cssText="border:none;background:none;color:"+a.color+";cursor:pointer;font-size:16px;padding:0;";
-      const cancel=document.createElement("button");cancel.textContent="×";cancel.title="Cancel";cancel.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";
-      const save=()=>{const v=inp.value.trim();if(!v||v===a.name){renderRoadmap();return;}renameArea(a,v);};
-      ok.onclick=save;cancel.onclick=()=>renderRoadmap();
-      inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});
-      chip.append(inp,ok,cancel);inp.focus();inp.select();
-    };
-    anm.onclick=ed.onclick; // clicking the container (area) name toggles it into rename/edit mode
-    const aInUse=DB.roadmap.filter(r=>r.area===a.name).length;
-    if(aInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=a.name+" has "+aInUse+" target"+(aInUse!==1?"s":"")+" — reassign or delete them before removing the area";x.onclick=()=>banner("Can’t remove “"+a.name+"”: "+aInUse+" target"+(aInUse!==1?"s are":" is")+" still assigned. Reassign or delete them first.","err");}
-    else x.onclick=()=>removeArea(a);
-    chip.append(sw,ed,x);amScroll.appendChild(chip);
-  });
-  const ai=document.createElement("input");ai.className="ctrl";ai.placeholder="New area";ai.style.cssText="padding:7px 11px;font-size:14px;width:150px;";
-  const ab=document.createElement("button");ab.className="btn sm";ab.textContent="Add area";
-  ab.onclick=()=>{if(ai.value.trim()){addArea(ai.value.trim());ai.value="";}};
-  ai.addEventListener("keydown",e=>{if(e.key==="Enter"&&ai.value.trim()){addArea(ai.value.trim());ai.value="";}});
-  amAdd.append(ai,ab);manageWrap.appendChild(am);
-  // phases manager
-  const {row:pm,scroll:pmScroll,add:pmAdd}=rmScrollRow("cmeta rmrow-label","Phases:");
-  pm.style.margin="8px 0 2px";
-  phasesSorted().forEach(p=>{
-    const chip=document.createElement("span");chip.className="chip";chip.style.cssText="background:"+p.color+"22;color:"+p.color+";display:inline-flex;align-items:center;gap:7px;font-size:14px;padding:5px 11px;";
-    const nm=document.createElement("span");nm.textContent=p.name;nm.style.cursor="pointer";nm.title="Click to rename phase";
-    const sw=document.createElement("input");sw.type="color";sw.value=p.color;sw.title="Phase color";sw.className="cswatch";sw.style.cssText="width:20px;height:20px;border:none;background:none;padding:0;cursor:pointer;";sw.onchange=()=>setPhase(p.id,{color:sw.value});
-    const ed=document.createElement("button");ed.textContent="✎";ed.title="Rename phase";ed.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:15px;padding:0;";
-    const x=document.createElement("button");x.textContent="×";x.title="Remove phase";x.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:18px;padding:0;";
-    ed.onclick=()=>{chip.innerHTML="";const inp=document.createElement("input");inp.value=p.name;inp.style.cssText="border:1px solid "+p.color+";border-radius:6px;padding:4px 8px;font-size:14px;width:120px;";const ok=document.createElement("button");ok.textContent="✓";ok.style.cssText="border:none;background:none;color:"+p.color+";cursor:pointer;font-size:16px;padding:0;";const cn=document.createElement("button");cn.textContent="×";cn.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;";const save=()=>{const v=inp.value.trim();if(!v||v===p.name){renderRoadmap();return;}renamePhase(p,v);};ok.onclick=save;cn.onclick=()=>renderRoadmap();inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save();}else if(e.key==="Escape")renderRoadmap();});chip.append(inp,ok,cn);inp.focus();inp.select();};
-    nm.onclick=ed.onclick; // clicking the container (phase) name toggles it into rename/edit mode
-    const pInUse=DB.roadmap.filter(r=>phaseOf(r)===p.name).length;
-    if(pInUse){x.style.opacity=".3";x.style.cursor="not-allowed";x.title=p.name+" has "+pInUse+" target"+(pInUse!==1?"s":"")+" — reassign them before removing the phase";x.onclick=()=>banner("Can’t remove “"+p.name+"”: "+pInUse+" target"+(pInUse!==1?"s are":" is")+" still assigned. Reassign them first.","err");}
-    else x.onclick=()=>removePhase(p);
-    chip.append(nm,sw,ed,x);pmScroll.appendChild(chip);
-  });
-  const pi=document.createElement("input");pi.className="ctrl";pi.placeholder="New phase";pi.style.cssText="padding:7px 11px;font-size:14px;width:150px;";
-  const pb=document.createElement("button");pb.className="btn sm";pb.textContent="Add phase";
-  pb.onclick=()=>{if(pi.value.trim()){addPhase(pi.value.trim());pi.value="";}};
-  pi.addEventListener("keydown",e=>{if(e.key==="Enter"&&pi.value.trim()){addPhase(pi.value.trim());pi.value="";}});
-  pmAdd.append(pi,pb);manageWrap.appendChild(pm);
+  ctrlbar.append(filT,peoT);
+  tools.append(ctrlbar);
   const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"],["plot","Plot"],["table","Table"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
   const rmS=document.createElement("input");rmS.type="search";rmS.className="ctrl";rmS.id="rmSearch";rmS.placeholder="Search roadmap\u2026";rmS.value=rmSearch;rmS.style.cssText="min-width:150px;max-width:240px;margin-left:8px;";
@@ -3043,6 +2990,8 @@ function renderTeam(m){
   const addMemberModal=()=>fieldModal("Add member","Name","Add member",addMember,{email:true});
   const addDomainModal=()=>fieldModal("Add domain","Domain name (e.g. Data Pipeline)","Add domain",addDomain);
   const addDisciplineModal=()=>fieldModal("Add category","Category name (e.g. QA)","Add category",addDiscipline);
+  const addAreaModal=()=>fieldModal("Add area","Area name (e.g. Development)","Add area",addArea);
+  const addPhaseModal=()=>fieldModal("Add phase","Phase name (e.g. Phase IV)","Add phase",addPhase);
   sectionHead("Members",roster().length,addMemberModal,"+ Add member");
   const grid=document.createElement("div");grid.className="grid";
   roster().forEach(mem=>{
@@ -3147,6 +3096,60 @@ function renderTeam(m){
     cgrid.appendChild(card);
   });
   m.appendChild(cgrid);
+  m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
+  // Areas manager — roadmap categories (relocated here from the Roadmap toolbar). Each target belongs to an area.
+  sectionHead("Areas",DB.areas.length,addAreaModal,"+ Add area","Roadmap categories — every target belongs to an area. Colour-coded across the Roadmap.");
+  const agrid=document.createElement("div");agrid.className="grid";
+  areasSorted().forEach(a=>{
+    const inUse=DB.roadmap.filter(r=>r.area===a.name).length;
+    const card=document.createElement("div");card.className="card";
+    const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:8px;";
+    const sw=document.createElement("input");sw.type="color";sw.value=a.color||"#888888";sw.title="Area colour";sw.className="cswatch";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
+    sw.onchange=()=>setArea(a.id,{color:sw.value});
+    const nm=document.createElement("div");nm.className="ctitle";nm.style.color=a.color||"#333";nm.textContent=a.name;
+    head.append(sw,nm);card.appendChild(head);
+    card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+inUse+' target'+(inUse!==1?'s':'')+'</div>');
+    const acts=document.createElement("div");acts.className="acts";
+    const ren=document.createElement("button");ren.textContent="Rename";
+    const rem=document.createElement("button");rem.className="rm";rem.textContent="Remove";
+    acts.append(ren,rem);card.appendChild(acts);
+    const rp=document.createElement("div");rp.className="pop";
+    const ri=document.createElement("input");ri.className="ctrl";ri.value=a.name;
+    const rb=document.createElement("button");rb.className="btn primary sm";rb.style.alignSelf="flex-start";rb.textContent="Save name";
+    rb.onclick=()=>{const v=ri.value.trim();if(v){renameArea(a,v);rp.classList.remove("open");}};
+    rp.append(ri,rb);card.appendChild(rp);
+    ren.onclick=()=>{rp.classList.toggle("open");if(rp.classList.contains("open"))ri.focus();};
+    rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove “"+a.name+"”?";y.onclick=()=>removeArea(a);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
+    agrid.appendChild(card);
+  });
+  m.appendChild(agrid);
+  m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
+  // Phases manager — roadmap delivery phases (relocated here from the Roadmap toolbar).
+  sectionHead("Phases",DB.phases.length,addPhaseModal,"+ Add phase","Roadmap delivery phases — each target sits in a phase. Used by the Roadmap kanban and colour-by-phase view.");
+  const pgrid=document.createElement("div");pgrid.className="grid";
+  phasesSorted().forEach(p=>{
+    const inUse=DB.roadmap.filter(r=>phaseOf(r)===p.name).length;
+    const card=document.createElement("div");card.className="card";
+    const head=document.createElement("div");head.style.cssText="display:flex;align-items:center;gap:8px;";
+    const sw=document.createElement("input");sw.type="color";sw.value=p.color||"#888888";sw.title="Phase colour";sw.className="cswatch";sw.style.cssText="width:26px;height:26px;border:none;background:none;cursor:pointer;flex:none;padding:0;";
+    sw.onchange=()=>setPhase(p.id,{color:sw.value});
+    const nm=document.createElement("div");nm.className="ctitle";nm.style.color=p.color||"#333";nm.textContent=p.name;
+    head.append(sw,nm);card.appendChild(head);
+    card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+inUse+' target'+(inUse!==1?'s':'')+'</div>');
+    const acts=document.createElement("div");acts.className="acts";
+    const ren=document.createElement("button");ren.textContent="Rename";
+    const rem=document.createElement("button");rem.className="rm";rem.textContent="Remove";
+    acts.append(ren,rem);card.appendChild(acts);
+    const rp=document.createElement("div");rp.className="pop";
+    const ri=document.createElement("input");ri.className="ctrl";ri.value=p.name;
+    const rb=document.createElement("button");rb.className="btn primary sm";rb.style.alignSelf="flex-start";rb.textContent="Save name";
+    rb.onclick=()=>{const v=ri.value.trim();if(v){renamePhase(p,v);rp.classList.remove("open");}};
+    rp.append(ri,rb);card.appendChild(rp);
+    ren.onclick=()=>{rp.classList.toggle("open");if(rp.classList.contains("open"))ri.focus();};
+    rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove “"+p.name+"”?";y.onclick=()=>removePhase(p);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
+    pgrid.appendChild(card);
+  });
+  m.appendChild(pgrid);
 }
 
 /* ---------- Auth gate ---------- */
