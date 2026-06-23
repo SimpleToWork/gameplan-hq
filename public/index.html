@@ -449,11 +449,11 @@ let taskRmOpen=false;
 let taskGroupOpen=false;
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
-let agendaPlanOpen=true;       // is the "Plan a meeting" section expanded? (collapsible to save space)
+let agendaPlanOpen=false;      // is the "Plan a meeting" section expanded? collapsed by default each session
 let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
 let agendaLayout=(localStorage.getItem("gp_agendaLayout")==="table")?"table":"cards"; // "cards" (full editable cards) | "table" (read-only overview; row click → that card)
 let agendaScrollTo=null;       // id of an agenda to scroll+flash to after the next render (set when jumping table → cards)
-let taskSecCollapsed=new Set(); // labels of task sections collapsed to header-only; survives live re-renders
+let taskSecExpanded=new Set();  // labels of task sections the user has expanded; sections render collapsed (header-only) by default each session
 let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
 let roadmapView="list";      // list | timeline | kanban | plot | table
@@ -472,7 +472,7 @@ let rmDragId=null;           // id of the roadmap target currently being dragged
 let discDragId=null;         // id of the discipline card being dragged (Team-page reorder)
 let rmOpenEdits=new Map();   // target id -> unsaved edit-form values, so a re-render restores open editors
 let rmActive=null;           // Set of area names currently shown on the Roadmap; null = all
-let rmCollapsed=new Set();   // keys of collapsed Roadmap list sections ("area:<name>"); header-only when collapsed. Survives live re-renders
+let rmExpanded=new Set();   // keys ("area:<name>") of Roadmap list sections the user has expanded; sections render collapsed (header-only) by default each session
 let seededAreas=false;
 let seededMembers=false;
 let seededPhases=false;
@@ -1562,7 +1562,7 @@ function goToRoadmapItem(r){
   focusRoadmapId=r.id;
   roadmapView="list";
   rmActive=null;rmPeopleActive=null;
-  rmCollapsed.delete("area:"+r.area);
+  rmExpanded.add("area:"+r.area);
   setPage("roadmap");
 }
 function renderTasks(m){
@@ -1766,20 +1766,20 @@ function renderTasks(m){
   // section list. Consumes the same filtered+grouped `sections`, so every filter and the Group-by selection drive it.
   if(taskLayout==="chart"){renderTasksChart(m,sections);return;}
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
-  // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecCollapsed.
+  // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecExpanded.
   if(sections.length){
-    const allCol=sections.every(s=>taskSecCollapsed.has(s.label));
+    const allCol=sections.every(s=>!taskSecExpanded.has(s.label));
     const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-start;margin:0 0 6px;";
     const sa=document.createElement("button");sa.className="btn sm";sa.style.fontFamily="monospace";sa.textContent=allCol?"<>  Expand all":"><  Collapse all";sa.title=allCol?"Expand all sections":"Collapse all sections";
-    sa.onclick=()=>{if(allCol)taskSecCollapsed.clear();else sections.forEach(s=>taskSecCollapsed.add(s.label));renderTasks();};
+    sa.onclick=()=>{if(allCol)sections.forEach(s=>taskSecExpanded.add(s.label));else taskSecExpanded.clear();renderTasks();};
     sb.appendChild(sa);m.appendChild(sb);
   }
   sections.forEach(sec=>{
     const wrap=document.createElement("div");wrap.className="cat";
-    const col=taskSecCollapsed.has(sec.label);
+    const col=!taskSecExpanded.has(sec.label);
     const headEl=document.createElement("div");headEl.className="cat-head";headEl.style.cursor="pointer";headEl.title=col?"Click to expand":"Click to collapse";
     headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(col?"▸":"▾")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+sec.items.length+'</span>';
-    headEl.onclick=()=>{col?taskSecCollapsed.delete(sec.label):taskSecCollapsed.add(sec.label);renderTasks();};
+    headEl.onclick=()=>{col?taskSecExpanded.add(sec.label):taskSecExpanded.delete(sec.label);renderTasks();};
     // Per-section "filter to this section" button — focuses the board on just this group. Only for category/person
     // groupings, where a matching global filter Set exists (timeframe buckets don't map cleanly to taskTime). It
     // replaces the active filter with this one value; stopPropagation keeps it from toggling the header's collapse.
@@ -2220,20 +2220,20 @@ function renderRoadmapList(m){
   // Section expand/collapse-all — icon toggle above the area sections (>< collapse all · <> expand all).
   const areasList=rmShown();
   if(areasList.length){
-    const allCol=areasList.every(a=>rmCollapsed.has("area:"+a));
+    const allCol=areasList.every(a=>!rmExpanded.has("area:"+a));
     const sb=document.createElement("div");sb.style.cssText="display:flex;justify-content:flex-start;margin:20px 0 6px;";
     const sa=document.createElement("button");sa.className="btn sm";sa.style.fontFamily="monospace";sa.textContent=allCol?"<>  Expand all":"><  Collapse all";sa.title=allCol?"Expand all sections":"Collapse all sections";
-    sa.onclick=()=>{if(allCol)areasList.forEach(a=>rmCollapsed.delete("area:"+a));else areasList.forEach(a=>rmCollapsed.add("area:"+a));renderRoadmap();};
+    sa.onclick=()=>{if(allCol)areasList.forEach(a=>rmExpanded.add("area:"+a));else rmExpanded.clear();renderRoadmap();};
     sb.appendChild(sa);m.appendChild(sb);
   }
   rmShown().forEach(area=>{
     const av=DB.areas.find(a=>a.name===area)||{color:"#888"};
     const items=DB.roadmap.filter(r=>r.area===area&&rmPersonMatch(r)&&rmSearchMatch(r));
-    // Collapsible section: clicking the header hides this area's cards (header-only). State in rmCollapsed survives re-renders.
-    const key="area:"+area;const collapsed=rmCollapsed.has(key);
+    // Collapsible section: clicking the header hides this area's cards (header-only). Expanded state lives in rmExpanded.
+    const key="area:"+area;const collapsed=!rmExpanded.has(key);
     const head=document.createElement("div");head.className="areahead";head.style.cursor="pointer";head.title=collapsed?"Click to expand":"Click to collapse";
     head.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(collapsed?"▸":"▾")+'</span><span class="dot" style="background:'+av.color+'"></span><span class="nm">'+esc(area)+'</span><span class="cat-count">'+items.length+'</span>';
-    head.onclick=()=>{collapsed?rmCollapsed.delete(key):rmCollapsed.add(key);renderRoadmap();};
+    head.onclick=()=>{collapsed?rmExpanded.add(key):rmExpanded.delete(key);renderRoadmap();};
     m.appendChild(head);
     if(collapsed)return;                  // header-only when collapsed
     if(!items.length){m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">'+(rmPeopleActive?"No targets for the selected people.":"No targets yet.")+'</div>');return;}
