@@ -659,6 +659,15 @@ function sortSepEl(label){
   s.innerHTML='<span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);white-space:nowrap;">'+esc(label||"")+'</span><span style="flex:1;height:1px;background:var(--line,#e6e6e3);"></span>';
   return s;
 }
+// Small "Filter"/"Clear" button for a sort sub-section divider: narrows this section to that one sort value
+// (state in taskSecSortFilter[secLabel]), or clears it when already active. Shared by the card dividers and the
+// table sub-header rows; stopPropagation keeps the click off any surrounding toggle.
+function sortFilterBtn(secLabel,key,active){
+  const b=document.createElement("button");b.className="btn sm";b.style.cssText="padding:1px 8px;font-size:10px;margin-left:8px;vertical-align:middle;";
+  b.textContent=active?"Clear":"Filter";b.title=active?"Show all groups in this section":"Show only this group in this section";
+  b.onclick=e=>{e.stopPropagation();if(active)delete taskSecSortFilter[secLabel];else taskSecSortFilter[secLabel]=key;renderTasks();};
+  return b;
+}
 const initials=n=>{const p=(n||"").trim().split(/\s+/);return (p.length>1?p[0][0]+p[1][0]:(n||"?").slice(0,2)).toUpperCase();};
 const member=n=>roster().find(m=>m.name.toLowerCase()===(n||"").toLowerCase());
 const esc=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -1362,15 +1371,24 @@ function taskRoadmapSelect(t){
 // Editable "Table" layout: every column is a live field editor backed by the same setTask functions as the cards.
 // The title cell still opens the full card (notes, description, Ask Claude); all other cells edit inline.
 // Honours the active Sort — a spanning sub-header row marks each sort run, matching the card view's dividers.
-function taskTable(items){
+function taskTable(items,secLabel){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
   tbl.innerHTML='<thead><tr><th>Task</th><th>Description</th><th>Status</th><th>Priority</th><th>Category</th><th>Who</th><th>Created by</th><th>Target</th><th>Roadmap</th><th>Notes</th><th>Ask</th></tr></thead>';
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
+  const fval=secLabel!==undefined?(taskSecSortFilter[secLabel]||""):"";   // active sort-value filter for this section (set by a divider's Filter button)
   items.forEach(t=>{
     const k=sd.key(t);
-    if(multi&&(prevKey===undefined||k!==prevKey)){const sep=document.createElement("tr");sep.className="tt-sep";sep.innerHTML='<td colspan="11">'+esc(sd.label(t))+'</td>';tb.appendChild(sep);}
+    if(fval&&k!==fval)return;                                             // row hidden by the active filter
+    const active=fval===k;
+    if((multi||active)&&(prevKey===undefined||k!==prevKey)){
+      const sep=document.createElement("tr");sep.className="tt-sep";
+      const td=document.createElement("td");td.colSpan=11;
+      const lab=document.createElement("span");lab.textContent=sd.label(t);td.appendChild(lab);
+      if(secLabel!==undefined)td.appendChild(sortFilterBtn(secLabel,k,active));
+      sep.appendChild(td);tb.appendChild(sep);
+    }
     prevKey=k;
     const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
     const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -1787,34 +1805,17 @@ function renderTasks(m){
     sa.onclick=()=>{if(allCol)sections.forEach(s=>taskSecExpanded.add(s.label));else taskSecExpanded.clear();renderTasks();};
     sb.appendChild(sa);m.appendChild(sb);
   }
-  // Friendly name for the active Sort-by — drives the per-section filter dropdown's tooltip.
-  const SORT_LABEL={priority:"Priority",status:"Status",person:"Person",entry:"Entry date",target:"Target date",roadmap:"Roadmap"};
-  const sortLabel=SORT_LABEL[taskSort]||"value";
   sections.forEach(sec=>{
     const wrap=document.createElement("div");wrap.className="cat";
     const col=!taskSecExpanded.has(sec.label);
-    // Distinct values of the active Sort-by present in this section, in display order (sec.items is pre-sorted by key).
-    const sd=sortDividers(taskSort);const seen=new Set();const sortOpts=[];
-    sec.items.forEach(t=>{const k=sd.key(t);if(!seen.has(k)){seen.add(k);sortOpts.push([k,sd.label(t)]);}});
-    const canFilter=sortOpts.length>1;                                       // nothing to narrow when the section is one sort group
-    let fval=canFilter?(taskSecSortFilter[sec.label]||""):"";
-    if(fval&&!seen.has(fval)){fval="";delete taskSecSortFilter[sec.label];}   // a stored value that no longer exists -> drop it
-    const items=fval?sec.items.filter(t=>sd.key(t)===fval):sec.items;        // the narrowed list that feeds both cards and table
+    const sd=sortDividers(taskSort);
+    // Active sort-value filter for this section (set by a divider's "Filter" button); drop it if the value vanished.
+    let fval=taskSecSortFilter[sec.label]||"";
+    if(fval&&!sec.items.some(t=>sd.key(t)===fval)){fval="";delete taskSecSortFilter[sec.label];}
+    const shownCount=fval?sec.items.filter(t=>sd.key(t)===fval).length:sec.items.length;
     const headEl=document.createElement("div");headEl.className="cat-head";headEl.style.cursor="pointer";headEl.title=col?"Click to expand":"Click to collapse";
-    headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(col?"\u25b8":"\u25be")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+(fval?items.length+"/"+sec.items.length:sec.items.length)+'</span>';
+    headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(col?"\u25b8":"\u25be")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+(fval?shownCount+"/"+sec.items.length:sec.items.length)+'</span>';
     headEl.onclick=()=>{col?taskSecExpanded.add(sec.label):taskSecExpanded.delete(sec.label);renderTasks();};
-    // Sort-value filter — a dropdown to the LEFT of the section label whose options are the active Sort-by's values.
-    // Picking one narrows just this section (independently per section); state lives in taskSecSortFilter. Shown only
-    // when the section spans >1 sort value, and it sits on the header so it applies to both Card and Table layouts.
-    // stopPropagation keeps clicks off the header's collapse toggle.
-    if(canFilter){
-      const fsel=document.createElement("select");fsel.className="mini";fsel.style.marginRight="6px";fsel.title="Filter this section by "+sortLabel;
-      const oAll=document.createElement("option");oAll.value="";oAll.textContent="All";fsel.appendChild(oAll);
-      sortOpts.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(fval===k)o.selected=true;fsel.appendChild(o);});
-      fsel.onclick=e=>e.stopPropagation();
-      fsel.onchange=e=>{e.stopPropagation();const v=fsel.value;if(v==="")delete taskSecSortFilter[sec.label];else taskSecSortFilter[sec.label]=v;renderTasks();};
-      headEl.insertBefore(fsel,headEl.querySelector(".cat-name"));
-    }
     // Per-section "filter to this section" button — focuses the board on just this group. Only for category/person
     // groupings, where a matching global filter Set exists (timeframe buckets don't map cleanly to taskTime). It
     // replaces the active filter with this one value; stopPropagation keeps it from toggling the header's collapse.
@@ -1834,12 +1835,24 @@ function renderTasks(m){
     wrap.appendChild(headEl);
     if(!col){
       if(taskLayout==="table"){
-        wrap.appendChild(taskTable(items));
+        wrap.appendChild(taskTable(sec.items,sec.label));
       }else{
         const grid=document.createElement("div");grid.className="grid";
-        const multi=new Set(items.map(sd.key)).size>1;let prevKey;
-        // Label each sort run, but only when >1 run remains (a single run -- incl. when a sort-value filter is active -- shows no divider).
-        items.forEach(t=>{const k=sd.key(t);if(multi&&(prevKey===undefined||k!==prevKey))grid.appendChild(sortSepEl(sd.label(t)));prevKey=k;grid.appendChild(taskCard(t));});
+        // Fold sec.items into sort runs; each run's divider carries a "Filter" button that narrows this section to that
+        // value (toggle via taskSecSortFilter). With a filter active, only the matching run shows, its button now "Clear".
+        let prevKey,run=null;const runs=[];
+        sec.items.forEach(t=>{const k=sd.key(t);if(prevKey===undefined||k!==prevKey){run={key:k,label:sd.label(t),items:[]};runs.push(run);}prevKey=k;run.items.push(t);});
+        const multi=runs.length>1;
+        runs.forEach(r=>{
+          if(fval&&r.key!==fval)return;                       // hidden by the active filter
+          const active=fval===r.key;
+          if(multi||active){                                  // divider shows when >1 run, or to host the Clear button
+            const sep=sortSepEl(r.label);
+            sep.insertBefore(sortFilterBtn(sec.label,r.key,active),sep.children[1]); // button right after the label
+            grid.appendChild(sep);
+          }
+          r.items.forEach(t=>grid.appendChild(taskCard(t)));
+        });
         wrap.appendChild(grid);
       }
     }
