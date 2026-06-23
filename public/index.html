@@ -1589,6 +1589,24 @@ function goToTask(id){
   taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
   setPage("tasks");
 }
+// Active-task selection: clicking a task card/row makes it the "working in" task; clicking anywhere else on the
+// board clears it. We mutate the .active class directly (no renderTasks) so inline editing keeps its focus/caret.
+function refreshActiveHighlight(){
+  const main=document.getElementById("main");if(!main)return;
+  main.querySelectorAll(".card.active,tr.active").forEach(el=>el.classList.remove("active"));
+  if(activeTaskId)main.querySelectorAll('[data-task-id="'+CSS.escape(activeTaskId)+'"]').forEach(el=>{if(el.classList.contains("card")||el.tagName==="TR")el.classList.add("active");});
+}
+function onTaskBoardClick(e){
+  if(page!=="tasks")return;
+  // A click that triggered a re-render detaches its target (filters, section toggles, Go-to-Task). Leave the
+  // selection untouched in that case — only genuine in-place clicks (a card, or empty board space) change it.
+  if(!e.target||!e.target.isConnected)return;
+  const el=e.target.closest&&e.target.closest('.card[data-task-id],tr[data-task-id]');
+  const id=el?el.dataset.taskId:null;
+  if(id===activeTaskId)return;
+  activeTaskId=id;
+  refreshActiveHighlight();
+}
 // Navigate to the Tasks board filtered to one roadmap target's tasks (all statuses/assignees), with the
 // Roadmap filter group expanded so the active filter is obvious. Used by the roadmap "Go to tasks" buttons.
 function goToRoadmapTasks(r){
@@ -1608,6 +1626,7 @@ function goToRoadmapItem(r){
 }
 function renderTasks(m){
   m=m||document.getElementById("main");
+  if(!m.__taskBoardClickBound){m.__taskBoardClickBound=true;m.addEventListener("click",onTaskBoardClick);} // delegated select/clear, bound once (#main persists)
   // Was the search box focused before we tear down the DOM? Capture it (and the caret) so we can restore after.
   const _se=document.getElementById("taskSearch");const _refocusSearch=!!(_se&&document.activeElement===_se);const _searchCaret=_refocusSearch?(_se.selectionStart??_se.value.length):0;
   m.innerHTML="";
