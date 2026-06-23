@@ -160,6 +160,10 @@
   @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
   .card.flash{animation:taskflash 1.6s ease-out;}
   .target.flash{animation:taskflash 1.6s ease-out;}
+  /* Persistent "you are working in this task" indicator — set on the Go-to-Task target. Outlives the 1.6s flash. */
+  .card.active{border-color:var(--accent,#4646c8);box-shadow:0 0 0 1px var(--accent,#4646c8);}
+  .tasktable tbody tr.active td{background:#f4f4fd;}
+  .tasktable tbody tr.active td:first-child{box-shadow:inset 3px 0 0 var(--accent,#4646c8);}
   .chips{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
@@ -458,7 +462,8 @@ let agendaSearch="";           // free-text search over agenda title/notes/atten
 let agendaLayout=(localStorage.getItem("gp_agendaLayout")==="table")?"table":"cards"; // "cards" (full editable cards) | "table" (read-only overview; row click → that card)
 let agendaScrollTo=null;       // id of an agenda to scroll+flash to after the next render (set when jumping table → cards)
 let taskSecExpanded=new Set();  // labels of task sections the user has expanded; sections render collapsed (header-only) by default each session
-let focusTaskId=null;        // id of a task to scroll to + highlight on the next Tasks render (e.g. "Go to task" from Capture)
+let focusTaskId=null;        // id of a task to scroll to + flash once on the next Tasks render (e.g. "Go to task" from Capture); cleared after it fires
+let activeTaskId=null;       // id of the task the user navigated to and is "working in"; gets a persistent border until they Go-to-Task elsewhere
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
 let ghRepos=null;            // cached repos the GitHub App can access [{fullName,url,private}]; null = not loaded yet
 let ghInstalls=null;         // cached GitHub App installations [{account,manageUrl}]
@@ -1135,7 +1140,7 @@ async function transcribeAudio(blob){
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
 function taskCard(t){
-  const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"");d.dataset.taskId=t.id;
+  const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"")+(activeTaskId===t.id?" active":"");d.dataset.taskId=t.id;
   const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
   const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
   const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
@@ -1397,11 +1402,11 @@ function taskTable(items,secLabel){
     const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
     const dd=parseDay(t.due);const overdue=dd&&isTaskOpen(t)&&dd<parseDay(today());
     const catCol=CAT_COLOR[t.category]||"#888";
-    const tr=document.createElement("tr");tr.dataset.taskId=t.id;
+    const tr=document.createElement("tr");tr.dataset.taskId=t.id;if(activeTaskId===t.id)tr.classList.add("active");
     // Task cell — title opens the full card editor (focusTaskId drives the scroll+flash in renderTasks).
     const tdTask=document.createElement("td");
     const titleEl=document.createElement("div");titleEl.className="tt-title";titleEl.textContent=t.title;titleEl.title="Open full editor (notes, description, Ask Claude)";
-    titleEl.onclick=()=>{taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}taskCollapsed.delete(t.id);focusTaskId=t.id;renderTasks();};
+    titleEl.onclick=()=>{taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}taskCollapsed.delete(t.id);focusTaskId=t.id;activeTaskId=t.id;renderTasks();};
     tdTask.appendChild(titleEl);
     // Description — its own column (the task's context/notes); read-only, clamped, full text on hover.
     const tdDesc=document.createElement("td");
@@ -1580,7 +1585,7 @@ function taskFilter(t){
 // mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
 function goToTask(id){
   const bd=document.getElementById("bdReview");if(bd)bd.remove(); // close the breakdown overlay if a jump fired from inside it
-  focusTaskId=id;
+  focusTaskId=id;activeTaskId=id;
   taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
   setPage("tasks");
 }
