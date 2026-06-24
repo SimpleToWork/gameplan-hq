@@ -3772,6 +3772,13 @@ function agentModal(existing){
     const inp=v=>{const i=document.createElement("input");i.className="ctrl";i.style.width="100%";i.value=v||"";return i;};
     const area=(v,h)=>{const t=document.createElement("textarea");t.className="ctrl";t.style.cssText="width:100%;min-height:"+(h||50)+"px;";t.value=v||"";return t;};
     const sel=(opts,v)=>{const s=document.createElement("select");s.className="ctrl";s.style.width="100%";opts.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===v)op.selected=true;s.appendChild(op);});return s;};
+    // Default linked task: option value = task id (vs sel's value=text). A successful run auto-marks this task Done.
+    // Preserves a current id even if that task is now trashed/deleted, so editing never silently drops the link.
+    const taskSel=cur=>{const s=document.createElement("select");s.className="ctrl";s.style.width="100%";
+      const none=document.createElement("option");none.value="";none.textContent="— No linked task —";s.appendChild(none);
+      DB.tasks.filter(t=>!t.trashed).forEach(t=>{const o=document.createElement("option");o.value=t.id;o.textContent=t.title||"Untitled task";if(t.id===cur)o.selected=true;s.appendChild(o);});
+      if(cur&&!DB.tasks.some(t=>t.id===cur)){const o=document.createElement("option");o.value=cur;o.textContent="(linked task no longer on board)";o.selected=true;s.appendChild(o);}
+      return s;};
     // Repo picker: a dropdown of the GitHub App's connected repos (value = repo URL). Loads async and refills;
     // preserves a current value not in the list (e.g. a legacy hand-typed URL) so editing never loses it.
     const repoSel=cur=>{
@@ -3795,6 +3802,7 @@ function agentModal(existing){
       fTools=field("Tools (one per line)",area((a.tools||[]).join("\n"),55)),fInputs=field("Inputs",area(a.inputs,40)),
       fOutputs=field("Outputs",area(a.outputs,40)),fNotes=field("Notes — auth, pagination, rate limits",area(a.notes,55)),
       fRepoUrl=field("Repo (connected repos)",repoSel(a.repoUrl)),fRepoPath=field("Repo path (e.g. agents/connector-id.md)",inp(a.repoPath));
+    const fDefaultTask=field("Default linked task — a successful run auto-marks it Done",taskSel(a.defaultTaskId));
     draftBtn.onclick=async()=>{
       const d=dDesc.value.trim();if(!d){draftHint.textContent="Write a description first.";return;}
       draftBtn.disabled=true;draftBtn.innerHTML='<span class="spin"></span> Drafting';draftHint.textContent="";
@@ -3815,7 +3823,7 @@ function agentModal(existing){
     const buildData=()=>({name:fName.value.trim(),type:fType.value,status:fStatus.value,model:fModel.value,summary:fSummary.value.trim(),
       systemPrompt:fPrompt.value.trim(),tools:fTools.value.split("\n").map(s=>s.trim()).filter(Boolean),
       inputs:fInputs.value.trim(),outputs:fOutputs.value.trim(),notes:fNotes.value.trim(),
-      repoUrl:fRepoUrl.value.trim(),repoPath:fRepoPath.value.trim(),agentId});
+      repoUrl:fRepoUrl.value.trim(),repoPath:fRepoPath.value.trim(),defaultTaskId:fDefaultTask.value||"",agentId});
     // Fill the prose/structured fields into the editor from a spec returned by the git read.
     const fillFrom=s=>{fName.value=s.name||fName.value;if(AGENT_TYPES.includes(s.type))fType.value=s.type;if(AGENT_STATUSES.includes(s.status))fStatus.value=s.status;
       if(s.model)fModel.value=s.model;fSummary.value=s.summary||"";fPrompt.value=s.systemPrompt||"";fTools.value=(s.tools||[]).join("\n");
@@ -3896,8 +3904,19 @@ function agentRunModal(a){
         if(res.output)out.insertAdjacentHTML("beforeend",'<div class="cmeta" style="font-weight:600;margin-top:8px;">Connector spec</div><pre class="ctrl" style="white-space:pre-wrap;overflow:auto;max-height:220px;">'+esc(JSON.stringify(res.output,null,2))+'</pre>');
         else out.insertAdjacentHTML("beforeend",'<div class="cmeta" style="color:var(--danger);margin-top:6px;">No spec emitted ('+esc(res.stopReason||"incomplete")+'). Try a clearer description or more steps.</div>');
         hint.textContent=res.status==="done"?"Done.":"Finished: "+(res.stopReason||"incomplete");
-        // Persist the run (NOT the secrets) so the card shows history.
-        try{await fbAdd("agentRuns",{agentId:a.id,agentName:a.name||"",inputs,status:res.status,stopReason:res.stopReason||"",output:res.output||null,transcript:res.transcript||[],startedBy:identity,startedAt:today(),durationMs:Date.now()-t0});}catch(e){}
+        // Persist the run (NOT the secrets) so the card shows history. taskId records which board task this run was for.
+        try{await fbAdd("agentRuns",{agentId:a.id,agentName:a.name||"",taskId:a.defaultTaskId||"",inputs,status:res.status,stopReason:res.stopReason||"",output:res.output||null,transcript:res.transcript||[],startedBy:identity,startedAt:today(),durationMs:Date.now()-t0});}catch(e){}
+        // Auto-mark the linked board task Done when the run finishes successfully. Fires once here at the start site
+        // (the client that ran it) — NOT in the agentRuns onSnapshot, which every connected client would re-run.
+        // Guards: only on status==="done", only if the task still exists, isn't trashed, and isn't already Done.
+        if(res.status==="done"&&a.defaultTaskId){
+          const lt=DB.tasks.find(t=>t.id===a.defaultTaskId&&!t.trashed);
+          if(lt&&lt.status!=="Done"){
+            await setTask(lt.id,{status:"Done"});
+            await addTaskNote(lt.id,'Auto-marked Done by agent run "'+(a.name||"agent")+'".');
+            banner('Linked task "'+(lt.title||"task")+'" marked Done.',"ok");
+          }
+        }
       }catch(e){hint.textContent=e.message;}
       go.disabled=false;go.textContent="▶ Run agent";
     };
