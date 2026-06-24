@@ -3726,6 +3726,38 @@ async function syncRepoAgents(repoUrl){
   }
   return r;
 }
+// Move an agent's spec file to a different folder in its repo, keeping the file name. destFolderRaw is a folder
+// path; bare/relative entries are taken as living under agents/ (SYNC_DIR). Persists the move to the repo as
+// write-new-then-delete-old — the new file is confirmed written before the old one is removed, so an interruption
+// leaves a recoverable duplicate rather than a lost agent. Returns {ok,msg}; never deletes on a failed write.
+async function moveAgent(a,destFolderRaw){
+  if(!a.repoUrl||!a.repoPath)return{ok:false,msg:"Link this agent to a repo and path first (Edit)."};
+  let folder=String(destFolderRaw||"").trim().replace(/\\/g,"/").replace(/^\/+|\/+$/g,"").replace(/\/+/g,"/");
+  if(folder&&folder!==SYNC_DIR&&!folder.startsWith(SYNC_DIR+"/"))folder=SYNC_DIR+"/"+folder; // relative → under agents/
+  if(!folder)folder=SYNC_DIR;
+  const segs=folder.split("/");
+  if(segs.some(s=>!s||s==="."||s===".."))return{ok:false,msg:"Invalid folder name."};
+  const filename=a.repoPath.split("/").pop();
+  const newPath=folder+"/"+filename;
+  if(newPath===a.repoPath)return{ok:false,msg:"Already in that folder."};
+  // Local uniqueness: don't collide with another agent already at the target path in this repo.
+  if(DB.agents.some(x=>x.id!==a.id&&normRepo(x.repoUrl)===normRepo(a.repoUrl)&&x.repoPath===newPath))
+    return{ok:false,msg:"Another agent already lives at that path."};
+  const aid=a.agentId||agentUid();
+  // Guard against clobbering a *different* agent's file that already exists at the target path in the repo.
+  try{const ex=await githubSync({op:"read",repoUrl:a.repoUrl,path:newPath});
+    if(ex.found&&ex.spec&&ex.spec.agentId&&ex.spec.agentId!==aid)return{ok:false,msg:"A different agent's file already exists at that path in the repo."};
+  }catch(e){/* a read failure shouldn't block the move; the write below surfaces real errors */}
+  const ts=nowTs();
+  const spec=Object.assign({},a,{repoUrl:a.repoUrl,repoPath:newPath,agentId:aid,updatedAt:ts});
+  const wr=await githubSync({op:"write",repoUrl:a.repoUrl,path:newPath,spec,message:"Move agent "+(a.name||filename)+" → "+newPath});
+  // New file is written; now remove the old one. Best-effort — if it fails the agent already lives at newPath.
+  let delMsg="";
+  try{await githubSync({op:"delete",repoUrl:a.repoUrl,path:a.repoPath,message:"Move agent "+(a.name||filename)+": remove old "+a.repoPath});}
+  catch(e){delMsg=" (old file not removed — delete it manually: "+a.repoPath+")";}
+  await fbUpdate("agents",a.id,{repoPath:newPath,agentId:aid,lastCommitSha:wr.sha||(wr.commit&&wr.commit.sha)||"",lastSyncedAt:today(),updatedAt:ts});
+  return{ok:true,msg:"Moved to "+folder+delMsg};
+}
 // Modal editor used for both new and existing agents. The "Draft with Claude" button fills the fields below; the
 // user always reviews/edits before saving (mirrors Capture's draft-then-approve flow).
 function agentModal(existing){
@@ -3868,6 +3900,35 @@ function agentRunModal(a){
     card.appendChild(wrap);
   });
 }
+// Pick a destination folder and move the agent's spec file there (commits to the repo). Suggests existing
+// folders via a datalist; the file keeps its name and only its folder changes.
+function agentMoveModal(a){
+  openModal("Move agent: "+(a.name||"agent"),(card,close)=>{
+    const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:8px;";
+    wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">Current path: '+esc(a.repoPath||"(unfiled)")+'</div>');
+    const lab=document.createElement("div");lab.className="cmeta";lab.style.fontWeight="600";lab.textContent="Destination folder (under "+SYNC_DIR+"/)";wrap.appendChild(lab);
+    const inp=document.createElement("input");inp.className="ctrl";inp.style.width="100%";inp.placeholder=SYNC_DIR+"/…";
+    const dl=document.createElement("datalist");dl.id="agentFolderList";
+    const folders=new Set();DB.agents.forEach(x=>{const s=agentDirSegments(x);if(s&&s.length)folders.add(s.join("/"));});
+    Array.from(folders).sort().forEach(f=>{const o=document.createElement("option");o.value=f;dl.appendChild(o);});
+    inp.setAttribute("list","agentFolderList");
+    const curSegs=agentDirSegments(a);inp.value=curSegs?curSegs.join("/"):SYNC_DIR;
+    wrap.append(inp,dl);
+    wrap.insertAdjacentHTML("beforeend",'<div class="hint">The file keeps its name. The move is committed to the repo (new file written, then the old one removed).</div>');
+    const row=document.createElement("div");row.className="row";row.style.marginTop="6px";
+    const go=document.createElement("button");go.className="btn primary";go.textContent="Move";
+    const msg=document.createElement("span");msg.className="hint";msg.style.marginLeft="8px";
+    row.append(go,msg);wrap.appendChild(row);
+    go.onclick=async()=>{
+      go.disabled=true;go.innerHTML='<span class="spin"></span> Moving';msg.textContent="";
+      try{const r=await moveAgent(a,inp.value);
+        if(r.ok){banner(r.msg,"ok");close();}
+        else{msg.textContent=r.msg;go.disabled=false;go.textContent="Move";}
+      }catch(e){msg.textContent=e.message;go.disabled=false;go.textContent="Move";}
+    };
+    card.appendChild(wrap);
+  });
+}
 // Build one agent card (extracted so both the flat list and the directory tree render identical cards).
 function agentCard(a){
   const card=document.createElement("div");card.className="card";
@@ -3883,6 +3944,7 @@ function agentCard(a){
   const foot=document.createElement("div");foot.className="row";foot.style.marginTop="8px";
   const run=document.createElement("button");run.className="btn sm primary";run.textContent="▶ Run";run.onclick=()=>agentRunModal(a);foot.appendChild(run);
   const edit=document.createElement("button");edit.className="btn sm";edit.textContent="Edit / refine";edit.onclick=()=>agentModal(a);foot.appendChild(edit);
+  if(a.repoUrl&&a.repoPath){const mv=document.createElement("button");mv.className="btn sm";mv.textContent="Move";mv.title="Move to another folder (persists to the repo)";mv.onclick=()=>agentMoveModal(a);foot.appendChild(mv);}
   if(a.repoUrl){const link=document.createElement("a");link.className="btn sm";link.textContent="Open repo ↗";link.href=a.repoUrl;link.target="_blank";link.rel="noopener";foot.appendChild(link);}
   const del=document.createElement("button");del.className="btn sm";del.style.marginLeft="auto";del.textContent="Delete";
   // Inline confirm (the app has no window.confirm; mirrors the agenda-delete pattern).
