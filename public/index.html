@@ -1428,6 +1428,16 @@ function colOptions(rows,accessor,order){
   if(order)present.forEach(p=>{if(!order.includes(p))opts.push(p);});
   return opts;
 }
+// Context-aware options for one column: the values that remain present once EVERY OTHER active column filter is applied
+// (faceted filtering — pick "Done" and the Assignee dropdown narrows to people who have Done tasks). The column is scoped
+// by the others but NOT by itself, so its own selection can always be widened again. Any value currently selected in this
+// column is force-kept in the list even if the other filters exclude it, so it stays visible and can be unchecked.
+function colOptionsCtx(rows,field,accessors,order,filters){
+  const others={...filters};delete others[field];
+  const opts=colOptions(rows.filter(r=>colFiltersMatch(r,others,accessors)),accessors[field],order);
+  const sel=filters[field];if(sel)sel.forEach(v=>{if(!opts.includes(v))opts.push(v);});
+  return opts;
+}
 // A <th> whose label is a button opening a body-mounted value-picker for `field`. Selecting a proper subset filters
 // the column; checking all / none clears it. An active filter shows an accent dot + tinted label.
 function colFilterTh(label,field,options,filters,reRender){
@@ -1882,18 +1892,20 @@ function renderTasks(m){
   [["card","Cards"],["table","Table"],["chart","Chart"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskLayout===k)b.classList.add("on");b.onclick=()=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};lb.appendChild(b);});
   vb.appendChild(lb);
   // Table layout: compute per-column filter options up front. taskColOpts is read by taskTable's per-section headers AND
-  // by the always-visible column-filter bar built below; options come from the page-filtered set (before column filters)
-  // so every value stays selectable. Hoisted above the toolbar so the bar is in place before the sticky height is measured.
+  // by the always-visible column-filter bar built below. Each column's options are scoped by the OTHER active column
+  // filters (colOptionsCtx) so the dropdowns are context-aware of each other — but never by the column's own filter, so a
+  // selection can always be widened. Hoisted above the toolbar so the bar is in place before the sticky height is measured.
   const _tableMode=taskLayout==="table";
   const _base=DB.tasks.filter(t=>taskFilter(t));
+  const _tf=tableColFilters.tasks;
   taskColOpts=_tableMode?{
-    status:colOptions(_base,TASK_COL_ACC.status,STATUSES),
-    priority:colOptions(_base,TASK_COL_ACC.priority,PRIORITIES),
-    category:colOptions(_base,TASK_COL_ACC.category,CATS),
-    who:colOptions(_base,TASK_COL_ACC.who,roster().map(m=>m.name)),
-    createdby:colOptions(_base,TASK_COL_ACC.createdby,roster().map(m=>m.name)),
-    due:colOptions(_base,TASK_COL_ACC.due,TIME_BUCKETS.map(b=>b[1])), // ordered Past due → … → No date, not alphabetical
-    rmarea:colOptions(_base,TASK_COL_ACC.rmarea,areaNames())
+    status:colOptionsCtx(_base,"status",TASK_COL_ACC,STATUSES,_tf),
+    priority:colOptionsCtx(_base,"priority",TASK_COL_ACC,PRIORITIES,_tf),
+    category:colOptionsCtx(_base,"category",TASK_COL_ACC,CATS,_tf),
+    who:colOptionsCtx(_base,"who",TASK_COL_ACC,roster().map(m=>m.name),_tf),
+    createdby:colOptionsCtx(_base,"createdby",TASK_COL_ACC,roster().map(m=>m.name),_tf),
+    due:colOptionsCtx(_base,"due",TASK_COL_ACC,TIME_BUCKETS.map(b=>b[1]),_tf), // ordered Past due → … → No date
+    rmarea:colOptionsCtx(_base,"rmarea",TASK_COL_ACC,areaNames(),_tf)
   }:null;
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
@@ -2513,18 +2525,19 @@ function renderRoadmapTable(m){
   if(!DB.roadmap.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No targets yet</div>Capture above, or add one by hand.</div>');return;}
   const base=sortTargets(rmFilteredTargets());
   if(!base.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No matching targets</div>Adjust the area, people, or search filters above.</div>');return;}
-  // Per-column header filters (Area / Phase / Assignees). Options come from `base` (page-filtered, pre-column) so all
-  // values stay selectable; rows are `base` narrowed by the active column filters.
+  // Per-column header filters (Area / Phase / Assignees). Each column's options are scoped by the OTHER active column
+  // filters (colOptionsCtx) so the dropdowns are context-aware of each other, never by the column's own filter; rows are
+  // `base` narrowed by all the active column filters.
   const F=tableColFilters.roadmap;
   const rows=base.filter(r=>colFiltersMatch(r,F,RM_COL_ACC));
   const wrap=document.createElement("div");wrap.className="rmtable-wrap";
   const tbl=document.createElement("table");tbl.className="rmtable";
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   [plainTh("Target"),plainTh("Description"),
-   colFilterTh("Area","area",colOptions(base,RM_COL_ACC.area,areaNames()),F,renderRoadmap),
-   colFilterTh("Phase","phase",colOptions(base,RM_COL_ACC.phase,phaseNames()),F,renderRoadmap),
+   colFilterTh("Area","area",colOptionsCtx(base,"area",RM_COL_ACC,areaNames(),F),F,renderRoadmap),
+   colFilterTh("Phase","phase",colOptionsCtx(base,"phase",RM_COL_ACC,phaseNames(),F),F,renderRoadmap),
    plainTh("Start"),plainTh("Target date"),
-   colFilterTh("Assignees","asg",colOptions(base,RM_COL_ACC.asg,roster().map(m=>m.name)),F,renderRoadmap),
+   colFilterTh("Assignees","asg",colOptionsCtx(base,"asg",RM_COL_ACC,roster().map(m=>m.name),F),F,renderRoadmap),
    plainTh("Tasks")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
