@@ -113,6 +113,8 @@
   .trow.tcont{cursor:pointer;}
   .trow.tagent:hover{background:var(--accent-soft);}
   .trow.tcont:hover{background:var(--canvas);}
+  .trow.tdrag{opacity:.45;}
+  .trow.tdrop{background:var(--accent-soft);outline:1px dashed var(--accent);outline-offset:-1px;}
   .tchev{width:12px;flex:none;font-size:10px;color:var(--muted);text-align:center;}
   .tkids{margin-left:10px;border-left:1px solid var(--line);padding-left:10px;}
   .tcount{font-size:11px;color:var(--faint);}
@@ -3699,9 +3701,7 @@ const agentsSorted=()=>DB.agents.slice().sort((a,b)=>(b.updatedAt||b.createdAt||
 // file in the repo no longer reads as a brand-new agent. Distinct from the Firestore doc id (which is per-store).
 const agentUid=()=>{try{return crypto.randomUUID();}catch(e){return "ag-"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);}};
 // Folder paths the user has collapsed in the Agents directory tree (default = expanded; membership = collapsed).
-const agentFoldersCollapsed=new Set();
-let agentView="tree";              // Agents tab view: "tree" (folder list) | "diagram" (repo → folder → agent node tree)
-const agentDiagramCollapsed=new Set(); // collapsed nodes in the directory diagram (default expanded; membership = collapsed)
+const agentDiagramCollapsed=new Set(); // collapsed nodes in the Agents directory tree (default expanded; membership = collapsed)
 // Folder segments for an agent, derived from its repoPath (the spec file's location), with the file name
 // dropped. "" repoPath → null = "unfiled" (not yet linked to a repo file). Segments are shown *relative to*
 // the sync dir so the tree roots at the contents of .claude/agents/ rather than repeating ".claude › agents"
@@ -3800,13 +3800,15 @@ async function syncRepoAgents(repoUrl){
 // path; bare/relative entries are taken as living under agents/ (SYNC_DIR). Persists the move to the repo as
 // write-new-then-delete-old — the new file is confirmed written before the old one is removed, so an interruption
 // leaves a recoverable duplicate rather than a lost agent. Returns {ok,msg}; never deletes on a failed write.
-async function moveAgent(a,destFolderRaw){
+async function moveAgent(a,destFolderRaw,opts){
+  opts=opts||{};
   if(!a.repoUrl||!a.repoPath)return{ok:false,msg:"Link this agent to a repo and path first (Edit)."};
   let folder=String(destFolderRaw||"").trim().replace(/\\/g,"/").replace(/^\/+|\/+$/g,"").replace(/\/+/g,"/");
-  if(folder&&folder!==SYNC_DIR&&!folder.startsWith(SYNC_DIR+"/"))folder=SYNC_DIR+"/"+folder; // relative → under agents/
-  if(!folder)folder=SYNC_DIR;
+  // opts.absolute: folder is the exact repo path of a target folder (e.g. from a drag-drop onto a tree node).
+  // Otherwise it's a relative entry taken as living under the sync dir (the typed move modal).
+  if(!opts.absolute){ if(folder&&folder!==SYNC_DIR&&!folder.startsWith(SYNC_DIR+"/"))folder=SYNC_DIR+"/"+folder; if(!folder)folder=SYNC_DIR; }
   const segs=folder.split("/");
-  if(segs.some(s=>!s||s==="."||s===".."))return{ok:false,msg:"Invalid folder name."};
+  if(!folder||segs.some(s=>!s||s==="."||s===".."))return{ok:false,msg:"Invalid destination folder."};
   const filename=a.repoPath.split("/").pop();
   const newPath=folder+"/"+filename;
   if(newPath===a.repoPath)return{ok:false,msg:"Already in that folder."};
@@ -4109,48 +4111,6 @@ function agentViewModal(a){
     }
   });
 }
-// Build one agent card (extracted so both the flat list and the directory tree render identical cards).
-function agentCard(a){
-  const card=document.createElement("div");card.className="card";
-  const ch=document.createElement("div");ch.style.cssText="display:flex;align-items:center;gap:9px;";
-  ch.innerHTML='<div class="ctitle" style="flex:1;cursor:pointer;" title="View formatted">'+esc(a.name||"Untitled")+'</div>';
-  ch.querySelector(".ctitle").onclick=()=>agentViewModal(a);
-  const tc=document.createElement("span");tc.className="chip";tc.textContent=a.type||"other";ch.appendChild(tc);
-  card.appendChild(ch);
-  card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(a.status||"draft")+(a.model?' · '+esc(a.model):'')+(a.createdBy?' · by '+esc(a.createdBy):'')+(a.lastSyncedAt?' · synced '+esc(a.lastSyncedAt):'')+'</div>');
-  if(a.summary)card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">'+esc(a.summary)+'</div>');
-  if((a.tools||[]).length){const tw=document.createElement("div");tw.className="chips";tw.style.marginTop="6px";a.tools.forEach(t=>{const c=document.createElement("span");c.className="chip";c.textContent=(String(t).split("—")[0]||t).trim();tw.appendChild(c);});card.appendChild(tw);}
-  const nRuns=DB.agentRuns.filter(r=>r.agentId===a.id).length;
-  if(nRuns)card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+nRuns+' run'+(nRuns!==1?'s':'')+'</div>');
-  const foot=document.createElement("div");foot.className="row";foot.style.marginTop="8px";
-  const view=document.createElement("button");view.className="btn sm";view.textContent="View";view.title="Read the spec as formatted Markdown";view.onclick=()=>agentViewModal(a);foot.appendChild(view);
-  const run=document.createElement("button");run.className="btn sm primary";run.textContent="▶ Run";run.onclick=()=>agentRunModal(a);foot.appendChild(run);
-  const edit=document.createElement("button");edit.className="btn sm";edit.textContent="Edit / refine";edit.onclick=()=>agentModal(a);foot.appendChild(edit);
-  if(a.repoUrl&&a.repoPath){const mv=document.createElement("button");mv.className="btn sm";mv.textContent="Move";mv.title="Move to another folder (persists to the repo)";mv.onclick=()=>agentMoveModal(a);foot.appendChild(mv);}
-  if(a.repoUrl){const link=document.createElement("a");link.className="btn sm";link.textContent="Open repo ↗";link.href=a.repoUrl;link.target="_blank";link.rel="noopener";foot.appendChild(link);}
-  const del=document.createElement("button");del.className="btn sm";del.style.marginLeft="auto";del.textContent="Delete";
-  // Inline confirm (the app has no window.confirm; mirrors the agenda-delete pattern).
-  del.onclick=()=>{
-    const q=document.createElement("span");q.style.cssText="font-size:11.5px;color:var(--danger);margin-left:auto;align-self:center;";q.textContent="Delete agent?";
-    const y=document.createElement("button");y.className="btn sm rm";y.style.cssText="color:var(--danger);margin-left:8px;";y.textContent="Yes, delete";
-    y.onclick=async()=>{try{await fbDelete("agents",a.id);banner("Deleted agent.","ok");}catch(e){banner(e.message,"err");}};
-    const n=document.createElement("button");n.className="btn sm";n.style.marginLeft="6px";n.textContent="Cancel";n.onclick=()=>renderAgents();
-    del.replaceWith(q);q.after(y,n);
-  };
-  foot.appendChild(del);card.appendChild(foot);
-  return card;
-}
-// A folder header row in the directory tree: chevron + 📁 + name + subtree count, indented by depth.
-// Clicking toggles its collapse state (persisted in agentFoldersCollapsed across re-renders).
-function agentFolderHead(label,path,depth,count){
-  const collapsed=agentFoldersCollapsed.has(path);
-  const hd=document.createElement("div");hd.className="areahead";hd.style.cssText="cursor:pointer;margin:10px 0 8px "+(depth*18)+"px;";
-  hd.title=collapsed?"Click to expand":"Click to collapse";
-  hd.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(collapsed?"▸":"▾")+'</span>'+
-    '<span style="color:var(--muted);">📁</span><span class="nm">'+esc(label)+'</span><span class="cat-count">'+count+'</span>';
-  hd.onclick=()=>{collapsed?agentFoldersCollapsed.delete(path):agentFoldersCollapsed.add(path);renderAgents();};
-  return hd;
-}
 // The agent action menu — opened by clicking an agent node in the directory diagram. Consolidates the card's
 // actions (Run / Edit / Move / Open repo / Delete) so a node click reaches the same operations.
 function agentMenuModal(a){
@@ -4161,6 +4121,7 @@ function agentMenuModal(a){
     if(a.summary)wrap.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:2px;">'+esc(a.summary)+'</div>');
     const mk=(label,primary,fn)=>{const b=document.createElement("button");b.className="btn"+(primary?" primary":"");b.style.justifyContent="flex-start";b.textContent=label;b.onclick=fn;return b;};
     const col=document.createElement("div");col.style.cssText="display:flex;flex-direction:column;gap:6px;margin-top:6px;";
+    col.appendChild(mk("📄 View formatted",false,()=>{close();agentViewModal(a);}));
     col.appendChild(mk("▶ Run agent",true,()=>{close();agentRunModal(a);}));
     col.appendChild(mk("Edit / refine",false,()=>{close();agentModal(a);}));
     if(a.repoUrl&&a.repoPath)col.appendChild(mk("Move to folder…",false,()=>{close();agentMoveModal(a);}));
@@ -4187,9 +4148,15 @@ function buildAgentHierarchy(){
   const root={label:"agents",children:new Map(),agents:[]};
   agentsSorted().forEach(a=>{
     const repoKey=a.repoUrl?normRepo(a.repoUrl):"__unfiled__";
-    if(!root.children.has(repoKey))root.children.set(repoKey,{label:a.repoUrl?agentRepoLabel(a.repoUrl):"Unfiled",children:new Map(),agents:[]});
+    if(!root.children.has(repoKey))root.children.set(repoKey,{label:a.repoUrl?agentRepoLabel(a.repoUrl):"Unfiled",children:new Map(),agents:[],repoUrl:a.repoUrl||""});
     let node=root.children.get(repoKey);
-    (agentDirSegments(a)||[]).forEach(s=>{if(!node.children.has(s))node.children.set(s,{label:s,children:new Map(),agents:[]});node=node.children.get(s);});
+    // Full repo path (NOT trimmed to the sync dir) so the tree mirrors exactly where the agent lives in the repo.
+    const full=(a.repoPath||"").replace(/^\/+/,"").replace(/\/+$/,"");
+    const dirs=full?full.split("/").slice(0,-1):[]; // drop the file name, keep every directory from the repo root
+    let acc="";
+    dirs.forEach(s=>{ acc=acc?acc+"/"+s:s;
+      if(!node.children.has(s))node.children.set(s,{label:s,children:new Map(),agents:[],fullPath:acc,repoUrl:a.repoUrl||""});
+      node=node.children.get(s); });
     node.agents.push(a);
   });
   return root;
@@ -4211,11 +4178,18 @@ function renderAgentsDiagram(m){
   };
   const renderNode=(node,key,icon,parentEl)=>{
     if(node.agent){
+      const ag=node.agent;
       const row=document.createElement("div");row.className="trow tagent";
-      row.innerHTML='<span class="tchev">•</span>'+agentTypeDot(node.agent.type)+'<span>'+esc(node.label)+'</span>'+
-        (node.agent.type?'<span class="chip" style="margin-left:2px;">'+esc(node.agent.type)+'</span>':'');
-      row.title=(node.agent.name||"Untitled")+(node.agent.repoPath?" — "+node.agent.repoPath:"");
-      row.onclick=()=>agentMenuModal(node.agent);
+      row.innerHTML='<span class="tchev">•</span>'+agentTypeDot(ag.type)+'<span>'+esc(node.label)+'</span>'+
+        (ag.type?'<span class="chip" style="margin-left:2px;">'+esc(ag.type)+'</span>':'');
+      row.title=(ag.name||"Untitled")+(ag.repoPath?" — "+ag.repoPath:"")+(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":"");
+      row.onclick=()=>agentMenuModal(ag);
+      // Drag to move: only filed agents (have a repo + path) can be relocated.
+      if(ag.repoUrl&&ag.repoPath){
+        row.draggable=true;
+        row.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/agent-id",ag.id);e.dataTransfer.effectAllowed="move";row.classList.add("tdrag");});
+        row.addEventListener("dragend",()=>row.classList.remove("tdrag"));
+      }
       parentEl.appendChild(row);return;
     }
     const collapsed=agentDiagramCollapsed.has(key);
@@ -4223,6 +4197,18 @@ function renderAgentsDiagram(m){
     row.title=collapsed?"Click to expand":"Click to collapse";
     row.innerHTML='<span class="tchev">'+(collapsed?"▸":"▾")+'</span><span>'+icon+'</span><span class="nm" style="font-size:13px;">'+esc(node.label)+'</span><span class="tcount">'+tmLeafCount(node)+'</span>';
     row.onclick=()=>{collapsed?agentDiagramCollapsed.delete(key):agentDiagramCollapsed.add(key);renderAgents();};
+    // Folder nodes (those with a concrete repo path) are drop targets — dropping an agent moves its file here.
+    if(node.fullPath!==undefined){
+      row.addEventListener("dragover",e=>{e.preventDefault();e.dataTransfer.dropEffect="move";row.classList.add("tdrop");});
+      row.addEventListener("dragleave",()=>row.classList.remove("tdrop"));
+      row.addEventListener("drop",async e=>{
+        e.preventDefault();row.classList.remove("tdrop");
+        const id=e.dataTransfer.getData("text/agent-id");const ag=DB.agents.find(x=>x.id===id);if(!ag)return;
+        if(normRepo(ag.repoUrl)!==normRepo(node.repoUrl)){banner("Drag-move works within one repo. Use the agent menu’s “Move” for other moves.","err");return;}
+        banner("Moving "+(ag.name||"agent")+"…","ok");
+        try{const r=await moveAgent(ag,node.fullPath,{absolute:true});banner(r.msg,r.ok?"ok":"err");}catch(e2){banner(e2.message,"err");}
+      });
+    }
     parentEl.appendChild(row);
     if(collapsed)return;
     const kw=document.createElement("div");kw.className="tkids";
@@ -4233,7 +4219,7 @@ function renderAgentsDiagram(m){
   Array.from(root.children.entries()).sort((a,b)=>(a[1].label||"").toLowerCase().localeCompare((b[1].label||"").toLowerCase()))
     .forEach(([rk,node])=>renderNode(node,"repo:"+rk,node.label==="Unfiled"?"🗂":"📦",wrap));
   m.appendChild(wrap);
-  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Repo → folder → agent. Click a folder to collapse it; click an agent to open its menu.</p>');
+  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Full repo directory: repo → folders → agent. Click a folder to collapse it, click an agent to open its menu, or drag an agent onto a folder to move it (committed to the repo).</p>');
 }
 function renderAgents(m){
   m=m||document.getElementById("main");m.innerHTML="";
@@ -4243,45 +4229,7 @@ function renderAgents(m){
   const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent="+ New agent";add.onclick=()=>agentModal(null);
   head.appendChild(add);m.appendChild(head);
   if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
-  // View switch: the folder Tree (default) or the repo → folder → agent Treemap.
-  const vb=document.createElement("div");vb.className="views";vb.style.margin="12px 0 4px";
-  [["tree","🗂 Tree"],["diagram","🌳 Directory"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(agentView===k)b.classList.add("on");b.onclick=()=>{agentView=k;renderAgents();};vb.appendChild(b);});
-  m.appendChild(vb);
-  if(agentView==="diagram"){renderAgentsDiagram(m);return;}
-  // Build a directory tree from each agent's repoPath, mirroring the repo's folder layout. Agents not yet
-  // linked to a repo file (no repoPath) collect in a separate "Unfiled" bucket shown after the tree.
-  const root={sub:new Map(),agents:[]};const unfiled=[];
-  agentsSorted().forEach(a=>{
-    const segs=agentDirSegments(a);
-    if(segs===null){unfiled.push(a);return;}
-    let node=root;
-    segs.forEach(s=>{if(!node.sub.has(s))node.sub.set(s,{sub:new Map(),agents:[]});node=node.sub.get(s);});
-    node.agents.push(a);
-  });
-  const subtreeCount=node=>{let n=node.agents.length;node.sub.forEach(c=>n+=subtreeCount(c));return n;};
-  const byName=(x,y)=>(x.name||"").toLowerCase().localeCompare((y.name||"").toLowerCase());
-  // Render a folder node: its own cards first (indented), then its subfolders (alphabetical), recursively.
-  // depth -1 is the synthetic root (no header); its direct cards are agents living at the repo root.
-  const renderNode=(node,path,depth)=>{
-    if(depth>=0){ m.appendChild(agentFolderHead(path.split("/").pop(),path,depth,subtreeCount(node))); if(agentFoldersCollapsed.has(path))return; }
-    if(node.agents.length){
-      const grid=document.createElement("div");grid.className="grid";grid.style.margin="0 0 6px "+((depth+1)*18)+"px";
-      node.agents.slice().sort(byName).forEach(a=>grid.appendChild(agentCard(a)));
-      m.appendChild(grid);
-    }
-    Array.from(node.sub.keys()).sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()))
-      .forEach(name=>renderNode(node.sub.get(name),path?path+"/"+name:name,depth+1));
-  };
-  renderNode(root,"",-1);
-  if(unfiled.length){
-    const collapsed=agentFoldersCollapsed.has("__unfiled__");
-    const hd=document.createElement("div");hd.className="areahead";hd.style.cssText="cursor:pointer;margin:14px 0 8px;";
-    hd.title=collapsed?"Click to expand":"Click to collapse";
-    hd.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(collapsed?"▸":"▾")+'</span><span class="nm">Unfiled</span><span class="cat-count">'+unfiled.length+'</span><span class="hint" style="margin-left:8px;">no repo path yet</span>';
-    hd.onclick=()=>{collapsed?agentFoldersCollapsed.delete("__unfiled__"):agentFoldersCollapsed.add("__unfiled__");renderAgents();};
-    m.appendChild(hd);
-    if(!collapsed){const grid=document.createElement("div");grid.className="grid";unfiled.slice().sort(byName).forEach(a=>grid.appendChild(agentCard(a)));m.appendChild(grid);}
-  }
+  renderAgentsDiagram(m);
 }
 function renderSignIn(msg){
   document.getElementById("tabs").style.display="none";
