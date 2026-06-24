@@ -118,6 +118,11 @@
   .tchev{width:12px;flex:none;font-size:10px;color:var(--muted);text-align:center;}
   .tkids{margin-left:10px;border-left:1px solid var(--line);padding-left:10px;}
   .tcount{font-size:11px;color:var(--faint);}
+  .tspacer{flex:1;}
+  /* Inline "view formatted" button on an agent leaf row in the directory tree. */
+  .tview{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:11.5px;line-height:1;padding:3px 8px;border-radius:6px;cursor:pointer;opacity:.55;transition:opacity .1s,background .1s,color .1s;}
+  .trow.tagent:hover .tview{opacity:1;}
+  .tview:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent);}
   .rmtools{position:sticky;top:0;background:var(--canvas);z-index:5;padding:4px 0 2px;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);}
   .target.draggable{cursor:grab;}
   .target.draggable:active{cursor:grabbing;}
@@ -4247,9 +4252,15 @@ function renderAgentsDiagram(m){
       const row=document.createElement("div");row.className="trow tagent";
       row.innerHTML='<span class="tchev">•</span>'+agentTypeDot(ag.type)+'<span>'+esc(node.label)+'</span>'+
         (ag.type?'<span class="chip" style="margin-left:2px;">'+esc(ag.type)+'</span>':'')+
-        (pend?'<span class="chip" style="margin-left:4px;background:var(--accent-soft,#e8e8fb);color:var(--accent,#4646c8);">moved · pending</span>':'');
+        (pend?'<span class="chip" style="margin-left:4px;background:var(--accent-soft,#e8e8fb);color:var(--accent,#4646c8);">moved · pending</span>':'')+
+        '<span class="tspacer"></span>';
       row.title=(ag.name||"Untitled")+(ag.repoPath?" — "+ag.repoPath:"")+(pend?"  (staged move — not yet committed)":(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":""));
       row.onclick=()=>agentMenuModal(ag);
+      // Inline display button: render the formatted agent file directly, skipping the action menu.
+      const viewBtn=document.createElement("button");viewBtn.type="button";viewBtn.className="tview";
+      viewBtn.textContent="📄 View";viewBtn.title="View formatted file";viewBtn.setAttribute("aria-label","View formatted agent file");
+      viewBtn.onclick=e=>{e.stopPropagation();agentViewModal(ag);};
+      row.appendChild(viewBtn);
       // Drag to move: only filed agents (have a repo + path) can be relocated.
       if(ag.repoUrl&&ag.repoPath){
         row.draggable=true;
@@ -4284,7 +4295,7 @@ function renderAgentsDiagram(m){
   Array.from(root.children.entries()).sort((a,b)=>(a[1].label||"").toLowerCase().localeCompare((b[1].label||"").toLowerCase()))
     .forEach(([rk,node])=>renderNode(node,"repo:"+rk,node.label==="Unfiled"?"🗂":"📦",wrap));
   m.appendChild(wrap);
-  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Full repo directory: repo → folders → agent. Click a folder to collapse it, click an agent to open its menu, or drag an agent onto a folder to <b>stage</b> a move — then click “Commit moves” to write staged moves to the repo. Staged moves are cleared if you refresh before committing.</p>');
+  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Full repo directory: repo → folders → agent. Click a folder to collapse it, click an agent to open its menu, click <b>📄 View</b> to read its formatted file, or drag an agent onto a folder to <b>stage</b> a move — then click “Commit moves” to write staged moves to the repo. Staged moves are cleared if you refresh before committing.</p>');
 }
 function renderAgents(m){
   m=m||document.getElementById("main");m.innerHTML="";
