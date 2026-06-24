@@ -442,7 +442,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch, arrayUnion }
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, setDoc, writeBatch, arrayUnion }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -773,6 +773,7 @@ function banner(msg,kind){const b=document.getElementById("banner");b.textConten
 const col=name=>collection(db,name);
 async function fbAdd(name,data){ if(!fbReady)throw new Error("Firebase not configured"); return (await addDoc(col(name),data)).id; }
 async function fbUpdate(name,id,patch){ if(!fbReady)throw new Error("Firebase not configured"); await updateDoc(doc(db,name,id),patch); }
+async function fbSet(name,id,data,merge){ if(!fbReady)throw new Error("Firebase not configured"); await setDoc(doc(db,name,id),data,merge?{merge:true}:{}); }
 async function fbDelete(name,id){ if(!fbReady)throw new Error("Firebase not configured"); await deleteDoc(doc(db,name,id)); }
 
 let subUnsubs=[];
@@ -2172,6 +2173,23 @@ function renderTasks(m){
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
   resetBtn.onclick=()=>resetTaskFiltersToDefault();
+  // ⟲ Reset runner — a global control to recover a wedged local Claude runner (.local/runner.mjs). Shown only when
+  // at least one task is in a live run state (queued/running/runRequested), i.e. when there's something to reset.
+  // It (a) signals the runner via the runnerControl/state doc to abort its current run + clear its queue, and
+  // (b) clears the board run-state on every in-flight task here, so the board recovers even if the runner is down.
+  const liveRuns=DB.tasks.filter(t=>t.runRequested||t.runStatus==="running"||t.runStatus==="queued");
+  const runnerReset=liveRuns.length?document.createElement("button"):null;
+  if(runnerReset){runnerReset.className="btn sm";runnerReset.style.cssText="background:#D4537E;border-color:#D4537E;color:#fff;";
+    runnerReset.textContent="⟲ Reset runner";
+    runnerReset.title="Reset the local Claude runner: tell it to abort the current run and clear its queue, and clear the stuck run state on all in-flight tasks. Use if the runner is wedged or a run is stuck.";
+    runnerReset.onclick=()=>{
+      if(!confirm('Reset the Claude runner?\n\nThis signals the runner on the dev machine to abort its current run and clear its queue, and clears the run state on '+liveRuns.length+' in-flight task(s) here. Use it if the runner is wedged or runs are stuck.'))return;
+      const resetId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
+      fbSet("runnerControl","state",{resetRequested:true,resetId,resetBy:identity,resetAt:new Date().toISOString()},true).catch(e=>banner(e.message,"err"));
+      const batch=writeBatch(db);
+      liveRuns.forEach(t=>batch.update(doc(db,"tasks",t.id),{runRequested:false,runStatus:null,runError:"runner reset by "+identity}));
+      batch.commit().then(()=>banner("Runner reset signal sent — cleared "+liveRuns.length+" in-flight run(s).","ok")).catch(e=>banner(e.message,"err"));
+    };}
   // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
   const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
@@ -2182,6 +2200,7 @@ function renderTasks(m){
   const searchInp=document.createElement("input");searchInp.type="search";searchInp.className="ctrl";searchInp.id="taskSearch";searchInp.placeholder="Search tasks\u2026";searchInp.value=taskSearch;searchInp.style.cssText="flex:1;min-width:140px;max-width:280px;";
   searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
   trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
+  if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
   if(anyFilter)trow.append(clearAll);
   if(taskLayout==="card")trow.append(collExp);  // per-card collapse only applies to the card layout (not table/chart)
   // (The always-visible "Filter columns" bar was removed; per-header column filters remain on each expanded section's
