@@ -1463,6 +1463,9 @@ const TASK_COL_ACC={
   status:t=>t.status||"",priority:t=>t.priority||"",category:t=>t.category||"",
   who:t=>(t.assignees&&t.assignees.length?t.assignees:[""]),
   createdby:t=>t.createdBy||"",
+  // Target date filters by relative bucket (Past due / Today / This week / … / No date) rather than raw date, reusing
+  // the same bucketing as timeframe grouping. Buckets are relative to "now"; fine since column filters aren't persisted.
+  due:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.due))],
   rmarea:t=>{const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return r&&r.area?r.area:"";}
 };
 const RM_COL_ACC={ area:r=>r.area||"", phase:r=>phaseOf(r)||"", asg:r=>(r.assignees&&r.assignees.length?r.assignees:[""]) };
@@ -1476,7 +1479,7 @@ function taskTable(items,secLabel){
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   const F=tableColFilters.tasks,o=taskColOpts;
   const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),plainTh("Target"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask")].forEach(th=>htr.appendChild(th));
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
@@ -1883,6 +1886,7 @@ function renderTasks(m){
     category:colOptions(_base,TASK_COL_ACC.category,CATS),
     who:colOptions(_base,TASK_COL_ACC.who,roster().map(m=>m.name)),
     createdby:colOptions(_base,TASK_COL_ACC.createdby,roster().map(m=>m.name)),
+    due:colOptions(_base,TASK_COL_ACC.due,TIME_BUCKETS.map(b=>b[1])), // ordered Past due → … → No date, not alphabetical
     rmarea:colOptions(_base,TASK_COL_ACC.rmarea,areaNames())
   }:null;
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
@@ -1927,7 +1931,7 @@ function renderTasks(m){
     const F=tableColFilters.tasks,o=taskColOpts;
     const bar=document.createElement("div");bar.className="tblfilterbar";
     const blab=document.createElement("span");blab.className="tfb-lab";blab.textContent="Filter columns:";bar.appendChild(blab);
-    [["status","Status"],["priority","Priority"],["category","Category"],["who","Who"],["createdby","Created by"],["rmarea","Roadmap"]].forEach(([field,label])=>{
+    [["status","Status"],["priority","Priority"],["category","Category"],["who","Who"],["createdby","Created by"],["due","Target"],["rmarea","Roadmap"]].forEach(([field,label])=>{
       const on=!!(F[field]&&F[field].size);
       const b=document.createElement("button");b.type="button";b.className="colfilter"+(on?" on":"");
       b.innerHTML=esc(label)+' <span class="cf-caret">▾</span>'+(on?' <span class="cf-dot"></span>':'');
