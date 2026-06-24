@@ -1438,7 +1438,17 @@ function openColFilterPop(anchor,label,options,filters,field,reRender){
   const cur=filters[field];
   const h=document.createElement("div");h.className="cmeta";h.style.cssText="font-weight:600;margin-bottom:4px;";h.textContent="Filter: "+label;pop.appendChild(h);
   if(!options.length)pop.insertAdjacentHTML("beforeend",'<div class="cmeta">No values</div>');
-  options.forEach(v=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=cur?cur.has(v):true;cb.dataset.val=v;l.append(cb,document.createTextNode(" "+(v===""?"— (none)":v)));pop.appendChild(l);});
+  // Select all / Clear all toggle — mirrors the Roadmap area-filter pattern. Flips every checkbox; label reflects
+  // current state (all checked = "Clear all"). Nothing applies until Apply, matching the rest of this popup.
+  if(options.length){
+    const allBtn=document.createElement("button");allBtn.type="button";allBtn.className="btn sm";allBtn.style.cssText="margin-bottom:6px;font-size:11.5px;padding:2px 7px;";
+    const cbs=()=>Array.from(pop.querySelectorAll(".colfilter-pop-cb"));
+    const sync=()=>{allBtn.textContent=cbs().every(c=>c.checked)?"Clear all":"Select all";};
+    allBtn.onclick=()=>{const checkAll=cbs().some(c=>!c.checked);cbs().forEach(c=>c.checked=checkAll);sync();};
+    pop.appendChild(allBtn);
+    options.forEach(v=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.className="colfilter-pop-cb";cb.checked=cur?cur.has(v):true;cb.dataset.val=v;cb.addEventListener("change",sync);l.append(cb,document.createTextNode(" "+(v===""?"— (none)":v)));pop.appendChild(l);});
+    sync();
+  }
   const row=document.createElement("div");row.style.cssText="display:flex;gap:6px;margin-top:6px;";
   const apply=document.createElement("button");apply.className="btn primary sm";apply.textContent="Apply";
   apply.onclick=()=>{const sel=Array.from(pop.querySelectorAll("input:checked")).map(x=>x.dataset.val);
