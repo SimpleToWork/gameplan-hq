@@ -62,6 +62,7 @@ const q = s => JSON.stringify(s==null ? "" : String(s));   // JSON string == val
 // long prose goes in the body under fixed headings so the file reads well in GitHub and round-trips deterministically.
 function serializeSpec(s){
   const fm = [
+    "agentId: "+q(s.agentId||""),
     "name: "+q(s.name), "type: "+q(s.type||"other"), "status: "+q(s.status||"draft"), "model: "+q(s.model||""),
     "repoUrl: "+q(s.repoUrl||""), "repoPath: "+q(s.repoPath||""),
     "createdBy: "+q(s.createdBy||""), "createdAt: "+q(s.createdAt||""), "updatedAt: "+q(s.updatedAt||""),
@@ -102,6 +103,7 @@ function parseSpec(text){
   });
   flush();
   return {
+    agentId: fm.agentId||"",
     name: fm.name||"", type: fm.type||"other", status: fm.status||"draft", model: fm.model||"",
     repoUrl: fm.repoUrl||"", repoPath: fm.repoPath||"",
     createdBy: fm.createdBy||"", createdAt: fm.createdAt||"", updatedAt: fm.updatedAt||"",
