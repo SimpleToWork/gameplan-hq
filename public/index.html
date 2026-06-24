@@ -228,6 +228,7 @@
   .acts{display:flex;gap:11px;align-items:center;font-size:11.5px;}
   .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
   .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
+  .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
   .pop{border-top:1px dashed var(--line);padding-top:8px;display:none;flex-direction:column;gap:6px;}
   .pop.open{display:flex;}
   .opt{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
@@ -1313,8 +1314,21 @@ function taskCard(t){
   const ask=document.createElement("button");ask.title="Ask Claude";ask.setAttribute("aria-label","Ask Claude");
   // Claude logo (inline sunburst mark, clay #D97757) replaces the "Ask Claude" text; title/aria-label keep it accessible.
   ask.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
+  // ▶ Run — hand the task to the local Claude runner (.local/runner.mjs). The button only sets a flag on
+  // the board doc (runRequested + a fresh runId); the daemon on the dev machine claims it, runs `claude -p`,
+  // and writes status/result back. Reflects live run state and disables itself while a run is in flight.
+  const run=document.createElement("button");run.className="runbtn";
+  const runLive=t.runStatus==="running"||t.runStatus==="queued";
+  run.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";
+  run.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
+  if(runLive)run.disabled=true;
+  run.onclick=e=>{e.stopPropagation();if(runLive)return;
+    if(!confirm('Run "'+t.title+'" with Claude on the local runner?\n\nThe runner on the dev machine will pick it up, work the task, and report status + a summary back here.'))return;
+    const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
+    setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null});
+    banner("Queued for the local runner — it'll start shortly.","ok");};
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,rmv);d.appendChild(acts);
+  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,run,rmv);d.appendChild(acts);
   // assign pop
   const apop=document.createElement("div");apop.className="pop";
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
