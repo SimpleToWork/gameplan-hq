@@ -107,12 +107,15 @@
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
-  /* Agents treemap: nested rectangles, repo → folder → agent. All tiles are absolutely positioned in .tmwrap. */
-  .tmwrap{position:relative;width:100%;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--canvas);}
-  .tmbox{position:absolute;box-sizing:border-box;border:1px solid var(--line);overflow:hidden;}
-  .tmhdr{position:absolute;left:0;top:0;right:0;height:16px;line-height:16px;padding:0 5px;font-size:10.5px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .tmleaf{position:absolute;box-sizing:border-box;border:1px solid;border-radius:4px;overflow:hidden;padding:3px 5px;font-size:11px;font-weight:500;line-height:1.2;cursor:pointer;transition:filter .1s,box-shadow .1s;}
-  .tmleaf:hover{filter:brightness(.95);box-shadow:inset 0 0 0 2px rgba(0,0,0,.16);}
+  /* Agents directory diagram: indented node tree (repo → folder → agent) with vertical guide lines. */
+  .trow{display:flex;align-items:center;gap:7px;padding:3px 7px;border-radius:7px;font-size:13px;line-height:1.3;}
+  .trow.tagent{cursor:pointer;}
+  .trow.tcont{cursor:pointer;}
+  .trow.tagent:hover{background:var(--accent-soft);}
+  .trow.tcont:hover{background:var(--canvas);}
+  .tchev{width:12px;flex:none;font-size:10px;color:var(--muted);text-align:center;}
+  .tkids{margin-left:10px;border-left:1px solid var(--line);padding-left:10px;}
+  .tcount{font-size:11px;color:var(--faint);}
   .rmtools{position:sticky;top:0;background:var(--canvas);z-index:5;padding:4px 0 2px;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);}
   .target.draggable{cursor:grab;}
   .target.draggable:active{cursor:grabbing;}
@@ -3642,8 +3645,8 @@ const agentsSorted=()=>DB.agents.slice().sort((a,b)=>(b.updatedAt||b.createdAt||
 const agentUid=()=>{try{return crypto.randomUUID();}catch(e){return "ag-"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);}};
 // Folder paths the user has collapsed in the Agents directory tree (default = expanded; membership = collapsed).
 const agentFoldersCollapsed=new Set();
-let agentView="tree";          // Agents tab view: "tree" (folder list) | "treemap" (repo → folder → agent rectangles)
-let agentTmResizeBound=false;  // ensure the treemap's window-resize re-render is wired only once
+let agentView="tree";              // Agents tab view: "tree" (folder list) | "diagram" (repo → folder → agent node tree)
+const agentDiagramCollapsed=new Set(); // collapsed nodes in the directory diagram (default expanded; membership = collapsed)
 // Folder segments for an agent, derived from its repoPath (the spec file's location), with the file name
 // dropped. "" repoPath → null = "unfiled" (not yet linked to a repo file). Segments are shown *relative to*
 // the sync dir so the tree roots at the contents of .claude/agents/ rather than repeating ".claude › agents"
@@ -4093,8 +4096,8 @@ function agentFolderHead(label,path,depth,count){
   hd.onclick=()=>{collapsed?agentFoldersCollapsed.delete(path):agentFoldersCollapsed.add(path);renderAgents();};
   return hd;
 }
-// The agent action menu — opened by clicking a treemap node. Consolidates the card's actions (Run / Edit /
-// Move / Open repo / Delete) so a node click reaches the same operations.
+// The agent action menu — opened by clicking an agent node in the directory diagram. Consolidates the card's
+// actions (Run / Edit / Move / Open repo / Delete) so a node click reaches the same operations.
 function agentMenuModal(a){
   openModal(a.name||"Agent",(card,close)=>{
     const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:6px;";
@@ -4120,11 +4123,11 @@ function agentMenuModal(a){
     card.appendChild(wrap);
   });
 }
-// "owner/repo" label from a github URL (for the treemap's top-level repo tiles).
+// "owner/repo" label from a github URL (the diagram's top-level repo nodes).
 function agentRepoLabel(url){const m=String(url||"").replace(/\.git$/,"").match(/github\.com[/:]([^/]+)\/([^/?#]+)/);return m?m[1]+"/"+m[2]:(url||"Unfiled");}
-// Build the repo → folder → agent hierarchy for the treemap. Leaves carry .agent; containers carry .children
-// (sub-folders) + .agents (direct leaves). Folders come from agentDirSegments (relative to the sync dir);
-// agents with no repoUrl land under a synthetic "Unfiled" repo.
+// Build the repo → folder → agent hierarchy for the directory diagram. Leaves carry .agent; containers carry
+// .children (sub-folders) + .agents (direct leaves). Folders come from agentDirSegments (relative to the sync
+// dir); agents with no repoUrl land under a synthetic "Unfiled" repo.
 function buildAgentHierarchy(){
   const root={label:"agents",children:new Map(),agents:[]};
   agentsSorted().forEach(a=>{
@@ -4137,58 +4140,45 @@ function buildAgentHierarchy(){
   return root;
 }
 function tmLeafCount(node){if(node.agent)return 1;let n=node.agents?node.agents.length:0;if(node.children)node.children.forEach(c=>n+=tmLeafCount(c));return n;}
-function tmChildren(node){const k=[];if(node.children)node.children.forEach(c=>k.push(c));if(node.agents)node.agents.forEach(a=>k.push({label:a.name||"Untitled",agent:a}));return k;}
-// Squarified treemap of one level: items=[{node,area}] with areas summing to ~w*h; returns placements that
-// tile the rectangle while keeping each tile's aspect ratio near 1 (Bruls et al.).
-function tmSquarify(items,x,y,w,h){
-  const out=[];if(!items.length||w<=0||h<=0)return out;
-  const worst=(row,side)=>{let s=0,mx=-Infinity,mn=Infinity;for(const a of row){s+=a;if(a>mx)mx=a;if(a<mn)mn=a;}return Math.max((side*side*mx)/(s*s),(s*s)/(side*side*mn));};
-  let rx=x,ry=y,rw=w,rh=h,i=0;
-  while(i<items.length){
-    const row=[],nodes=[],side=Math.min(rw,rh);
-    while(i<items.length){const cand=row.concat(items[i].area);if(!row.length||worst(cand,side)<=worst(row,side)){row.push(items[i].area);nodes.push(items[i].node);i++;}else break;}
-    const sum=row.reduce((s,a)=>s+a,0);
-    if(rw>=rh){const cw=sum/rh;let oy=ry;for(let k=0;k<nodes.length;k++){const ih=row[k]/cw;out.push({node:nodes[k],x:rx,y:oy,w:cw,h:ih});oy+=ih;}rx+=cw;rw-=cw;}
-    else{const rhh=sum/rw;let ox=rx;for(let k=0;k<nodes.length;k++){const iw=row[k]/rhh;out.push({node:nodes[k],x:ox,y:ry,w:iw,h:rhh});ox+=iw;}ry+=rhh;rh-=rhh;}
-  }
-  return out;
-}
 const AGENT_TYPE_COLORS={connector:"#4646c8",etl:"#1d6b45",analysis:"#b4690e",automation:"#9333ea",other:"#646b78"};
-// Draw one node (leaf agent tile or container box) at the given rect, then recurse into its children.
-function tmRender(node,x,y,w,h,depth,canvas){
-  if(node.agent){
-    const col=AGENT_TYPE_COLORS[node.agent.type]||AGENT_TYPE_COLORS.other;
-    const t=document.createElement("div");t.className="tmleaf";
-    t.style.cssText="left:"+x+"px;top:"+y+"px;width:"+w+"px;height:"+h+"px;border-color:"+col+";background:"+col+"22;color:var(--ink);";
-    t.title=(node.agent.name||"Untitled")+(node.agent.repoPath?" — "+node.agent.repoPath:"");
-    if(w>38&&h>20)t.textContent=node.agent.name||"Untitled";
-    t.onclick=e=>{e.stopPropagation();agentMenuModal(node.agent);};
-    canvas.appendChild(t);return;
-  }
-  const box=document.createElement("div");box.className="tmbox";
-  box.style.cssText="left:"+x+"px;top:"+y+"px;width:"+w+"px;height:"+h+"px;background:rgba(120,124,150,"+(0.05+0.045*depth)+");";
-  const headH=(h>24&&w>40)?16:0;
-  if(headH){const hd=document.createElement("div");hd.className="tmhdr";hd.textContent=node.label+" · "+tmLeafCount(node);hd.title=node.label;box.appendChild(hd);}
-  canvas.appendChild(box);
-  const pad=2,ix=x+pad,iy=y+headH,iw=w-2*pad,ih=h-headH-pad;
-  if(iw<=1||ih<=1)return;
-  const kids=tmChildren(node).map(c=>({node:c,wt:tmLeafCount(c)})).filter(c=>c.wt>0).sort((a,b)=>b.wt-a.wt);
-  const total=kids.reduce((s,c)=>s+c.wt,0);if(!total)return;
-  const scale=(iw*ih)/total;
-  tmSquarify(kids.map(c=>({node:c.node,area:c.wt*scale})),ix,iy,iw,ih).forEach(p=>tmRender(p.node,p.x,p.y,p.w,p.h,depth+1,canvas));
-}
-// Treemap view: a sized canvas tiled repo → folder → agent. Re-lays out on window resize.
-function renderAgentsTreemap(m){
+// A small colored dot indicating an agent's type — just a scan aid in the diagram.
+function agentTypeDot(type){const c=AGENT_TYPE_COLORS[type]||AGENT_TYPE_COLORS.other;return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+c+';flex:none;"></span>';}
+// Directory diagram: an indented node tree of the repo → folder → agent hierarchy with vertical guide lines.
+// Repo/folder nodes are collapsible (state in agentDiagramCollapsed); clicking an agent node opens its menu.
+function renderAgentsDiagram(m){
   const root=buildAgentHierarchy();
-  const wrap=document.createElement("div");wrap.className="tmwrap";
-  const H=Math.max(420,Math.min(760,Math.round((window.innerHeight||800)*0.66)));
-  wrap.style.height=H+"px";m.appendChild(wrap);
-  const W=wrap.clientWidth||Math.round(wrap.getBoundingClientRect().width)||800;
-  const kids=tmChildren(root).map(c=>({node:c,wt:tmLeafCount(c)})).filter(c=>c.wt>0).sort((a,b)=>b.wt-a.wt);
-  const total=kids.reduce((s,c)=>s+c.wt,0);
-  if(total>0){const scale=(W*H)/total;tmSquarify(kids.map(c=>({node:c.node,area:c.wt*scale})),0,0,W,H).forEach(p=>tmRender(p.node,p.x,p.y,p.w,p.h,0,wrap));}
-  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Tiles are sized by number of agents and grouped repo → folder → agent. Click an agent to open its menu.</p>');
-  if(!agentTmResizeBound){agentTmResizeBound=true;let t;window.addEventListener("resize",()=>{clearTimeout(t);t=setTimeout(()=>{if(page==="agents"&&agentView==="treemap")renderAgents();},180);});}
+  const byLabel=(x,y)=>(x.label||"").toLowerCase().localeCompare((y.label||"").toLowerCase());
+  // A container node's children: sub-folders (alphabetical) first, then its own agents (by name) as leaves.
+  const kidsOf=node=>{
+    const folders=Array.from((node.children||new Map()).values()).sort(byLabel);
+    const agents=(node.agents||[]).slice().sort((a,b)=>(a.name||"").toLowerCase().localeCompare((b.name||"").toLowerCase())).map(a=>({label:a.name||"Untitled",agent:a}));
+    return folders.concat(agents);
+  };
+  const renderNode=(node,key,icon,parentEl)=>{
+    if(node.agent){
+      const row=document.createElement("div");row.className="trow tagent";
+      row.innerHTML='<span class="tchev">•</span>'+agentTypeDot(node.agent.type)+'<span>'+esc(node.label)+'</span>'+
+        (node.agent.type?'<span class="chip" style="margin-left:2px;">'+esc(node.agent.type)+'</span>':'');
+      row.title=(node.agent.name||"Untitled")+(node.agent.repoPath?" — "+node.agent.repoPath:"");
+      row.onclick=()=>agentMenuModal(node.agent);
+      parentEl.appendChild(row);return;
+    }
+    const collapsed=agentDiagramCollapsed.has(key);
+    const row=document.createElement("div");row.className="trow tcont";
+    row.title=collapsed?"Click to expand":"Click to collapse";
+    row.innerHTML='<span class="tchev">'+(collapsed?"▸":"▾")+'</span><span>'+icon+'</span><span class="nm" style="font-size:13px;">'+esc(node.label)+'</span><span class="tcount">'+tmLeafCount(node)+'</span>';
+    row.onclick=()=>{collapsed?agentDiagramCollapsed.delete(key):agentDiagramCollapsed.add(key);renderAgents();};
+    parentEl.appendChild(row);
+    if(collapsed)return;
+    const kw=document.createElement("div");kw.className="tkids";
+    kidsOf(node).forEach(c=>renderNode(c,key+"/"+(c.agent?"a:"+c.agent.id:c.label),"📁",kw));
+    parentEl.appendChild(kw);
+  };
+  const wrap=document.createElement("div");wrap.style.marginTop="6px";
+  Array.from(root.children.entries()).sort((a,b)=>(a[1].label||"").toLowerCase().localeCompare((b[1].label||"").toLowerCase()))
+    .forEach(([rk,node])=>renderNode(node,"repo:"+rk,node.label==="Unfiled"?"🗂":"📦",wrap));
+  m.appendChild(wrap);
+  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Repo → folder → agent. Click a folder to collapse it; click an agent to open its menu.</p>');
 }
 function renderAgents(m){
   m=m||document.getElementById("main");m.innerHTML="";
@@ -4200,9 +4190,9 @@ function renderAgents(m){
   if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
   // View switch: the folder Tree (default) or the repo → folder → agent Treemap.
   const vb=document.createElement("div");vb.className="views";vb.style.margin="12px 0 4px";
-  [["tree","🗂 Tree"],["treemap","▦ Treemap"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(agentView===k)b.classList.add("on");b.onclick=()=>{agentView=k;renderAgents();};vb.appendChild(b);});
+  [["tree","🗂 Tree"],["diagram","🌳 Directory"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(agentView===k)b.classList.add("on");b.onclick=()=>{agentView=k;renderAgents();};vb.appendChild(b);});
   m.appendChild(vb);
-  if(agentView==="treemap"){renderAgentsTreemap(m);return;}
+  if(agentView==="diagram"){renderAgentsDiagram(m);return;}
   // Build a directory tree from each agent's repoPath, mirroring the repo's folder layout. Agents not yet
   // linked to a repo file (no repoPath) collect in a separate "Unfiled" bucket shown after the tree.
   const root={sub:new Map(),agents:[]};const unfiled=[];
