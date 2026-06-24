@@ -3751,6 +3751,21 @@ async function syncRepoAgents(repoUrl){
   }
   return r;
 }
+// Resync every repo that matters — all connected GitHub App repos plus any repo referenced by an existing
+// agent — deduped by normRepo. Aggregates per-repo counts. Powers the Agents page "Resync" button so the user
+// can import/reconcile without going to Settings. Returns {repos,imported,pulled,pushed,skipped,errors}.
+async function resyncAllAgents(){
+  await loadGhRepos();
+  const byRepo=new Map();
+  (ghRepos||[]).forEach(r=>{if(r.url)byRepo.set(normRepo(r.url),r.url);});
+  DB.agents.forEach(a=>{if(a.repoUrl&&!byRepo.has(normRepo(a.repoUrl)))byRepo.set(normRepo(a.repoUrl),a.repoUrl);});
+  const tot={repos:0,imported:0,pulled:0,pushed:0,skipped:0,errors:0};
+  for(const url of byRepo.values()){
+    try{const c=await syncRepoAgents(url);tot.repos++;tot.imported+=c.imported;tot.pulled+=c.pulled;tot.pushed+=c.pushed;tot.skipped+=c.skipped;tot.errors+=c.errors;}
+    catch(e){tot.errors++;}
+  }
+  return tot;
+}
 // Move an agent's spec file to a different folder in its repo, keeping the file name. destFolderRaw is a folder
 // path; bare/relative entries are taken as living under agents/ (SYNC_DIR). Persists the move to the repo as
 // write-new-then-delete-old — the new file is confirmed written before the old one is removed, so an interruption
@@ -4181,8 +4196,19 @@ function renderAgents(m){
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agents</div><p class="pagesub">AI agents authored with Claude and saved to the board. Organized into folders mirroring each repo’s layout — an agent’s folder follows its repo path, so changes sync back to the repo.</p>');
   const head=document.createElement("div");head.className="areahead";
   head.innerHTML='<span class="nm">Your agents</span><span class="cat-count">'+DB.agents.length+'</span>';
-  const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent="+ New agent";add.onclick=()=>agentModal(null);
-  head.appendChild(add);m.appendChild(head);
+  // Resync: import/reconcile agents from every connected repo's .claude/agents/ (no need to visit Settings).
+  const resync=document.createElement("button");resync.className="btn sm";resync.style.marginLeft="auto";resync.textContent="⇄ Resync";
+  resync.title="Import and reconcile agents from all connected repos ("+SYNC_DIR+"/)";
+  resync.onclick=async()=>{
+    resync.disabled=true;resync.innerHTML='<span class="spin"></span> Syncing';
+    try{const c=await resyncAllAgents();
+      if(!c.repos)banner("No connected repos to sync — install the GitHub App on a repo in Settings.","err");
+      else banner("Resynced "+c.repos+" repo"+(c.repos!==1?"s":"")+": "+c.imported+" imported, "+c.pulled+" pulled, "+c.pushed+" pushed"+(c.skipped?", "+c.skipped+" unchanged":"")+(c.errors?", "+c.errors+" errors":"")+".",c.errors?"err":"ok");
+    }catch(e){banner(e.message,"err");}
+    resync.disabled=false;resync.innerHTML="⇄ Resync";renderAgents();
+  };
+  const add=document.createElement("button");add.className="btn sm";add.textContent="+ New agent";add.onclick=()=>agentModal(null);
+  head.append(resync,add);m.appendChild(head);
   if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
   renderAgentsDiagram(m);
 }
