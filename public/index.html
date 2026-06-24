@@ -1275,10 +1275,13 @@ function taskCard(t){
   if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
   // Provenance label: who created the task, set apart from the assignee avatars above. Display-only; legacy tasks with no createdBy fall back to "Unknown".
   const by=document.createElement("span");by.className="cmeta";by.style.cssText="margin-left:8px;white-space:nowrap;";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
-  // Internal task ID — visible, monospace, click-to-copy (handy for "work on task <id>" and cross-referencing).
-  const idTag=document.createElement("span");idTag.className="cmeta";idTag.style.cssText="margin-left:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;white-space:nowrap;";idTag.textContent="ID "+t.id;idTag.title="Click to copy task ID";
-  idTag.onclick=e=>{e.stopPropagation();try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};ar.appendChild(idTag);
   d.appendChild(ar);
+  // Internal task ID — its own subtle monospace line (truncated; full id on hover + click-to-copy). Off the crowded
+  // provenance row so it can't overflow the ~310px card. Hidden when the card collapses (.cmeta rule).
+  const idLine=document.createElement("div");idLine.className="cmeta";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
+  idLine.textContent="ID "+shortId(t.id);idLine.title="Click to copy task ID: "+t.id;
+  idLine.onclick=e=>{e.stopPropagation();try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};
+  d.appendChild(idLine);
   const crow=document.createElement("div");crow.className="crow";
   // Discipline select is tinted with its discipline colour so the category reads at a glance.
   const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));
@@ -1576,6 +1579,8 @@ const TASK_COL_ACC={
 const RM_COL_ACC={ area:r=>r.area||"", phase:r=>phaseOf(r)||"", asg:r=>(r.assignees&&r.assignees.length?r.assignees:[""]) };
 const AG_COL_ACC={ att:a=>(a.attendees&&a.attendees.length?a.attendees:[""]) };
 const plainTh=t=>{const th=document.createElement("th");th.textContent=t;return th;};
+// Truncated display of a long Firestore id: first 7 chars + ellipsis. Full id is always kept in the title + copied on click.
+const shortId=id=>id&&id.length>8?id.slice(0,7)+"…":(id||"");
 function taskTable(items,secLabel){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
@@ -1643,7 +1648,7 @@ function taskTable(items,secLabel){
     qBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
     qBtn.onclick=()=>openTaskAskPop(qBtn,t);tdAsk.appendChild(qBtn);
     // ID — internal task id as visible monospace text, click-to-copy.
-    const tdId=document.createElement("td");const idEl=document.createElement("span");idEl.textContent=t.id;idEl.title="Click to copy task ID";
+    const tdId=document.createElement("td");const idEl=document.createElement("span");idEl.textContent=shortId(t.id);idEl.title="Click to copy task ID: "+t.id;
     idEl.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;";
     idEl.onclick=()=>{try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};tdId.appendChild(idEl);
     tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdAsk,tdId);
