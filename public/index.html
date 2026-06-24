@@ -405,7 +405,7 @@
   <header>
     <div class="brandrow">
       <div class="brand"><img class="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>Gameplan HQ</b><span>MerchantsBI</span></span></div>
-      <div class="hctrl">You are <span id="identity" style="font-weight:600;"></span></div>
+      <div class="hctrl"><button id="syncBtn" class="btn sm" title="Re-sync live data — recover a stalled connection and fetch the latest">↻ Sync</button> You are <span id="identity" style="font-weight:600;"></span></div>
     </div>
     <div class="tabs" id="tabs">
       <button data-page="capture" class="on">Capture</button>
@@ -756,9 +756,12 @@ async function fbAdd(name,data){ if(!fbReady)throw new Error("Firebase not confi
 async function fbUpdate(name,id,patch){ if(!fbReady)throw new Error("Firebase not configured"); await updateDoc(doc(db,name,id),patch); }
 async function fbDelete(name,id){ if(!fbReady)throw new Error("Firebase not configured"); await deleteDoc(doc(db,name,id)); }
 
+let subUnsubs=[];
 function subscribeAll(){
+  // Tear down any existing listeners before re-subscribing, so a manual "Sync now" can't stack duplicate listeners.
+  subUnsubs.forEach(u=>{try{u();}catch(e){}});subUnsubs=[];
   ["tasks","roadmap","agendas","areas","members","domains","phases","disciplines","agents","agentRuns"].forEach(k=>{
-    onSnapshot(col(k),snap=>{
+    subUnsubs.push(onSnapshot(col(k),snap=>{
       DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
@@ -773,8 +776,15 @@ function subscribeAll(){
       const seededDefault=applyDomainDefault()|applyCaptureCatsDefault();
       // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
       if(page!=="capture"||seededDefault){ const y=window.scrollY; render(); window.scrollTo(0,y); }
-    },err=>banner("Sync error: "+err.message,"err"));
+    },err=>banner("Sync error: "+err.message,"err")));
   });
+}
+// Manual "Sync now" (header button). Data already streams live via onSnapshot + auto re-render; this re-establishes
+// the listeners to recover a stalled connection (backgrounded tab / network blip) and force a fresh server read.
+function resyncNow(){
+  if(!fbReady){banner("Firebase isn’t configured — nothing to sync.","err");return;}
+  subscribeAll();   // teardown + re-subscribe; first snapshots re-render with the latest server data
+  banner("Synced — live data refreshed.","ok");
 }
 // Paint the (read-only) identity label from the bound identity. No longer a switcher.
 function refreshIdentity(){
@@ -4270,6 +4280,7 @@ function init(){
   try{localStorage.removeItem("gp_identity");}catch(e){}
   refreshIdentity();
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
+  {const sb=document.getElementById("syncBtn");if(sb)sb.onclick=resyncNow;}
   // Restore the last-visited page across refreshes (falls back to the default for unknown/blocked storage).
   try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","team"].includes(sp))page=sp;}catch(e){}
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
