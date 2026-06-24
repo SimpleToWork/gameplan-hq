@@ -229,6 +229,10 @@
   .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
   .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
   .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
+  .runprog{margin-top:8px;border:1px solid #D9775744;border-radius:8px;background:#D9775710;overflow:hidden;}
+  .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;}
+  .runprog-body{max-height:150px;overflow-y:auto;padding:5px 9px;display:flex;flex-direction:column;gap:2px;}
+  .runprog-l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .pop{border-top:1px dashed var(--line);padding-top:8px;display:none;flex-direction:column;gap:6px;}
   .pop.open{display:flex;}
   .opt{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
@@ -1333,6 +1337,19 @@ function taskCard(t){
     banner("Queued for the local runner — it'll start shortly.","ok");};
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
   acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,run,rmv);d.appendChild(acts);
+  // Live run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in
+  // flight. Lives via onSnapshot: each board write re-renders the card, so the panel updates in place.
+  if(t.runStatus==="running"||t.runStatus==="queued"){
+    const rp=document.createElement("div");rp.className="runprog";
+    const head=document.createElement("div");head.className="runprog-h";
+    head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":"🔴 Live — Claude is working…";
+    rp.appendChild(head);
+    const lines=Array.isArray(t.runProgress)?t.runProgress:[];
+    if(lines.length){const body=document.createElement("div");body.className="runprog-body";
+      lines.slice(-14).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
+      rp.appendChild(body);}
+    d.appendChild(rp);
+  }
   // assign pop
   const apop=document.createElement("div");apop.className="pop";
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
