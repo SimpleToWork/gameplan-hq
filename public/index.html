@@ -259,7 +259,13 @@
   /* roadmap table */
   .rmtable-wrap{overflow-x:auto;margin-top:6px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);}
   .rmtable{border-collapse:collapse;width:100%;font-size:13px;min-width:680px;}
-  .rmtable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;padding:9px 12px;border-bottom:1px solid var(--line);background:#f3f4f7;position:sticky;top:0;white-space:nowrap;}
+  .rmtable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:#c7ccd6;text-transform:uppercase;padding:9px 12px;border-bottom:1px solid #14171f;background:#1f2330;position:sticky;top:0;white-space:nowrap;}
+  /* in-header filter buttons re-tinted for the dark header (scoped so Tasks/Agents tables keep the light styling) */
+  .rmtable th .colfilter{color:#c7ccd6;border-color:rgba(255,255,255,.20);}
+  .rmtable th .colfilter:hover{color:#fff;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.34);}
+  .rmtable th .colfilter.on{color:#fff;background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.40);}
+  .rmtable th .colfilter .cf-dot{background:#aeb2ff;}
+  .rmtable th .col-resizer::after{background:rgba(255,255,255,.22);}
   .rmtable td{padding:9px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
   .rmtable tr:last-child td{border-bottom:none;}
   .rmtable tbody tr:hover{background:#f7f8fa;}
