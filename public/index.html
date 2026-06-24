@@ -1335,8 +1335,18 @@ function taskCard(t){
     const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
     setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null});
     banner("Queued for the local runner — it'll start shortly.","ok");};
+  // ✕ Reset — clear a stuck run. runStatus is just a field; if the runner dies (or its writeback errors)
+  // mid-run it never flips to done/error, so the task shows "running" forever. This resets the board state.
+  // NOTE: it does NOT kill a claude process genuinely still alive on the dev machine — stop that there.
+  const reset=runLive?document.createElement("button"):null;
+  if(reset){reset.className="rm";reset.textContent="✕ reset";
+    reset.title="Clear a stuck run state (use if it's been stuck on running/queued). Does not stop a process already running on the dev machine.";
+    reset.onclick=e=>{e.stopPropagation();
+      if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;
+      setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
+      banner("Run state reset.","ok");};}
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,run,rmv);d.appendChild(acts);
+  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
   // Live run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in
   // flight. Lives via onSnapshot: each board write re-renders the card, so the panel updates in place.
   if(t.runStatus==="running"||t.runStatus==="queued"){
