@@ -316,9 +316,6 @@
   .colfilter.on{color:var(--accent,#4646c8);background:rgba(70,70,200,.10);border-color:rgba(70,70,200,.40);}
   .colfilter.on::before{opacity:.9;}
   .colfilter .cf-caret{font-size:9px;opacity:.8;}
-  /* Tasks table: always-visible column-filter bar (sections collapse by default and hide the per-table headers) */
-  .tblfilterbar{flex-basis:100%;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding-top:6px;margin-top:2px;border-top:1px dashed var(--line,#e2e2ea);}
-  .tblfilterbar .tfb-lab{font-size:11px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;font-weight:600;}
   .colfilter .cf-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#4646c8);display:inline-block;margin-left:1px;}
   .colfilter-pop label.opt{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;padding:1px 0;}
   /* tasks chart (stacked status columns; one column per Group-by section) */
@@ -1993,23 +1990,8 @@ function renderTasks(m){
   trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
   if(anyFilter)trow.append(clearAll);
   if(taskLayout==="card")trow.append(collExp);  // per-card collapse only applies to the card layout (not table/chart)
-  // Always-visible column-filter bar for the Tasks table. Tasks group into collapsible sections (collapsed by default),
-  // each carrying its own table header — so the per-header filters are hidden until a section is expanded. This bar wraps
-  // to its own line in the sticky toolbar and drives the SAME filters (shared tableColFilters.tasks, same openColFilterPop).
-  if(_tableMode){
-    const F=tableColFilters.tasks,o=taskColOpts;
-    const bar=document.createElement("div");bar.className="tblfilterbar";
-    const blab=document.createElement("span");blab.className="tfb-lab";blab.textContent="Filter columns:";bar.appendChild(blab);
-    [["status","Status"],["priority","Priority"],["category","Category"],["who","Who"],["createdby","Created by"],["due","Target"],["rmarea","Roadmap"]].forEach(([field,label])=>{
-      const on=!!(F[field]&&F[field].size);
-      const b=document.createElement("button");b.type="button";b.className="colfilter"+(on?" on":"");
-      b.innerHTML=esc(label)+' <span class="cf-caret">▾</span>'+(on?' <span class="cf-dot"></span>':'');
-      b.title=on?(label+": "+[...F[field]].map(v=>v===""?"—":v).join(", ")):("Filter by "+label);
-      b.onclick=()=>openColFilterPop(b,label,o[field]||[],F,field,renderTasks);
-      bar.appendChild(b);
-    });
-    trow.appendChild(bar);
-  }
+  // (The always-visible "Filter columns" bar was removed; per-header column filters remain on each expanded section's
+  // table header, still driving the shared tableColFilters.tasks applied below.)
   // Third sticky bar: the expanded filter-option rows, so the selectable options stay in reach (not just their toggles)
   // while scrolling. z-4 tucks it under trow (z-5). When every group is collapsed the child rows are display:none, so it
   // has zero height and is invisible; its shadow then coincides with trow's. Its `top` is set after it's measured below.
