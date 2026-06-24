@@ -3577,7 +3577,7 @@ function renderTeam(m){
       const t=document.createElement("span");t.className="ctitle";t.style.flex="1";t.textContent=r.fullName;
       const chip=document.createElement("span");chip.className="chip";chip.textContent=r.private?"private":"public";
       const open=document.createElement("a");open.className="btn sm";open.textContent="Open ↗";open.href=r.url;open.target="_blank";open.rel="noopener";
-      // Two-way sync: auto-import every agents/*.md in this repo + push/pull each by last-write-wins.
+      // Two-way sync: auto-import every spec under the sync dir (.claude/agents/) + push/pull each by last-write-wins.
       const sync=document.createElement("button");sync.className="btn sm";sync.textContent="⇄ Sync agents";sync.title="Import new specs from "+SYNC_DIR+"/ and push/pull existing ones (newest wins)";
       sync.onclick=async()=>{
         sync.disabled=true;sync.innerHTML='<span class="spin"></span> Syncing';
@@ -3619,12 +3619,15 @@ const agentsSorted=()=>DB.agents.slice().sort((a,b)=>(b.updatedAt||b.createdAt||
 const agentUid=()=>{try{return crypto.randomUUID();}catch(e){return "ag-"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);}};
 // Folder paths the user has collapsed in the Agents directory tree (default = expanded; membership = collapsed).
 const agentFoldersCollapsed=new Set();
-// Repo-relative folder segments for an agent, derived from its repoPath (the spec file's location), with the
-// file name dropped. "" repoPath → null = "unfiled" (not yet linked to a repo file). This is what lets the
-// Agents tab mirror the repo's directory layout: e.g. "agents/connectors/stripe.md" → ["agents","connectors"].
+// Folder segments for an agent, derived from its repoPath (the spec file's location), with the file name
+// dropped. "" repoPath → null = "unfiled" (not yet linked to a repo file). Segments are shown *relative to*
+// the sync dir so the tree roots at the contents of .claude/agents/ rather than repeating ".claude › agents"
+// on every node. Files outside the sync dir (e.g. a legacy "agents/x.md") keep their full path so they stay
+// visible. e.g. ".claude/agents/connectors/stripe.md" → ["connectors"]; ".claude/agents/x.md" → [].
 function agentDirSegments(a){
-  const p=(a.repoPath||"").replace(/^\/+/,"").replace(/\/+$/,"");
+  let p=(a.repoPath||"").replace(/^\/+/,"").replace(/\/+$/,"");
   if(!p)return null;
+  if(p===SYNC_DIR||p.startsWith(SYNC_DIR+"/"))p=p.slice(SYNC_DIR.length).replace(/^\/+/,""); // make it relative to the sync dir
   const parts=p.split("/");parts.pop(); // drop the file name, keep the directories
   return parts.filter(Boolean);
 }
@@ -3670,7 +3673,7 @@ async function runAgent(payload){
 // Scans <repo>/agents/*.md: file with no local agent → import (create); both exist → newer of {git commit
 // time, local updatedAt} wins (pull or push); local agent in this repo whose file is missing → push (create).
 // Returns counts. Writes commits, so it's behind an explicit "Sync" button, not silent on load.
-const SYNC_DIR="agents"; // folder convention scanned for agent spec files
+const SYNC_DIR=".claude/agents"; // folder convention scanned for agent spec files (Claude Code's subagent location)
 async function syncRepoAgents(repoUrl){
   const norm=normRepo(repoUrl);
   const {files}=await githubSync({op:"listFiles",repoUrl,path:SYNC_DIR});
