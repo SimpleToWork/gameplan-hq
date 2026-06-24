@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Gameplan HQ — a shared team workspace. Every signed-in @merchantsbi.com user may read and
+// write all board data; everyone else (including unauthenticated access via the public client
+// API key) is denied. This enforces server-side exactly what the app gates client-side in
+// allowed(): Google sign-in restricted to the @merchantsbi.com domain.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // True for a verified Google account on the company domain.
+    function isTeam() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower().matches('^[^@]+@merchantsbi[.]com$');
+    }
+
+    // All app collections (tasks, roadmap, agendas, areas, members, domains, phases,
+    // disciplines, agents, agentRuns) are team-shared. read covers get + list (onSnapshot);
+    // write covers create + update + delete.
+    match /{collection}/{docId} {
+      allow read, write: if isTeam();
+    }
+
+    // Anything not matched above is denied by default (no fall-through allow).
+  }
+}
