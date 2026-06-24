@@ -3657,13 +3657,20 @@ const agentsSorted=()=>DB.agents.slice().sort((a,b)=>(b.updatedAt||b.createdAt||
 const agentUid=()=>{try{return crypto.randomUUID();}catch(e){return "ag-"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);}};
 // Folder paths the user has collapsed in the Agents directory tree (default = expanded; membership = collapsed).
 const agentDiagramCollapsed=new Set(); // collapsed nodes in the Agents directory tree (default expanded; membership = collapsed)
+// Staged folder moves not yet written to the repo: agent doc id → {folder, newPath}. Session-only (lost on
+// refresh). The Agents header's "Commit moves" button writes them all to git; re-staging an agent back to its
+// committed folder clears its entry (no delta). Kept separate from a.repoPath, which stays at the committed path.
+const agentPendingMoves={};
+// The path an agent should appear at in the tree: its staged destination if a move is pending, else its
+// committed repoPath. Drives the directory tree and the move modal's prefill/collision checks.
+function agentEffectivePath(a){const p=agentPendingMoves[a.id];return p?p.newPath:(a.repoPath||"");}
 // Folder segments for an agent, derived from its repoPath (the spec file's location), with the file name
 // dropped. "" repoPath → null = "unfiled" (not yet linked to a repo file). Segments are shown *relative to*
 // the sync dir so the tree roots at the contents of .claude/agents/ rather than repeating ".claude › agents"
 // on every node. Files outside the sync dir (e.g. a legacy "agents/x.md") keep their full path so they stay
 // visible. e.g. ".claude/agents/connectors/stripe.md" → ["connectors"]; ".claude/agents/x.md" → [].
 function agentDirSegments(a){
-  let p=(a.repoPath||"").replace(/^\/+/,"").replace(/\/+$/,"");
+  let p=agentEffectivePath(a).replace(/^\/+/,"").replace(/\/+$/,""); // effective = staged dest if a move is pending
   if(!p)return null;
   if(p===SYNC_DIR||p.startsWith(SYNC_DIR+"/"))p=p.slice(SYNC_DIR.length).replace(/^\/+/,""); // make it relative to the sync dir
   const parts=p.split("/");parts.pop(); // drop the file name, keep the directories
@@ -3755,7 +3762,11 @@ async function syncRepoAgents(repoUrl){
 // path; bare/relative entries are taken as living under agents/ (SYNC_DIR). Persists the move to the repo as
 // write-new-then-delete-old — the new file is confirmed written before the old one is removed, so an interruption
 // leaves a recoverable duplicate rather than a lost agent. Returns {ok,msg}; never deletes on a failed write.
-async function moveAgent(a,destFolderRaw,opts){
+// Resolve + validate a destination WITHOUT touching the repo. Returns {ok:false,msg} on rejection, else
+// {ok:true,folder,newPath,filename} with the resolved absolute repo folder + full path. Validation is local
+// only (format, no-op, collisions vs *effective* paths) so it can run at stage time; the repo-side clobber
+// guard stays in moveAgent (commit time). Collisions use effective paths so two staged moves can't share a path.
+function resolveMove(a,destFolderRaw,opts){
   opts=opts||{};
   if(!a.repoUrl||!a.repoPath)return{ok:false,msg:"Link this agent to a repo and path first (Edit)."};
   let folder=String(destFolderRaw||"").trim().replace(/\\/g,"/").replace(/^\/+|\/+$/g,"").replace(/\/+/g,"/");
@@ -3766,10 +3777,42 @@ async function moveAgent(a,destFolderRaw,opts){
   if(!folder||segs.some(s=>!s||s==="."||s===".."))return{ok:false,msg:"Invalid destination folder."};
   const filename=a.repoPath.split("/").pop();
   const newPath=folder+"/"+filename;
+  if(DB.agents.some(x=>x.id!==a.id&&normRepo(x.repoUrl)===normRepo(a.repoUrl)&&agentEffectivePath(x)===newPath))
+    return{ok:false,msg:"Another agent already lives at (or is staged for) that path."};
+  return{ok:true,folder,newPath,filename};
+}
+// Stage a folder move locally (no repo write) and re-render. Moving an agent back to its committed folder
+// clears its pending entry. Commit the whole batch via the Agents header's "Commit moves" button.
+function stageMove(a,destFolderRaw,opts){
+  const r=resolveMove(a,destFolderRaw,opts);
+  if(!r.ok)return r;
+  if(r.newPath===(a.repoPath||"")){ delete agentPendingMoves[a.id]; renderAgents(); return{ok:true,msg:"Back in its committed folder — move unstaged."}; }
+  agentPendingMoves[a.id]={folder:r.folder,newPath:r.newPath};
+  renderAgents();
+  return{ok:true,msg:"Staged move to "+r.folder+" — click “Commit moves” to write it to the repo."};
+}
+// Commit every staged move to the repo (write the new file + remove the old, per move). Successful moves are
+// dropped from the pending set; failures stay staged and are reported.
+async function commitPendingMoves(btn){
+  const ids=Object.keys(agentPendingMoves);
+  if(!ids.length)return;
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span> Committing';}
+  let ok=0,fail=0,lastErr="";
+  for(const id of ids){
+    const a=DB.agents.find(x=>x.id===id);
+    if(!a){delete agentPendingMoves[id];continue;} // agent gone — drop the stale staging
+    try{const r=await moveAgent(a,agentPendingMoves[id].folder,{absolute:true});
+      if(r.ok){delete agentPendingMoves[id];ok++;}else{fail++;lastErr=r.msg;}
+    }catch(e){fail++;lastErr=e.message;}
+  }
+  banner(ok+" move"+(ok!==1?"s":"")+" committed"+(fail?" · "+fail+" failed: "+lastErr:"."),fail?"err":"ok");
+  renderAgents();
+}
+async function moveAgent(a,destFolderRaw,opts){
+  const r=resolveMove(a,destFolderRaw,opts);
+  if(!r.ok)return r;
+  const {folder,newPath,filename}=r;
   if(newPath===a.repoPath)return{ok:false,msg:"Already in that folder."};
-  // Local uniqueness: don't collide with another agent already at the target path in this repo.
-  if(DB.agents.some(x=>x.id!==a.id&&normRepo(x.repoUrl)===normRepo(a.repoUrl)&&x.repoPath===newPath))
-    return{ok:false,msg:"Another agent already lives at that path."};
   const aid=a.agentId||agentUid();
   // Guard against clobbering a *different* agent's file that already exists at the target path in the repo.
   try{const ex=await githubSync({op:"read",repoUrl:a.repoUrl,path:newPath});
@@ -3951,7 +3994,8 @@ function agentRunModal(a){
 function agentMoveModal(a){
   openModal("Move agent: "+(a.name||"agent"),(card,close)=>{
     const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:8px;";
-    wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">Current path: '+esc(a.repoPath||"(unfiled)")+'</div>');
+    const pend=agentPendingMoves[a.id];
+    wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">Current path: '+esc(a.repoPath||"(unfiled)")+(pend?' · staged → '+esc(pend.newPath):'')+'</div>');
     const lab=document.createElement("div");lab.className="cmeta";lab.style.fontWeight="600";lab.textContent="Destination folder (under "+SYNC_DIR+"/)";wrap.appendChild(lab);
     const inp=document.createElement("input");inp.className="ctrl";inp.style.width="100%";inp.placeholder=SYNC_DIR+"/…";
     const dl=document.createElement("datalist");dl.id="agentFolderList";
@@ -3960,17 +4004,15 @@ function agentMoveModal(a){
     inp.setAttribute("list","agentFolderList");
     const curSegs=agentDirSegments(a);inp.value=curSegs?curSegs.join("/"):SYNC_DIR;
     wrap.append(inp,dl);
-    wrap.insertAdjacentHTML("beforeend",'<div class="hint">The file keeps its name. The move is committed to the repo (new file written, then the old one removed).</div>');
+    wrap.insertAdjacentHTML("beforeend",'<div class="hint">The file keeps its name. The move is <b>staged locally</b> — click “Commit moves” in the Agents header to write it to the repo (new file written, then the old one removed).</div>');
     const row=document.createElement("div");row.className="row";row.style.marginTop="6px";
-    const go=document.createElement("button");go.className="btn primary";go.textContent="Move";
+    const go=document.createElement("button");go.className="btn primary";go.textContent="Stage move";
     const msg=document.createElement("span");msg.className="hint";msg.style.marginLeft="8px";
     row.append(go,msg);wrap.appendChild(row);
-    go.onclick=async()=>{
-      go.disabled=true;go.innerHTML='<span class="spin"></span> Moving';msg.textContent="";
-      try{const r=await moveAgent(a,inp.value);
-        if(r.ok){banner(r.msg,"ok");close();}
-        else{msg.textContent=r.msg;go.disabled=false;go.textContent="Move";}
-      }catch(e){msg.textContent=e.message;go.disabled=false;go.textContent="Move";}
+    go.onclick=()=>{
+      const r=stageMove(a,inp.value);
+      if(r.ok){banner(r.msg,"ok");close();}
+      else msg.textContent=r.msg;
     };
     card.appendChild(wrap);
   });
@@ -4106,7 +4148,7 @@ function buildAgentHierarchy(){
     if(!root.children.has(repoKey))root.children.set(repoKey,{label:a.repoUrl?agentRepoLabel(a.repoUrl):"Unfiled",children:new Map(),agents:[],repoUrl:a.repoUrl||""});
     let node=root.children.get(repoKey);
     // Full repo path (NOT trimmed to the sync dir) so the tree mirrors exactly where the agent lives in the repo.
-    const full=(a.repoPath||"").replace(/^\/+/,"").replace(/\/+$/,"");
+    const full=agentEffectivePath(a).replace(/^\/+/,"").replace(/\/+$/,""); // staged dest if a move is pending
     const dirs=full?full.split("/").slice(0,-1):[]; // drop the file name, keep every directory from the repo root
     let acc="";
     dirs.forEach(s=>{ acc=acc?acc+"/"+s:s;
@@ -4133,11 +4175,12 @@ function renderAgentsDiagram(m){
   };
   const renderNode=(node,key,icon,parentEl)=>{
     if(node.agent){
-      const ag=node.agent;
+      const ag=node.agent;const pend=agentPendingMoves[ag.id];
       const row=document.createElement("div");row.className="trow tagent";
       row.innerHTML='<span class="tchev">•</span>'+agentTypeDot(ag.type)+'<span>'+esc(node.label)+'</span>'+
-        (ag.type?'<span class="chip" style="margin-left:2px;">'+esc(ag.type)+'</span>':'');
-      row.title=(ag.name||"Untitled")+(ag.repoPath?" — "+ag.repoPath:"")+(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":"");
+        (ag.type?'<span class="chip" style="margin-left:2px;">'+esc(ag.type)+'</span>':'')+
+        (pend?'<span class="chip" style="margin-left:4px;background:var(--accent-soft,#e8e8fb);color:var(--accent,#4646c8);">moved · pending</span>':'');
+      row.title=(ag.name||"Untitled")+(ag.repoPath?" — "+ag.repoPath:"")+(pend?"  (staged move — not yet committed)":(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":""));
       row.onclick=()=>agentMenuModal(ag);
       // Drag to move: only filed agents (have a repo + path) can be relocated.
       if(ag.repoUrl&&ag.repoPath){
@@ -4156,12 +4199,11 @@ function renderAgentsDiagram(m){
     if(node.fullPath!==undefined){
       row.addEventListener("dragover",e=>{e.preventDefault();e.dataTransfer.dropEffect="move";row.classList.add("tdrop");});
       row.addEventListener("dragleave",()=>row.classList.remove("tdrop"));
-      row.addEventListener("drop",async e=>{
+      row.addEventListener("drop",e=>{
         e.preventDefault();row.classList.remove("tdrop");
         const id=e.dataTransfer.getData("text/agent-id");const ag=DB.agents.find(x=>x.id===id);if(!ag)return;
         if(normRepo(ag.repoUrl)!==normRepo(node.repoUrl)){banner("Drag-move works within one repo. Use the agent menu’s “Move” for other moves.","err");return;}
-        banner("Moving "+(ag.name||"agent")+"…","ok");
-        try{const r=await moveAgent(ag,node.fullPath,{absolute:true});banner(r.msg,r.ok?"ok":"err");}catch(e2){banner(e2.message,"err");}
+        const r=stageMove(ag,node.fullPath,{absolute:true});banner(r.msg,r.ok?"ok":"err");
       });
     }
     parentEl.appendChild(row);
@@ -4174,15 +4216,26 @@ function renderAgentsDiagram(m){
   Array.from(root.children.entries()).sort((a,b)=>(a[1].label||"").toLowerCase().localeCompare((b[1].label||"").toLowerCase()))
     .forEach(([rk,node])=>renderNode(node,"repo:"+rk,node.label==="Unfiled"?"🗂":"📦",wrap));
   m.appendChild(wrap);
-  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Full repo directory: repo → folders → agent. Click a folder to collapse it, click an agent to open its menu, or drag an agent onto a folder to move it (committed to the repo).</p>');
+  m.insertAdjacentHTML("beforeend",'<p class="hint" style="margin-top:8px;">Full repo directory: repo → folders → agent. Click a folder to collapse it, click an agent to open its menu, or drag an agent onto a folder to <b>stage</b> a move — then click “Commit moves” to write staged moves to the repo. Staged moves are cleared if you refresh before committing.</p>');
 }
 function renderAgents(m){
   m=m||document.getElementById("main");m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agents</div><p class="pagesub">AI agents authored with Claude and saved to the board. Organized into folders mirroring each repo’s layout — an agent’s folder follows its repo path, so changes sync back to the repo.</p>');
   const head=document.createElement("div");head.className="areahead";
   head.innerHTML='<span class="nm">Your agents</span><span class="cat-count">'+DB.agents.length+'</span>';
-  const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent="+ New agent";add.onclick=()=>agentModal(null);
-  head.appendChild(add);m.appendChild(head);
+  const add=document.createElement("button");add.className="btn sm";add.textContent="+ New agent";add.onclick=()=>agentModal(null);
+  // "Commit moves (N)" appears only when there are staged folder moves (a delta vs the repo); it writes them all
+  // to git. "Discard" drops the staging without any repo change. When there's no delta, only "+ New agent" shows.
+  const pendN=Object.keys(agentPendingMoves).length;
+  if(pendN){
+    const commit=document.createElement("button");commit.className="btn sm primary";commit.style.marginLeft="auto";commit.textContent="Commit moves ("+pendN+")";commit.title="Write "+pendN+" staged folder move"+(pendN!==1?"s":"")+" to the repo";commit.onclick=()=>commitPendingMoves(commit);
+    const disc=document.createElement("button");disc.className="btn sm";disc.style.marginLeft="6px";disc.textContent="Discard";disc.title="Discard staged moves (no repo changes)";disc.onclick=()=>{Object.keys(agentPendingMoves).forEach(k=>delete agentPendingMoves[k]);renderAgents();};
+    add.style.marginLeft="6px";
+    head.append(commit,disc,add);
+  }else{
+    add.style.marginLeft="auto";head.appendChild(add);
+  }
+  m.appendChild(head);
   if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
   renderAgentsDiagram(m);
 }
