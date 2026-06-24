@@ -372,6 +372,23 @@
   body.col-resizing{cursor:col-resize;}
   body.col-resizing *{cursor:col-resize!important;-webkit-user-select:none;user-select:none;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+  /* Rendered-markdown view (agent .md files) */
+  .mdv{font-size:13.5px;line-height:1.6;color:var(--ink);word-wrap:break-word;}
+  .mdv h1{font-size:20px;margin:2px 0 10px;font-weight:700;}
+  .mdv h2{font-size:15px;margin:18px 0 8px;font-weight:700;border-bottom:1px solid var(--line);padding-bottom:4px;}
+  .mdv h3{font-size:13.5px;margin:14px 0 6px;font-weight:700;}
+  .mdv p{margin:8px 0;}
+  .mdv ul,.mdv ol{margin:8px 0;padding-left:22px;}
+  .mdv li{margin:3px 0;}
+  .mdv a{color:var(--accent,#4646c8);text-decoration:underline;}
+  .mdv strong{font-weight:700;}
+  .mdv code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#f1f1f4;padding:1.5px 5px;border-radius:5px;}
+  .mdv pre{background:#fafafb;border:1px solid var(--line);border-radius:9px;padding:11px 13px;overflow-x:auto;margin:10px 0;}
+  .mdv pre code{background:none;padding:0;font-size:12px;line-height:1.5;}
+  .mdv blockquote{margin:8px 0;padding:2px 12px;border-left:3px solid var(--line);color:var(--muted);}
+  .mdv hr{border:none;border-top:1px solid var(--line);margin:14px 0;}
+  .mdv .mdv-empty{color:var(--muted);font-style:italic;}
+</style>
 </style>
 </head>
 <body>
@@ -3916,11 +3933,82 @@ function agentMoveModal(a){
     card.appendChild(wrap);
   });
 }
+// ---- Markdown rendering (agent .md view) --------------------------------------------------------------------
+// Minimal, XSS-safe Markdown → HTML. Every line is HTML-escaped (reusing esc()) BEFORE any formatting runs, so
+// raw HTML/<script> in a spec is rendered inert; only the small tag set below is ever emitted. Link hrefs are
+// scheme-checked (mdSafeUrl) so javascript:/data: URLs degrade to plain text.
+function mdSafeUrl(u){
+  const s=(u||"").replace(/&amp;/g,"&").trim();
+  if(/^(https?:\/\/|mailto:|\/|\.\/|\.\.\/|#)/i.test(s))return true; // explicitly allowed
+  return !/^[a-z][a-z0-9+.\-]*:/i.test(s);                           // any bare path with no scheme is safe
+}
+// Inline formatting over an already-escaped string: code spans, bold, italic, links.
+function mdInline(s){
+  const codes=[];
+  s=s.replace(/`([^`]+)`/g,(m,c)=>{codes.push(c);return " "+(codes.length-1)+" ";}); // protect code spans
+  s=s.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  s=s.replace(/\b_([^_]+)_\b/g,"<em>$1</em>");           // _emphasis_ but not snake_case
+  s=s.replace(/(^|[^*])\*([^*]+)\*/g,"$1<em>$2</em>");
+  s=s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,(m,t,u)=>mdSafeUrl(u)?'<a href="'+u+'" target="_blank" rel="noopener">'+t+'</a>':t);
+  return s.replace(/ (\d+) /g,(m,i)=>"<code>"+codes[+i]+"</code>");
+}
+function mdToHtml(src){
+  const lines=String(src||"").replace(/\r\n?/g,"\n").split("\n");
+  const out=[];let i=0;const para=[];let list=null;
+  const flushPara=()=>{if(para.length){out.push("<p>"+para.map(l=>mdInline(esc(l))).join("<br>")+"</p>");para.length=0;}};
+  const flushList=()=>{if(list){out.push("<"+list.type+">"+list.items.map(it=>"<li>"+mdInline(esc(it))+"</li>").join("")+"</"+list.type+">");list=null;}};
+  while(i<lines.length){
+    const line=lines[i];
+    if(/^\s*```/.test(line)){flushPara();flushList();const buf=[];i++;while(i<lines.length&&!/^\s*```/.test(lines[i])){buf.push(lines[i]);i++;}i++;out.push("<pre><code>"+esc(buf.join("\n"))+"</code></pre>");continue;}
+    if(/^\s*$/.test(line)){flushPara();flushList();i++;continue;}
+    const h=line.match(/^(#{1,6})\s+(.*)$/);
+    if(h){flushPara();flushList();const lvl=Math.min(h[1].length,3);out.push("<h"+lvl+">"+mdInline(esc(h[2].trim()))+"</h"+lvl+">");i++;continue;}
+    if(/^\s*(---|\*\*\*|___)\s*$/.test(line)){flushPara();flushList();out.push("<hr>");i++;continue;}
+    const bq=line.match(/^\s*>\s?(.*)$/);
+    if(bq){flushPara();flushList();const buf=[bq[1]];i++;while(i<lines.length){const mm=lines[i].match(/^\s*>\s?(.*)$/);if(!mm)break;buf.push(mm[1]);i++;}out.push("<blockquote>"+buf.map(l=>mdInline(esc(l))).join("<br>")+"</blockquote>");continue;}
+    const ul=line.match(/^\s*[-*+]\s+(.*)$/),ol=line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if(ul||ol){flushPara();const type=ul?"ul":"ol";if(!list||list.type!==type){flushList();list={type,items:[]};}list.items.push(ul?ul[1]:ol[1]);i++;continue;}
+    flushList();para.push(line);i++;
+  }
+  flushPara();flushList();
+  return out.join("\n")||'<p class="mdv-empty">This file is empty.</p>';
+}
+// Reconstruct the agent's Markdown body (mirrors api/github.js serializeSpec) from the in-app spec, skipping
+// empty sections so the rendered view stays clean.
+function agentSpecToMarkdown(a){
+  const parts=["# "+(a.name||"Untitled agent")];
+  if(a.summary&&a.summary.trim())parts.push("",a.summary);
+  const sec=(h,v)=>{if(v&&String(v).trim())parts.push("","## "+h,"",String(v));};
+  sec("System prompt",a.systemPrompt);
+  sec("Inputs",a.inputs);
+  sec("Outputs",a.outputs);
+  if((a.tools||[]).length)parts.push("","## Tools","",a.tools.map(t=>"- "+t).join("\n"));
+  sec("Notes",a.notes);
+  return parts.join("\n");
+}
+// Read-only view of an agent's spec rendered as formatted Markdown (the same body committed to the repo .md).
+// Frontmatter is shown as a compact metadata header rather than raw YAML. Sourced from the in-app spec so it
+// matches what's committed without a network call — use Edit → "Pull from repo" to refresh from git.
+function agentViewModal(a){
+  openModal(a.name||"Agent",(card,close)=>{
+    card.style.maxWidth="680px";
+    const meta=[a.status||"draft",a.model,a.createdBy&&("by "+a.createdBy),a.lastSyncedAt&&("synced "+a.lastSyncedAt)].filter(Boolean).map(esc).join(" · ");
+    const body=document.createElement("div");
+    body.innerHTML='<div class="cmeta" style="margin:-4px 0 12px;">'+meta+(a.repoPath?' · <span style="font-family:ui-monospace,Menlo,monospace;">'+esc(a.repoPath)+'</span>':'')+'</div>'+
+      '<div class="mdv">'+mdToHtml(agentSpecToMarkdown(a))+'</div>';
+    card.appendChild(body);
+    const foot=document.createElement("div");foot.className="row";foot.style.marginTop="14px";
+    const edit=document.createElement("button");edit.className="btn sm";edit.textContent="Edit / refine";edit.onclick=()=>{close();agentModal(a);};foot.appendChild(edit);
+    if(a.repoUrl){const link=document.createElement("a");link.className="btn sm";link.textContent="Open repo ↗";link.href=a.repoUrl;link.target="_blank";link.rel="noopener";foot.appendChild(link);}
+    card.appendChild(foot);
+  });
+}
 // Build one agent card (extracted so both the flat list and the directory tree render identical cards).
 function agentCard(a){
   const card=document.createElement("div");card.className="card";
   const ch=document.createElement("div");ch.style.cssText="display:flex;align-items:center;gap:9px;";
-  ch.innerHTML='<div class="ctitle" style="flex:1;">'+esc(a.name||"Untitled")+'</div>';
+  ch.innerHTML='<div class="ctitle" style="flex:1;cursor:pointer;" title="View formatted">'+esc(a.name||"Untitled")+'</div>';
+  ch.querySelector(".ctitle").onclick=()=>agentViewModal(a);
   const tc=document.createElement("span");tc.className="chip";tc.textContent=a.type||"other";ch.appendChild(tc);
   card.appendChild(ch);
   card.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(a.status||"draft")+(a.model?' · '+esc(a.model):'')+(a.createdBy?' · by '+esc(a.createdBy):'')+(a.lastSyncedAt?' · synced '+esc(a.lastSyncedAt):'')+'</div>');
@@ -3929,6 +4017,7 @@ function agentCard(a){
   const nRuns=DB.agentRuns.filter(r=>r.agentId===a.id).length;
   if(nRuns)card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:4px;">'+nRuns+' run'+(nRuns!==1?'s':'')+'</div>');
   const foot=document.createElement("div");foot.className="row";foot.style.marginTop="8px";
+  const view=document.createElement("button");view.className="btn sm";view.textContent="View";view.title="Read the spec as formatted Markdown";view.onclick=()=>agentViewModal(a);foot.appendChild(view);
   const run=document.createElement("button");run.className="btn sm primary";run.textContent="▶ Run";run.onclick=()=>agentRunModal(a);foot.appendChild(run);
   const edit=document.createElement("button");edit.className="btn sm";edit.textContent="Edit / refine";edit.onclick=()=>agentModal(a);foot.appendChild(edit);
   if(a.repoUrl&&a.repoPath){const mv=document.createElement("button");mv.className="btn sm";mv.textContent="Move";mv.title="Move to another folder (persists to the repo)";mv.onclick=()=>agentMoveModal(a);foot.appendChild(mv);}
