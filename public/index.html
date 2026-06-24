@@ -1886,8 +1886,43 @@ function goToRoadmapItem(r){
   rmExpanded.add("area:"+r.area);
   setPage("roadmap");
 }
+// Persist the Tasks-tab filter/view state across refreshes (the active tab + layout are saved separately via
+// gp_page / gp_taskLayout). Saved on every renderTasks() — every filter/group/sort change re-renders, so this
+// captures them all without instrumenting each control. Sets become arrays; null = "no filter".
+function saveTaskState(){
+  try{
+    localStorage.setItem("gp_taskState",JSON.stringify({
+      view:taskView,time:taskTime,group:taskGroup,sort:taskSort,dir:taskSortDir,search:taskSearch,
+      person:taskPerson?[...taskPerson]:null,category:taskCategory?[...taskCategory]:null,stage:taskStage?[...taskStage]:null,
+      roadmap:taskRoadmap,secFilter:taskSecSortFilter,secExpanded:[...taskSecExpanded],
+      colFilters:Object.fromEntries(Object.entries(tableColFilters.tasks).map(([k,set])=>[k,[...set]]))
+    }));
+  }catch(e){}
+}
+// Restore the above on load (called from init before the auth flow). Sets taskCatDefaulted so the profile/domain
+// Category default can't override a restored filter. No-op (defaults stand) when nothing was saved.
+function restoreTaskState(){
+  try{
+    const s=JSON.parse(localStorage.getItem("gp_taskState")||"null");if(!s||typeof s!=="object")return;
+    if(typeof s.view==="string")taskView=s.view;
+    if(typeof s.time==="string")taskTime=s.time;
+    if(typeof s.group==="string")taskGroup=s.group;
+    if(typeof s.sort==="string")taskSort=s.sort;
+    if(s.dir==="asc"||s.dir==="desc")taskSortDir=s.dir;
+    if(typeof s.search==="string")taskSearch=s.search;
+    taskPerson=Array.isArray(s.person)&&s.person.length?new Set(s.person):null;
+    taskCategory=Array.isArray(s.category)&&s.category.length?new Set(s.category):null;
+    taskStage=Array.isArray(s.stage)&&s.stage.length?new Set(s.stage):null;
+    taskRoadmap=(s.roadmap&&typeof s.roadmap==="object")?s.roadmap:null;
+    taskSecSortFilter=(s.secFilter&&typeof s.secFilter==="object")?s.secFilter:{};
+    taskSecExpanded=new Set(Array.isArray(s.secExpanded)?s.secExpanded:[]);
+    if(s.colFilters&&typeof s.colFilters==="object")tableColFilters.tasks=Object.fromEntries(Object.entries(s.colFilters).map(([k,a])=>[k,new Set(Array.isArray(a)?a:[])]));
+    taskCatDefaulted=true; // a persisted state exists — honor it; don't re-seed the profile/domain Category default
+  }catch(e){}
+}
 function renderTasks(m){
   m=m||document.getElementById("main");
+  saveTaskState();   // persist current filter/view/sort/column-filter state (every filter change re-renders)
   if(!m.__taskBoardClickBound){m.__taskBoardClickBound=true;m.addEventListener("click",onTaskBoardClick,true);} // delegated select/clear, capture phase, bound once (#main persists)
   // Was the search box focused before we tear down the DOM? Capture it (and the caret) so we can restore after.
   const _se=document.getElementById("taskSearch");const _refocusSearch=!!(_se&&document.activeElement===_se);const _searchCaret=_refocusSearch?(_se.selectionStart??_se.value.length):0;
@@ -4383,6 +4418,7 @@ function init(){
   {const sb=document.getElementById("syncBtn");if(sb)sb.onclick=resyncNow;}
   // Restore the last-visited page across refreshes (falls back to the default for unknown/blocked storage).
   try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","team"].includes(sp))page=sp;}catch(e){}
+  restoreTaskState(); // restore the Tasks-tab filters/view/sort/column-filters the user last had
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
 
   if(!fbReady){
