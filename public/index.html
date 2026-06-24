@@ -295,19 +295,6 @@
   .tasktable th .colfilter.on{color:#fff;background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.40);}
   .tasktable th .colfilter .cf-dot{background:#aeb2ff;}
   .tasktable th .col-resizer::after{background:rgba(255,255,255,.22);}
-  /* Consolidated filter icon, pinned to the right of the table header (opens openTableFilterPanel). The shell wraps the
-     scrollable table so the icon stays at the visible top-right corner and never scrolls off with horizontal table scroll. */
-  .tasktable-shell{position:relative;}
-  .tt-filter-fab{position:absolute;top:6px;right:9px;z-index:6;display:inline-flex;align-items:center;gap:5px;background:#2a2f3e;color:#c7ccd6;border:1px solid rgba(255,255,255,.20);border-radius:7px;padding:4px 7px;line-height:1;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.28);transition:background .12s,border-color .12s,color .12s;}
-  .tt-filter-fab:hover{color:#fff;background:#343a4d;border-color:rgba(255,255,255,.36);}
-  .tt-filter-fab.on{color:#fff;background:#3a3f73;border-color:#aeb2ff;}
-  .tt-filter-fab .ff-dot{width:6px;height:6px;border-radius:50%;background:#aeb2ff;display:inline-block;}
-  /* Rows inside the filter panel popup — one per filterable column. */
-  .colfilter-pop .tfp-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;color:var(--ink);background:none;border:1px solid transparent;border-radius:7px;padding:5px 8px;cursor:pointer;}
-  .colfilter-pop .tfp-row:hover{background:rgba(70,70,200,.07);border-color:rgba(70,70,200,.18);}
-  .colfilter-pop .tfp-row.on{color:var(--accent,#4646c8);font-weight:600;}
-  .colfilter-pop .tfp-row .tfp-count{background:var(--accent,#4646c8);color:#fff;font-size:11px;font-weight:600;border-radius:9px;padding:0 6px;min-width:18px;text-align:center;}
-  .colfilter-pop .tfp-row .cf-caret{opacity:.5;font-size:10px;}
   .tasktable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
   .tasktable tr:last-child td{border-bottom:none;}
   .tasktable tbody tr{cursor:pointer;}
@@ -334,12 +321,12 @@
   .tasktable tr.tt-sep:hover td{background:var(--canvas);}
   /* Column-header value-picker filter (Tasks / Roadmap / Agendas tables) */
   .colfilter{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;background:none;border:1px solid var(--line,#e2e2ea);border-radius:6px;padding:2px 7px;margin:-2px 0;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;transition:background .12s,border-color .12s,color .12s;}
-  .colfilter::before{content:"\02261";font-size:10px;opacity:.55;}
   .colfilter:hover{color:var(--accent,#4646c8);background:rgba(70,70,200,.07);border-color:rgba(70,70,200,.30);}
-  .colfilter:hover::before{opacity:.85;}
   .colfilter.on{color:var(--accent,#4646c8);background:rgba(70,70,200,.10);border-color:rgba(70,70,200,.40);}
-  .colfilter.on::before{opacity:.9;}
-  .colfilter .cf-caret{font-size:9px;opacity:.8;}
+  /* funnel icon sits to the right of each column's label — the per-column filter affordance */
+  .colfilter .cf-funnel{width:11px;height:11px;flex:none;opacity:.6;transition:opacity .12s;}
+  .colfilter:hover .cf-funnel{opacity:.9;}
+  .colfilter.on .cf-funnel{opacity:1;}
   .colfilter .cf-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#4646c8);display:inline-block;margin-left:1px;}
   .colfilter-pop label.opt{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;padding:1px 0;}
   /* tasks chart (stacked status columns; one column per Group-by section) */
@@ -1543,7 +1530,7 @@ function colFilterTh(label,field,options,filters,reRender){
   const th=document.createElement("th");
   const on=!!(filters[field]&&filters[field].size);
   const btn=document.createElement("button");btn.type="button";btn.className="colfilter"+(on?" on":"");
-  btn.innerHTML=esc(label)+' <span class="cf-caret">▾</span>'+(on?'<span class="cf-dot"></span>':'');
+  btn.innerHTML=esc(label)+' <svg class="cf-funnel" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z" fill="currentColor"/></svg>'+(on?'<span class="cf-dot"></span>':'');
   btn.title=on?(label+": "+[...filters[field]].map(v=>v===""?"—":v).join(", ")):("Filter by "+label);
   btn.onclick=()=>openColFilterPop(btn,label,options,filters,field,reRender);
   th.appendChild(btn);return th;
@@ -1572,30 +1559,6 @@ function openColFilterPop(anchor,label,options,filters,field,reRender){
   const clr=document.createElement("button");clr.className="btn sm";clr.textContent="Clear";
   clr.onclick=()=>{delete filters[field];pop.remove();reRender();};
   row.append(apply,clr);pop.appendChild(row);place();
-}
-// Consolidated "filter panel" opened from the funnel icon on the right of the table header. Lists every filterable
-// column; picking one opens that column's existing value-picker (openColFilterPop, anchored to the funnel so it places
-// correctly after this panel closes). Shares the same tableColFilters.tasks state as the per-header filters — this is
-// just one place to reach them all, plus a Clear-all.
-const TASK_FILTER_COLS=[["status","Status"],["priority","Priority"],["category","Category"],["who","Who"],["createdby","Created by"],["due","Target"],["rmarea","Roadmap"]];
-function openTableFilterPanel(anchor){
-  const {pop,place}=floatTaskPop(anchor);pop.classList.add("colfilter-pop");
-  const F=tableColFilters.tasks;
-  const h=document.createElement("div");h.className="cmeta";h.style.cssText="font-weight:600;margin-bottom:6px;";h.textContent="Filter columns";pop.appendChild(h);
-  TASK_FILTER_COLS.forEach(([field,label])=>{
-    const on=!!(F[field]&&F[field].size);
-    const b=document.createElement("button");b.type="button";b.className="tfp-row"+(on?" on":"");
-    b.innerHTML='<span>'+esc(label)+'</span>'+(on?'<span class="tfp-count">'+F[field].size+'</span>':'<span class="cf-caret">▾</span>');
-    b.title=on?(label+": "+[...F[field]].map(v=>v===""?"—":v).join(", ")):("Filter by "+label);
-    b.onclick=()=>openColFilterPop(anchor,label,(taskColOpts&&taskColOpts[field])||[],F,field,renderTasks);
-    pop.appendChild(b);
-  });
-  if(Object.keys(F).length){
-    const clr=document.createElement("button");clr.className="btn sm";clr.style.cssText="margin-top:8px;";clr.textContent="Clear all column filters";
-    clr.onclick=()=>{tableColFilters.tasks={};pop.remove();renderTasks();};
-    pop.appendChild(clr);
-  }
-  place();
 }
 // Value accessors per table (key → reader). Multi-value readers return an array (assignees/attendees); "" = none/unassigned.
 const TASK_COL_ACC={
@@ -1681,15 +1644,7 @@ function taskTable(items,secLabel){
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
   makeColumnsResizable(tbl,"tasks");
-  // Filter icon, pinned to the right of the header row. Opens the consolidated filter panel; an accent dot marks when
-  // any column filter is active. Lives in a relative shell (not the scrolling wrap) so it holds the visible top-right corner.
-  const anyColFilter=Object.keys(tableColFilters.tasks).length>0;
-  const fab=document.createElement("button");fab.type="button";fab.className="tt-filter-fab"+(anyColFilter?" on":"");
-  fab.title="Filter columns";fab.setAttribute("aria-label","Filter columns");
-  fab.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z" fill="currentColor"/></svg>'+(anyColFilter?'<span class="ff-dot"></span>':'');
-  fab.onclick=()=>openTableFilterPanel(fab);
-  const shell=document.createElement("div");shell.className="tasktable-shell";shell.append(wrap,fab);
-  return shell;
+  return wrap;
 }
 // The stack dimension for the Tasks chart, chosen by the active Sort-by. priority/person/roadmap give distinct
 // stack contexts; status is the default. The two date sorts (entry/target) aren't categorical, so they fall back to
