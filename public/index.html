@@ -278,9 +278,12 @@
   /* Hover = light lavender row + a soft accent left bar (the row-equivalent of a card's hover border). */
   .tasktable tbody tr:hover td{background:#f3f3fb;}
   .tasktable tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 #b9b9ec;}
-  /* Active (clicked / Go-to-Task) = stronger lavender + full accent bar; declared after hover so it always wins. */
-  .tasktable tbody tr.active td{background:#e3e3fb;}
-  .tasktable tbody tr.active td:first-child{box-shadow:inset 3px 0 0 var(--accent,#4646c8);}
+  /* Active (clicked / Go-to-Task) = stronger lavender + a full accent border ring around the row, matching the card's
+     .active ring. box-shadow can't paint on a <tr> under border-collapse:collapse, so the ring is built from inset
+     shadows on the cells: top+bottom on every cell, plus the left edge on the first cell and the right edge on the last. */
+  .tasktable tbody tr.active td{background:#e3e3fb;box-shadow:inset 0 2px 0 var(--accent,#4646c8),inset 0 -2px 0 var(--accent,#4646c8);}
+  .tasktable tbody tr.active td:first-child{box-shadow:inset 3px 0 0 var(--accent,#4646c8),inset 0 2px 0 var(--accent,#4646c8),inset 0 -2px 0 var(--accent,#4646c8);}
+  .tasktable tbody tr.active td:last-child{box-shadow:inset -3px 0 0 var(--accent,#4646c8),inset 0 2px 0 var(--accent,#4646c8),inset 0 -2px 0 var(--accent,#4646c8);}
   .tasktable tbody tr.flash{animation:taskflash 1.6s ease-out;}
   .tasktable td .mini{max-width:100%;}
   .tasktable td input[type=date].mini{max-width:150px;}
