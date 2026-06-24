@@ -2106,6 +2106,10 @@ function renderTasks(m){
   // Chart layout: a single stacked-column chart (one column per Group-by section, segments by status) instead of the
   // section list. Consumes the same filtered+grouped `sections`, so every filter and the Group-by selection drive it.
   if(taskLayout==="chart"){renderTasksChart(m,sections);return;}
+  // "Go to task": auto-expand the section containing the target so its cards/rows actually render. A collapsed section
+  // renders nothing (see below), so the focus scroll/flash would never find the task. Also clear that section's
+  // sort-value sub-filter so the task's run isn't hidden within it. Covers both card and table layouts.
+  if(focusTaskId){const fs=sections.find(s=>s.items.some(t=>t.id===focusTaskId));if(fs){taskSecExpanded.add(fs.label);delete taskSecSortFilter[fs.label];}}
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecExpanded.
   if(sections.length){
