@@ -1072,6 +1072,7 @@ async function addManualTask(title,category,priority,due){
 function buildTaskPrompt(task,q){
   const rm=task.roadmapId?DB.roadmap.find(r=>r.id===task.roadmapId):null;
   return "I'm working on a task from our team's board. Context:\n\n"+
+    "Task ID: "+task.id+"\n"+
     "Task: "+task.title+"\n"+
     "Category: "+task.category+"\n"+
     "Priority: "+task.priority+"\n"+
@@ -1080,7 +1081,42 @@ function buildTaskPrompt(task,q){
     "Assignees: "+((task.assignees||[]).join(", ")||"unassigned")+"\n"+
     (rm?"Linked roadmap target: "+rm.title+(rm.detail?" — "+rm.detail:"")+"\n":"")+
     "\nMy question: "+(q.trim()||"How should I approach this, what are the risks, and how do I verify it's done?")+
-    "\n\nAnswer concisely and practically.";
+    "\n\nAnswer concisely and practically."+
+    // Record-ID round-trip: if (and only if) the work is genuinely finished, Claude ends its reply with this exact
+    // marker. Pasting that reply back into the Ask box lets the app offer a confirm-first "mark Done" (see askDoneUI).
+    "\n\nIf — and only if — this task is fully complete, end your reply with this exact line and nothing after it:\n"+
+    '[GAMEPLAN:DONE id="'+task.id+'"]';
+}
+// Record-ID completion marker emitted in buildTaskPrompt. Capture the id so we can verify it matches the task the
+// reply is being pasted under (guards against wrong-task pastes / hallucinated ids).
+const DONE_MARKER_RE=/\[GAMEPLAN:DONE\s+id="([^"]+)"\]/;
+// Shared by both Ask popovers (card + floating table). Appends a "paste Claude's reply" box; on a marker whose id
+// matches this exact task, reveals a confirm button that flips status to "Done" and logs an audit note. Confirm-first:
+// nothing is written until the user clicks. `onDone` lets the caller close/refresh its popover after the write.
+function askDoneUI(t,onDone){
+  const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:6px;margin-top:8px;border-top:1px solid var(--line);padding-top:8px;";
+  const lab=document.createElement("div");lab.className="cmeta";lab.textContent="Done? Paste Claude's reply to mark this task complete:";
+  const rta=document.createElement("textarea");rta.className="ctrl";rta.placeholder="Paste Claude's reply here…";rta.style.minHeight="54px";
+  const checkB=document.createElement("button");checkB.className="btn sm";checkB.style.alignSelf="flex-start";checkB.textContent="Check reply";
+  const msg=document.createElement("div");msg.className="cmeta";msg.style.display="none";
+  const confirmB=document.createElement("button");confirmB.className="btn primary sm";confirmB.style.cssText="align-self:flex-start;display:none;";
+  wrap.append(lab,rta,checkB,msg,confirmB);
+  checkB.onclick=()=>{
+    confirmB.style.display="none";msg.style.display="block";
+    const m=DONE_MARKER_RE.exec(rta.value||"");
+    if(!m){msg.style.color="var(--muted)";msg.textContent="No completion signal found in that reply.";return;}
+    if(m[1]!==t.id){msg.style.color="var(--danger)";msg.textContent="That reply's completion signal is for a different task — not applying it here.";return;}
+    msg.style.color="var(--muted)";msg.textContent="Claude reports this task complete.";
+    confirmB.textContent='Mark "'+(t.title||"task")+'" as Done?';confirmB.style.display="block";
+  };
+  confirmB.onclick=async()=>{
+    confirmB.disabled=true;
+    await setTask(t.id,{status:"Done"});
+    await addTaskNote(t.id,"Marked complete via Claude.");
+    banner('"'+(t.title||"Task")+'" marked Done.',"ok");
+    if(onDone)onDone();
+  };
+  return wrap;
 }
 
 /* ---------- Render ---------- */
@@ -1322,7 +1358,7 @@ function taskCard(t){
   prow.append(copyB,openB);
   qBtn.onclick=()=>{pbox.value=buildTaskPrompt(t,qt.value);pbox.style.display="block";prow.style.display="flex";pbox.scrollIntoView({block:"nearest"});};
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
-  qpop.append(qt,qBtn,pbox,prow);d.appendChild(qpop);
+  qpop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>qpop.classList.remove("open")));d.appendChild(qpop);
   ask.onclick=()=>{qpop.classList.toggle("open");if(qpop.classList.contains("open"))qt.focus();};
   // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
   rmv.title="Move to Trash";rmv.onclick=()=>deleteTask(t.id);
@@ -1403,7 +1439,7 @@ function openTaskAskPop(anchor,t){
   prow.append(copyB,openB);
   qBtn.onclick=()=>{pbox.value=buildTaskPrompt(t,qt.value);pbox.style.display="block";prow.style.display="flex";place();};
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
-  pop.append(qt,qBtn,pbox,prow);place();qt.focus();
+  pop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>pop.remove()));place();qt.focus();
 }
 // Grouped roadmap <select> for a table cell: "No link" + one optgroup per area. Writes roadmapId via setTask.
 function taskRoadmapSelect(t){
