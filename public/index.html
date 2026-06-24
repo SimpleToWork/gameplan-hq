@@ -4214,7 +4214,19 @@ function mdStripFrontmatter(raw){
 function agentViewModal(a){
   openModal(a.name||"Agent",(card,close)=>{
     // Roomier than the default modal — this view renders a full agent spec, so give it width and height to read.
-    card.style.maxWidth="960px";card.style.maxHeight="92vh";
+    // The user can also size it themselves: drag the bottom-right corner (resize handle) or hit the ⤢ toggle to
+    // jump between this comfortable width and near-fullscreen.
+    const NORMAL={w:"960px",h:""},FULL={w:"min(1400px,98vw)",h:"96vh"};
+    card.style.maxWidth="98vw";card.style.maxHeight="96vh";card.style.resize="both";card.style.minWidth="320px";card.style.minHeight="240px";
+    card.style.width=NORMAL.w;
+    // Expand/restore toggle, dropped into openModal's title bar just left of the × close button.
+    const titleHead=card.firstElementChild;
+    const exp=document.createElement("button");
+    exp.className="btn sm";exp.style.cssText="padding:1px 7px;font-size:13px;line-height:1.4;";
+    let full=false;
+    const applySize=()=>{const s=full?FULL:NORMAL;card.style.width=s.w;card.style.height=s.h;exp.textContent=full?"⤡":"⤢";exp.title=full?"Restore size":"Expand to near-fullscreen";exp.setAttribute("aria-label",exp.title);};
+    exp.onclick=()=>{full=!full;applySize();};applySize();
+    if(titleHead&&titleHead.lastElementChild)titleHead.insertBefore(exp,titleHead.lastElementChild);
     const meta=[a.status||"draft",a.model,a.createdBy&&("by "+a.createdBy)].filter(Boolean).map(esc).join(" · ");
     const head=document.createElement("div");head.className="cmeta";head.style.margin="-4px 0 4px";
     head.innerHTML=meta+(a.repoPath?' · <span style="font-family:ui-monospace,Menlo,monospace;">'+esc(a.repoPath)+'</span>':'');
