@@ -4160,7 +4160,8 @@ function mdStripFrontmatter(raw){
 // or the fetch fails.
 function agentViewModal(a){
   openModal(a.name||"Agent",(card,close)=>{
-    card.style.maxWidth="680px";
+    // Roomier than the default modal — this view renders a full agent spec, so give it width and height to read.
+    card.style.maxWidth="960px";card.style.maxHeight="92vh";
     const meta=[a.status||"draft",a.model,a.createdBy&&("by "+a.createdBy)].filter(Boolean).map(esc).join(" · ");
     const head=document.createElement("div");head.className="cmeta";head.style.margin="-4px 0 4px";
     head.innerHTML=meta+(a.repoPath?' · <span style="font-family:ui-monospace,Menlo,monospace;">'+esc(a.repoPath)+'</span>':'');
