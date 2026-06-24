@@ -13,6 +13,7 @@
 //   { op:"listFiles", repoUrl, path? (folder) }          → { files:[{path,sha}], truncated }
 //   { op:"read",  repoUrl, path }                        → { found, sha, spec, lastCommit }
 //   { op:"write", repoUrl, path, spec, message? }        → { sha, commit }
+//   { op:"delete", repoUrl, path, message? }             → { deleted, missing?, commit }
 import crypto from "node:crypto";
 
 const ALLOWED_ORIGINS = [
@@ -199,7 +200,21 @@ export default async function handler(req, res){
       });
     }
 
-    return res.status(400).json({ error:"unknown op (expected read|write)" });
+    if(op==="delete"){
+      // Look up the file's current sha (the Contents API requires it to delete). A 404 means there's
+      // nothing to remove — report it as a no-op so callers (e.g. a move) don't treat it as a failure.
+      const ex = await fetch(contents, { headers:{ ...GH_HEADERS, ...auth } });
+      if(ex.status===404) return res.status(200).json({ deleted:false, missing:true });
+      if(!ex.ok) return res.status(ex.status).json({ error: await ex.text() });
+      const sha = (await ex.json()).sha;
+      const body = { message: message || `Delete agent file: ${path}`, sha };
+      const d = await fetch(contents, { method:"DELETE", headers:{ ...GH_HEADERS, ...auth, "Content-Type":"application/json" }, body: JSON.stringify(body) });
+      if(!d.ok) return res.status(d.status).json({ error: await d.text() });
+      const dj = await d.json().catch(()=>({}));
+      return res.status(200).json({ deleted:true, commit: dj.commit && { sha: dj.commit.sha, url: dj.commit.html_url } });
+    }
+
+    return res.status(400).json({ error:"unknown op (expected read|write|delete)" });
   }catch(e){
     return res.status(500).json({ error: e.message });
   }
