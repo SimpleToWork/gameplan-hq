@@ -1699,6 +1699,47 @@ function renderTasksChart(m,sections){
   const legend=document.createElement("div");legend.className="taskchart-legend";
   dim.keys.forEach(k=>{const it=document.createElement("span");it.className="tcl-item";it.innerHTML='<span class="tcl-sw" style="background:'+dim.colorOf(k)+'"></span>'+esc(dim.labelOf(k));legend.appendChild(it);});
   wrap.appendChild(legend);
+  // Hover (or tap) a segment → a popover listing that data point's tasks, each a button that jumps to the task.
+  // Body-mounted + position:fixed so the chart's overflow can't clip it; closes shortly after the mouse leaves BOTH
+  // the segment and the popover (so you can move into it and click a task). One popover at a time.
+  let segPop=null,segCloseT=null;
+  const closeSegPop=()=>{if(segPop){segPop.remove();segPop=null;}};
+  const cancelSegClose=()=>clearTimeout(segCloseT);
+  const schedSegClose=()=>{clearTimeout(segCloseT);segCloseT=setTimeout(closeSegPop,160);};
+  const openSegPop=(anchor,sec,k)=>{
+    closeSegPop();
+    const tasks=sec.items.filter(t=>dim.keyOf(t)===k);
+    if(!tasks.length)return;
+    const p=document.createElement("div");segPop=p;
+    p.style.cssText="position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:8px;min-width:210px;max-width:320px;max-height:300px;overflow:auto;";
+    const h=document.createElement("div");h.className="cmeta";h.style.cssText="font-weight:600;margin-bottom:6px;";h.textContent=sec.label+" · "+dim.labelOf(k)+" ("+tasks.length+")";p.appendChild(h);
+    tasks.forEach(t=>{
+      const row=document.createElement("button");row.type="button";
+      row.style.cssText="display:flex;align-items:center;gap:7px;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:4px 6px;cursor:pointer;font-size:12.5px;color:var(--ink);";
+      const sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
+      const dot=document.createElement("span");dot.style.cssText="flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:"+sc[1]+";";
+      const nm=document.createElement("span");nm.style.cssText="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";nm.textContent=t.title;
+      const go=document.createElement("span");go.style.cssText="flex:0 0 auto;color:var(--muted);";go.textContent="→";
+      row.append(dot,nm,go);row.title="Go to task: "+t.title;
+      row.onmouseenter=()=>{row.style.background="rgba(70,70,200,.08)";};
+      row.onmouseleave=()=>{row.style.background="none";};
+      // Jump to the task: switch to card layout (goToTask alone would just re-render the chart), then navigate.
+      row.onclick=()=>{closeSegPop();taskLayout="card";try{localStorage.setItem("gp_taskLayout","card");}catch(e){}goToTask(t.id);};
+      p.appendChild(row);
+    });
+    document.body.appendChild(p);
+    const r=anchor.getBoundingClientRect();
+    p.style.top=Math.max(8,Math.min(r.bottom+4,window.innerHeight-p.offsetHeight-8))+"px";
+    p.style.left=Math.max(8,Math.min(r.left,window.innerWidth-p.offsetWidth-8))+"px";
+    p.addEventListener("mouseenter",cancelSegClose);
+    p.addEventListener("mouseleave",schedSegClose);
+  };
+  const wireSeg=(seg,sec,k)=>{
+    seg.style.cursor="pointer";
+    seg.addEventListener("mouseenter",()=>{cancelSegClose();openSegPop(seg,sec,k);});
+    seg.addEventListener("mouseleave",schedSegClose);
+    seg.addEventListener("click",e=>{e.stopPropagation();openSegPop(seg,sec,k);}); // tap / touch support
+  };
   // One segmented bar per section. Segments follow dim.keys order; flex-grow makes each proportional to its count.
   if(taskChartOrient==="bar"){
     const plot=document.createElement("div");plot.className="taskchart bars";
@@ -1710,7 +1751,7 @@ function renderTasksChart(m,sections){
       const nm=document.createElement("span");nm.className="tc-lname";nm.textContent=sec.label;lab.append(dot,nm);
       const track=document.createElement("div");track.className="tc-rbar-wrap";
       const bar=document.createElement("div");bar.className="tc-rbar";bar.style.width=(total/maxTotal*100)+"%";
-      dim.keys.forEach(k=>{const n=segCount(sec.items,k);if(!n)return;const seg=document.createElement("div");seg.className="tc-rseg";seg.style.flexGrow=n;seg.style.background=dim.colorOf(k);seg.title=sec.label+" · "+dim.labelOf(k)+": "+n+" of "+total;if((n/total)>=0.16)seg.textContent=n;bar.appendChild(seg);});
+      dim.keys.forEach(k=>{const n=segCount(sec.items,k);if(!n)return;const seg=document.createElement("div");seg.className="tc-rseg";seg.style.flexGrow=n;seg.style.background=dim.colorOf(k);wireSeg(seg,sec,k);if((n/total)>=0.16)seg.textContent=n;bar.appendChild(seg);});
       const tot=document.createElement("span");tot.className="tc-rtotal";tot.textContent=total;
       track.append(bar,tot);row.append(lab,track);plot.appendChild(row);
     });
@@ -1723,7 +1764,7 @@ function renderTasksChart(m,sections){
       const cellplot=document.createElement("div");cellplot.className="tc-plot";
       const totEl=document.createElement("div");totEl.className="tc-total";totEl.textContent=total;cellplot.appendChild(totEl);
       const bar=document.createElement("div");bar.className="tc-bar";bar.style.height=(total/maxTotal*100)+"%";
-      dim.keys.forEach(k=>{const n=segCount(sec.items,k);if(!n)return;const seg=document.createElement("div");seg.className="tc-seg";seg.style.flexGrow=n;seg.style.background=dim.colorOf(k);seg.title=sec.label+" · "+dim.labelOf(k)+": "+n+" of "+total;if((n/total)>=0.16)seg.textContent=n;bar.appendChild(seg);});
+      dim.keys.forEach(k=>{const n=segCount(sec.items,k);if(!n)return;const seg=document.createElement("div");seg.className="tc-seg";seg.style.flexGrow=n;seg.style.background=dim.colorOf(k);wireSeg(seg,sec,k);if((n/total)>=0.16)seg.textContent=n;bar.appendChild(seg);});
       cellplot.appendChild(bar);col.appendChild(cellplot);
       const lab=document.createElement("div");lab.className="tc-label";lab.title=sec.label+" ("+total+")";
       const dot=document.createElement("span");dot.className="tc-dot";dot.style.background=sec.color;
