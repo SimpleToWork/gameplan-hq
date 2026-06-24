@@ -171,13 +171,15 @@ export default async function handler(req, res){
       if(r.status===404) return res.status(200).json({ found:false });
       if(!r.ok) return res.status(r.status).json({ error: await r.text() });
       const j = await r.json();
-      const parsed = parseSpec(Buffer.from(j.content||"", "base64").toString("utf8"));
+      const text = Buffer.from(j.content||"", "base64").toString("utf8");
+      const parsed = parseSpec(text);
       let lastCommit = null;
       try{
         const cs = await ghJson(`https://api.github.com/repos/${owner}/${repo}/commits?path=${encodeURIComponent(path)}&per_page=1`, auth);
         if(cs[0]) lastCommit = { sha: cs[0].sha, date: cs[0].commit.author.date, url: cs[0].html_url };
       }catch(e){ /* commit history is best-effort */ }
-      return res.status(200).json({ found:true, sha:j.sha, spec:parsed, lastCommit });
+      // `raw` is the verbatim file content (for the formatted Markdown view); `spec` is the parsed structure.
+      return res.status(200).json({ found:true, sha:j.sha, spec:parsed, raw:text, lastCommit });
     }
 
     if(op==="write"){

@@ -4005,21 +4005,42 @@ function agentSpecToMarkdown(a){
   sec("Notes",a.notes);
   return parts.join("\n");
 }
-// Read-only view of an agent's spec rendered as formatted Markdown (the same body committed to the repo .md).
-// Frontmatter is shown as a compact metadata header rather than raw YAML. Sourced from the in-app spec so it
-// matches what's committed without a network call — use Edit → "Pull from repo" to refresh from git.
+// Strip a leading YAML frontmatter block (---\n…\n---) from raw Markdown so only the prose body is rendered;
+// the frontmatter scalars are surfaced separately as the metadata header.
+function mdStripFrontmatter(raw){
+  const m=String(raw||"").match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
+  return (m?m[1]:String(raw||"")).replace(/^\s+/,"");
+}
+// Read-only view of an agent's spec rendered as formatted Markdown. When the agent is linked to a repo file it
+// pulls the LIVE raw .md from git (so hand-edits made outside the app show up) and renders that, stripping the
+// frontmatter into a metadata header. Falls back to the saved in-app spec if there's no repo link, no file yet,
+// or the fetch fails.
 function agentViewModal(a){
   openModal(a.name||"Agent",(card,close)=>{
     card.style.maxWidth="680px";
-    const meta=[a.status||"draft",a.model,a.createdBy&&("by "+a.createdBy),a.lastSyncedAt&&("synced "+a.lastSyncedAt)].filter(Boolean).map(esc).join(" · ");
-    const body=document.createElement("div");
-    body.innerHTML='<div class="cmeta" style="margin:-4px 0 12px;">'+meta+(a.repoPath?' · <span style="font-family:ui-monospace,Menlo,monospace;">'+esc(a.repoPath)+'</span>':'')+'</div>'+
-      '<div class="mdv">'+mdToHtml(agentSpecToMarkdown(a))+'</div>';
-    card.appendChild(body);
+    const meta=[a.status||"draft",a.model,a.createdBy&&("by "+a.createdBy)].filter(Boolean).map(esc).join(" · ");
+    const head=document.createElement("div");head.className="cmeta";head.style.margin="-4px 0 4px";
+    head.innerHTML=meta+(a.repoPath?' · <span style="font-family:ui-monospace,Menlo,monospace;">'+esc(a.repoPath)+'</span>':'');
+    const src=document.createElement("div");src.className="cmeta";src.style.cssText="margin:0 0 12px;font-size:11px;";
+    const view=document.createElement("div");view.className="mdv";
+    const render=(md,note)=>{view.innerHTML=mdToHtml(md);src.innerHTML=note;};
+    card.append(head,src,view);
     const foot=document.createElement("div");foot.className="row";foot.style.marginTop="14px";
     const edit=document.createElement("button");edit.className="btn sm";edit.textContent="Edit / refine";edit.onclick=()=>{close();agentModal(a);};foot.appendChild(edit);
     if(a.repoUrl){const link=document.createElement("a");link.className="btn sm";link.textContent="Open repo ↗";link.href=a.repoUrl;link.target="_blank";link.rel="noopener";foot.appendChild(link);}
     card.appendChild(foot);
+    // Render the saved spec immediately, then (if linked) replace it with the live repo file.
+    if(a.repoUrl&&a.repoPath){
+      render(agentSpecToMarkdown(a),'<span class="spin"></span> Loading live file from repo…');
+      githubSync({op:"read",repoUrl:a.repoUrl,path:a.repoPath}).then(res=>{
+        if(!view.isConnected)return; // modal closed before the fetch returned
+        if(!res.found){render(agentSpecToMarkdown(a),"No file in the repo yet — showing the saved spec. Commit it from Edit to create the file.");return;}
+        const c=res.lastCommit;
+        render(mdStripFrontmatter(res.raw),"Live from repo"+(c?' · commit <a href="'+esc(c.url)+'" target="_blank" rel="noopener">'+esc(c.sha.slice(0,7))+'</a> · '+esc((c.date||"").slice(0,10)):""));
+      }).catch(e=>{ if(view.isConnected)render(agentSpecToMarkdown(a),"Couldn’t reach the repo ("+esc(e.message||"error")+") — showing the saved spec."); });
+    }else{
+      render(agentSpecToMarkdown(a),"From the saved spec — link a repo file to view the live .md.");
+    }
   });
 }
 // Build one agent card (extracted so both the flat list and the directory tree render identical cards).
