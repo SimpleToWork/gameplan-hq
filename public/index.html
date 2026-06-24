@@ -3593,6 +3593,10 @@ const AGENT_TYPES=["connector","etl","analysis","automation","other"];
 const AGENT_STATUSES=["draft","active","archived"];
 const AGENT_MODELS=["claude-opus-4-8","claude-sonnet-4-6","claude-haiku-4-5-20251001"];
 const agentsSorted=()=>DB.agents.slice().sort((a,b)=>(b.updatedAt||b.createdAt||"").localeCompare(a.updatedAt||a.createdAt||""));
+// Stable, immutable identity for an agent, written into the spec frontmatter so a file's link to its local
+// record survives a move/rename in the repo. Sync reconciles on agentId (not repoPath), so relocating a spec
+// file in the repo no longer reads as a brand-new agent. Distinct from the Firestore doc id (which is per-store).
+const agentUid=()=>{try{return crypto.randomUUID();}catch(e){return "ag-"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);}};
 
 // Turn a plain-language data-source/agent description into a structured spec (same callClaude→extractJSON path as Capture).
 async function draftAgentSpec(desc){
@@ -3605,7 +3609,7 @@ async function draftAgentSpec(desc){
 async function saveAgent(id,data){
   try{
     if(id)await fbUpdate("agents",id,Object.assign({updatedAt:nowTs()},data));
-    else await fbAdd("agents",Object.assign({status:"draft",createdBy:identity,createdAt:today(),updatedAt:nowTs()},data));
+    else await fbAdd("agents",Object.assign({status:"draft",createdBy:identity,createdAt:today(),updatedAt:nowTs()},data,{agentId:data.agentId||agentUid()}));
     banner(id?"Saved agent.":"Created agent.","ok");return true;
   }catch(e){banner(e.message,"err");return false;}
 }
@@ -3641,31 +3645,36 @@ async function syncRepoAgents(repoUrl){
   const {files}=await githubSync({op:"listFiles",repoUrl,path:SYNC_DIR});
   const r={imported:0,pulled:0,pushed:0,skipped:0,errors:0};
   const localForRepo=DB.agents.filter(a=>normRepo(a.repoUrl)===norm&&a.repoPath);
-  const seen=new Set();
+  const handled=new Set(); // local agent ids reconciled below — kept out of the trailing "push missing" pass
   const specFields=s=>({name:s.name,type:s.type,status:s.status,model:s.model,summary:s.summary,systemPrompt:s.systemPrompt,tools:s.tools||[],inputs:s.inputs,outputs:s.outputs,notes:s.notes});
   for(const f of (files||[])){
-    seen.add(f.path);
     try{
       const res=await githubSync({op:"read",repoUrl,path:f.path});
       if(!res.found)continue;
       const repoTime=(res.lastCommit&&res.lastCommit.date)||"";
-      const local=localForRepo.find(a=>a.repoPath===f.path);
+      // Match on the stable agentId first (survives a move/rename in the repo); fall back to repoPath for
+      // legacy spec files written before agentId existed.
+      const local=(res.spec.agentId&&localForRepo.find(a=>a.agentId===res.spec.agentId))||localForRepo.find(a=>a.repoPath===f.path);
       if(!local){
-        await fbAdd("agents",Object.assign(specFields(res.spec),{repoUrl,repoPath:f.path,lastCommitSha:res.sha||"",lastSyncedAt:today(),
+        await fbAdd("agents",Object.assign(specFields(res.spec),{repoUrl,repoPath:f.path,agentId:res.spec.agentId||agentUid(),lastCommitSha:res.sha||"",lastSyncedAt:today(),
           createdBy:res.spec.createdBy||identity,createdAt:res.spec.createdAt||today(),updatedAt:repoTime||nowTs()}));
         r.imported++;
       }else{
+        handled.add(local.id);
         const localTime=local.updatedAt||"";
-        if(repoTime>localTime){ await fbUpdate("agents",local.id,Object.assign(specFields(res.spec),{lastCommitSha:res.sha||"",lastSyncedAt:today(),updatedAt:repoTime})); r.pulled++; }
-        else if(localTime>repoTime){ const wr=await githubSync({op:"write",repoUrl,path:f.path,spec:Object.assign({},local,{repoUrl,repoPath:f.path})}); await fbUpdate("agents",local.id,{lastCommitSha:(wr.sha)||"",lastSyncedAt:today()}); r.pushed++; }
+        const moved=local.repoPath!==f.path; // file relocated in the repo since we last saw it
+        if(repoTime>localTime){ await fbUpdate("agents",local.id,Object.assign(specFields(res.spec),{repoPath:f.path,agentId:local.agentId||res.spec.agentId||"",lastCommitSha:res.sha||"",lastSyncedAt:today(),updatedAt:repoTime})); r.pulled++; }
+        else if(localTime>repoTime){ const aid=local.agentId||res.spec.agentId||agentUid(); const wr=await githubSync({op:"write",repoUrl,path:f.path,spec:Object.assign({},local,{repoUrl,repoPath:f.path,agentId:aid})}); await fbUpdate("agents",local.id,{repoPath:f.path,agentId:aid,lastCommitSha:(wr.sha)||"",lastSyncedAt:today()}); r.pushed++; }
+        else if(moved){ await fbUpdate("agents",local.id,{repoPath:f.path,lastSyncedAt:today()}); r.pulled++; } // pure relocation, content unchanged
         else r.skipped++;
       }
     }catch(e){r.errors++;}
   }
-  // Local agents linked to this repo whose file isn't there yet → push (create the file).
+  // Local agents linked to this repo whose file isn't there yet → push (create the file). Skip ones already
+  // reconciled above (their file exists, possibly under a different path) so we don't recreate it at a stale path.
   for(const a of localForRepo){
-    if(seen.has(a.repoPath))continue;
-    try{ const wr=await githubSync({op:"write",repoUrl,path:a.repoPath,spec:Object.assign({},a)}); await fbUpdate("agents",a.id,{lastCommitSha:(wr.sha)||"",lastSyncedAt:today()}); r.pushed++; }
+    if(handled.has(a.id))continue;
+    try{ const aid=a.agentId||agentUid(); const wr=await githubSync({op:"write",repoUrl,path:a.repoPath,spec:Object.assign({},a,{agentId:aid})}); await fbUpdate("agents",a.id,{agentId:aid,lastCommitSha:(wr.sha)||"",lastSyncedAt:today()}); r.pushed++; }
     catch(e){r.errors++;}
   }
   return r;
@@ -3716,11 +3725,14 @@ function agentModal(existing){
       }catch(e){draftHint.textContent=e.message;}
       draftBtn.disabled=false;draftBtn.textContent="✨ Draft with Claude";
     };
+    // Stable identity carried through this editor session. Empty for a brand-new/legacy agent until it's
+    // committed (then generated so the file and the local record share the same agentId) — see commit handler.
+    let agentId=a.agentId||"";
     // Gather the current field values into an agent record (shared by Save and Commit-to-repo).
     const buildData=()=>({name:fName.value.trim(),type:fType.value,status:fStatus.value,model:fModel.value,summary:fSummary.value.trim(),
       systemPrompt:fPrompt.value.trim(),tools:fTools.value.split("\n").map(s=>s.trim()).filter(Boolean),
       inputs:fInputs.value.trim(),outputs:fOutputs.value.trim(),notes:fNotes.value.trim(),
-      repoUrl:fRepoUrl.value.trim(),repoPath:fRepoPath.value.trim()});
+      repoUrl:fRepoUrl.value.trim(),repoPath:fRepoPath.value.trim(),agentId});
     // Fill the prose/structured fields into the editor from a spec returned by the git read.
     const fillFrom=s=>{fName.value=s.name||fName.value;if(AGENT_TYPES.includes(s.type))fType.value=s.type;if(AGENT_STATUSES.includes(s.status))fStatus.value=s.status;
       if(s.model)fModel.value=s.model;fSummary.value=s.summary||"";fPrompt.value=s.systemPrompt||"";fTools.value=(s.tools||[]).join("\n");
@@ -3739,7 +3751,8 @@ function agentModal(existing){
       pull.disabled=true;syncHint.textContent="Reading…";
       try{const res=await githubSync({op:"read",repoUrl:rp.u,path:rp.p});
         if(!res.found){syncHint.textContent="No file at that path yet — Commit to create it.";}
-        else{fillFrom(res.spec);syncHint.textContent="Pulled"+(res.lastCommit?" (commit "+res.lastCommit.sha.slice(0,7)+")":"")+" — review, then Save.";}
+        else{fillFrom(res.spec);if(res.spec.agentId&&!agentId)agentId=res.spec.agentId; // adopt the file's identity so saving links this record to it
+          syncHint.textContent="Pulled"+(res.lastCommit?" (commit "+res.lastCommit.sha.slice(0,7)+")":"")+" — review, then Save.";}
       }catch(e){syncHint.textContent=e.message;}
       pull.disabled=false;
     };
@@ -3748,6 +3761,7 @@ function agentModal(existing){
       const data=buildData();if(!data.name){syncHint.textContent="Give the agent a name first.";return;}
       commit.disabled=true;syncHint.innerHTML='<span class="spin"></span> Committing';
       try{
+        if(!agentId){agentId=agentUid();data.agentId=agentId;} // mint identity before the file is written so file ↔ record share it
         const spec=Object.assign({},data,{createdBy:a.createdBy||identity,createdAt:a.createdAt||today(),updatedAt:nowTs()});
         const res=await githubSync({op:"write",repoUrl:rp.u,path:rp.p,spec});
         // Persist locally too, recording the commit so the card can show sync state.
