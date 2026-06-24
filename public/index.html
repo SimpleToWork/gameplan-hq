@@ -2022,9 +2022,11 @@ function renderTasks(m){
     let fval=taskSecSortFilter[sec.label]||"";
     if(fval&&!sec.items.some(t=>sd.key(t)===fval)){fval="";delete taskSecSortFilter[sec.label];}
     const shownCount=fval?sec.items.filter(t=>sd.key(t)===fval).length:sec.items.length;
-    const headEl=document.createElement("div");headEl.className="cat-head";headEl.style.cursor="pointer";headEl.title=col?"Click to expand":"Click to collapse";
-    headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(col?"\u25b8":"\u25be")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name">'+esc(sec.label)+'</span><span class="cat-count">'+(fval?shownCount+"/"+sec.items.length:sec.items.length)+'</span>';
-    headEl.onclick=()=>{col?taskSecExpanded.add(sec.label):taskSecExpanded.delete(sec.label);renderTasks();};
+    const headEl=document.createElement("div");headEl.className="cat-head";
+    headEl.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;cursor:pointer;" title="'+(col?"Click to expand":"Click to collapse")+'">'+(col?"\u25b8":"\u25be")+'</span><span class="dot" style="background:'+sec.color+'"></span><span class="cat-name" style="cursor:pointer;" title="'+(col?"Click to expand":"Click to collapse")+'">'+esc(sec.label)+'</span><span class="cat-count">'+(fval?shownCount+"/"+sec.items.length:sec.items.length)+'</span>';
+    const toggleFn=()=>{col?taskSecExpanded.add(sec.label):taskSecExpanded.delete(sec.label);renderTasks();};
+    headEl.querySelector('span:first-child').onclick=toggleFn;
+    headEl.querySelector('.cat-name').onclick=toggleFn;
     // Per-section "filter to this section" button — focuses the board on just this group. Only for category/person
     // groupings, where a matching global filter Set exists (timeframe buckets don't map cleanly to taskTime). It
     // replaces the active filter with this one value; stopPropagation keeps it from toggling the header's collapse.
