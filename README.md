@@ -1,6 +1,5 @@
 # Gameplan HQ
 
-
 Team task-management app for **MerchantsBI**. Single-page vanilla-HTML front end, Firebase
 Firestore for shared realtime storage, a Vercel serverless proxy for Claude API calls, and
 static hosting on Vercel with a custom domain.
