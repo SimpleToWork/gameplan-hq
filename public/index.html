@@ -908,9 +908,10 @@ function subscribeAll(){
       if(k==="tasks")recordRunDurations(prevTasks,DB.tasks);
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
+      let catsRebuilt=false;   // did this snapshot replace the fallback CATS literals with the real team disciplines?
       if(k==="disciplines"){
         if(!DB.disciplines.length&&!seededDisciplines){ seededDisciplines=true; DEFAULT_DISCIPLINES.forEach(d=>fbAdd("disciplines",d)); }
-        else if(DB.disciplines.length){ const ds=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0)); CATS=ds.map(d=>d.name); CAT_COLOR=Object.fromEntries(ds.map(d=>[d.name,d.color])); }
+        else if(DB.disciplines.length){ const ds=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0)); CATS=ds.map(d=>d.name); CAT_COLOR=Object.fromEntries(ds.map(d=>[d.name,d.color])); catsRebuilt=true; }
       }
       if(k==="members"&&!DB.members.length&&!seededMembers){ seededMembers=true; TEAM.forEach(mem=>fbAdd("members",{name:mem.name,color:mem.color,email:mem.email||""})); }
       if(k==="members"){ resolveIdentity(authUser); refreshIdentity(); } // roster changed — re-bind identity, then repaint the label
@@ -918,7 +919,10 @@ function subscribeAll(){
       // the pass it actually seeds, so we force a render even on Capture (which is otherwise skipped) to paint the default.
       const seededDefault=applyDomainDefault()|applyCaptureCatsDefault();
       // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
-      if(page!=="capture"||seededDefault){ const y=window.scrollY; render(); window.scrollTo(0,y); }
+      // Capture is normally skipped, but its category picker is built from CATS — when disciplines sync and rebuild CATS
+      // (fallback literals → the real team disciplines) we must repaint it, else a persisted selection whose category
+      // isn't in the fallback list won't render as selected (it'd look like the choice was lost on refresh).
+      if(page!=="capture"||seededDefault||catsRebuilt){ const y=window.scrollY; render(); window.scrollTo(0,y); }
     },err=>banner("Sync error: "+err.message,"err")));
   });
 }
