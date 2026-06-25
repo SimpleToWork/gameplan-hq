@@ -245,9 +245,15 @@
   /* Assign button sitting beside the "Created by" label, + selected assignees as horizontal acronym bubbles beneath it. */
   .asgbtn{border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;font-size:10.5px;padding:2px 8px;border-radius:7px;line-height:1.4;}
   .asgbtn:hover{color:var(--ink);border-color:var(--muted);}
-  .asgbubs{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
-  .asgbub{padding:2px 7px;border-radius:10px;color:#fff;font-size:9px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:default;}
+  .asgbubs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;}
+  .asgbub{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:default;}
   .asgbub.empty{background:#e7e8ec;color:#9aa0a8;}
+  /* Circular acronym selector — one round toggle button per roster member (initials + member colour); click to
+     select/deselect. .on = currently assigned (filled); otherwise an outlined, dimmed circle. */
+  .asgwheel{display:flex;flex-wrap:wrap;gap:8px;}
+  .asgcirc{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:pointer;padding:0;background:var(--surface);color:var(--mc,#9aa0a8);border:2px solid var(--mc,#9aa0a8);opacity:.5;transition:opacity .12s,transform .08s;}
+  .asgcirc:hover{opacity:.85;transform:translateY(-1px);}
+  .asgcirc.on{background:var(--mc,#9aa0a8);color:#fff;opacity:1;}
   /* Status / priority / category / date all live on one horizontal row — nowrap, with the selects sharing
      the remaining width (they can shrink) while the date input keeps a readable fixed-ish width. */
   .crow{display:flex;gap:7px;align-items:center;flex-wrap:nowrap;}
@@ -588,6 +594,7 @@ let taskGroupOpen=false;
 let taskFilterPopCloser=null;// mobile: the tracked outside-mousedown handler that closes the open filter dropdown; removed before re-wiring so the listeners don't pile up across live re-renders
 let taskFilterMQ=null;       // mobile: the (matchMedia,handler) pair re-rendering Tasks when the viewport crosses the filter-dropdown breakpoint; detached each renderTasks so listeners don't leak
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
+let taskAssignOpen=new Set(); // ids of task cards whose circular assignee selector is open; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
 let agendaPlanOpen=false;      // is the "Plan a meeting" section expanded? collapsed by default each session
 let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
@@ -1480,6 +1487,24 @@ async function transcribeAudio(blob){
 
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
+// Circular acronym selector for task assignees — fills `host` with one round toggle button per roster member
+// (initials + member colour). Clicking toggles that person on/off the task and writes back live via setTask, then
+// repaints in place (optimistically mutating t.assignees so the menu reflects the change before the snapshot lands).
+function buildAssignWheel(host,t){
+  host.innerHTML="";
+  roster().forEach(mem=>{
+    const on=(t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase());
+    const b=document.createElement("button");b.type="button";b.className="asgcirc"+(on?" on":"");
+    b.style.setProperty("--mc",mem.color||"#9aa0a8");b.textContent=initials(mem.name);
+    b.title=mem.name+(on?" — selected (click to remove)":" (click to assign)");
+    b.onclick=e=>{e.stopPropagation();
+      const next=(t.assignees||[]).filter(n=>n.toLowerCase()!==mem.name.toLowerCase());
+      if(!on)next.push(mem.name);
+      t.assignees=next;buildAssignWheel(host,t);setTask(t.id,{assignees:next});};
+    host.appendChild(b);
+  });
+}
+
 function taskCard(t){
   const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"")+(activeTaskId===t.id?" active":"");d.dataset.taskId=t.id;
   const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
@@ -1583,13 +1608,12 @@ function taskCard(t){
       rp.appendChild(body);}
     d.appendChild(rp);
   }
-  // assign pop
-  const apop=document.createElement("div");apop.className="pop";
-  roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
-  const aApply=document.createElement("button");aApply.className="btn primary sm";aApply.style.alignSelf="flex-start";aApply.textContent="Apply";
-  aApply.onclick=()=>setTask(t.id,{assignees:Array.from(apop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});
-  apop.appendChild(aApply);d.appendChild(apop);
-  asg.onclick=()=>apop.classList.toggle("open");
+  // assign pop — circular acronym selector; clicking a member's round button toggles them live. Open state lives in
+  // taskAssignOpen so it survives the snapshot re-render each toggle triggers (the card is rebuilt from scratch).
+  const apop=document.createElement("div");apop.className="pop"+(taskAssignOpen.has(t.id)?" open":"");
+  const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);apop.appendChild(awheel);
+  d.appendChild(apop);
+  asg.onclick=()=>{const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
   // edit pop
   const epop=document.createElement("div");epop.className="pop";
   const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.width="100%";
@@ -1765,10 +1789,10 @@ function taskMenuBtn(label,opts,curKey,onPick){
 }
 function openTaskAssignPop(anchor,t){
   const {pop,place}=floatTaskPop(anchor);
-  roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";";l.append(cb,sw,document.createTextNode(mem.name));pop.appendChild(l);});
-  const apply=document.createElement("button");apply.className="btn primary sm";apply.style.alignSelf="flex-start";apply.textContent="Apply";
-  apply.onclick=()=>{setTask(t.id,{assignees:Array.from(pop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});pop.remove();};
-  pop.appendChild(apply);place();
+  // Circular acronym selector — clicking a member's round button toggles them on/off the task live. The popover is
+  // body-mounted so a table re-render won't remove it; it stays open until an outside click (see floatTaskPop).
+  const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);
+  pop.appendChild(awheel);place();
 }
 // Notes — the same per-user tagged notes as the card, floated for the table. Closes after adding (the re-render
 // rebuilds the table); reopen to see the appended note.
