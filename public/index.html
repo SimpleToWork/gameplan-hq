@@ -265,7 +265,7 @@
   .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
   .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
   .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
-  .acts select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
+  select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
   .acts .dots-wrap{position:relative;}
   .dots-drop{position:absolute;top:calc(100% + 4px);right:0;min-width:130px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:4px;z-index:50;display:none;flex-direction:column;}
   .dots-drop.open{display:flex;}
@@ -277,7 +277,6 @@
   .er-row .runbtn{color:#D97757;font-weight:600;} .er-row .runbtn:hover{color:#c25f3f;background:#D9775710;} .er-row .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
   .nf-row{display:flex;gap:10px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);flex-wrap:wrap;}
   .nf-row button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;} .nf-row button:hover{color:var(--ink);}
-  .nf-row select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
   .runprog{margin-top:8px;border:1px solid #D9775744;border-radius:8px;background:#D9775710;overflow:hidden;}
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}
   .runprog-h:hover{background:#D9775705;}
@@ -1675,8 +1674,9 @@ function taskCard(t){
   asgb.onclick=e=>{e.stopPropagation();const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
   // Internal task ID — placed on the provenance row beside "Created by" (truncated; full id on hover + click-to-copy). Hidden when the card collapses (.cmeta rule).
   const idLine=document.createElement("span");idLine.className="idcopy";idLine.style.cssText="cursor:pointer;align-self:flex-start;display:inline-flex;align-items:center;";idLine.title="Click to copy task ID: "+t.id;
-  idLine.innerHTML='<span style="background:#1a1d23;color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:0.03em;">ID '+esc(shortId(t.id))+'</span>';
-  idLine.onclick=e=>{e.stopPropagation();try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};
+  idLine.innerHTML='<span style="background:#1a1d23;color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:0.03em;">ID</span>';
+  const _idCopiedLbl=document.createElement("span");_idCopiedLbl.style.cssText="color:#4646c8;font-size:10px;margin-left:5px;";idLine.appendChild(_idCopiedLbl);
+  idLine.onclick=e=>{e.stopPropagation();try{navigator.clipboard.writeText(t.id);_idCopiedLbl.textContent="Copied";clearTimeout(_idCopiedLbl._t);_idCopiedLbl._t=setTimeout(()=>{_idCopiedLbl.textContent="";},1500);}catch(_){}};
   ar.insertBefore(idLine, ar.children[1]||null);
   const crow=document.createElement("div");crow.className="crow";
   // Discipline select is tinted with its discipline colour so the category reads at a glance.
@@ -1699,7 +1699,7 @@ function taskCard(t){
   rmright.append(link);if(unlink)rmright.append(unlink);
   const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
   const taskFiles=Array.isArray(t.attachments)?t.attachments:[];
-  const filesBtn=document.createElement("button");filesBtn.textContent=taskFiles.length?("📎 Files ("+taskFiles.length+")"):"📎 Files";filesBtn.title="Attach / view files";
+  const filesBtn=document.createElement("button");filesBtn.innerHTML='<span style="font-size:16px;vertical-align:middle;line-height:1;">📎</span>'+(taskFiles.length?" Files ("+taskFiles.length+")":"  Files");filesBtn.title="Attach / view files";
   const ask=document.createElement("button");ask.title="Ask Claude";ask.setAttribute("aria-label","Ask Claude");
   // Claude logo (inline sunburst mark, clay #D97757) replaces the "Ask Claude" text; title/aria-label keep it accessible.
   ask.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
@@ -1734,7 +1734,7 @@ function taskCard(t){
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
   const dotWrap=document.createElement("div");dotWrap.className="dots-wrap";dotWrap.style.cssText="position:absolute;top:6px;right:6px;z-index:2;";
-  const dot=document.createElement("button");dot.textContent="⋯";dot.title="More options";
+  const dot=document.createElement("button");dot.textContent="⋯";dot.title="More options";dot.style.cssText="border:none;background:none;cursor:pointer;font-size:16px;color:var(--muted);padding:0 2px;line-height:1;";
   const dotDrop=document.createElement("div");dotDrop.className="dots-drop";
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
   dotDrop.appendChild(rmv);dotWrap.append(dot,dotDrop);
@@ -1818,7 +1818,7 @@ function taskCard(t){
   const nta=document.createElement("textarea");nta.className="ctrl";nta.placeholder="Add a note… (tagged with your name)";nta.style.minHeight="60px";
   const nAdd=document.createElement("button");nAdd.className="btn primary sm";nAdd.style.alignSelf="flex-start";nAdd.textContent="Add note as "+identity;
   nAdd.onclick=()=>{const v=nta.value.trim();if(!v){banner("Note can’t be empty.","err");return;}addTaskNote(t.id,v);nta.value="";banner("Note added by "+identity+".","ok");};
-  npop.append(nlist,nta,nAdd);d.appendChild(npop);
+  npop.append(nlist,nta,nAdd);
   notesBtn.onclick=()=>{const open=npop.classList.toggle("open");open?taskNotesOpen.add(t.id):taskNotesOpen.delete(t.id);if(open)nta.focus();};
   // files pop -> attach files to the task (stored in Firebase Storage; metadata on the task doc)
   const fpop=document.createElement("div");fpop.className="pop"+(taskFilesOpen.has(t.id)?" open":"");fpop.appendChild(attachmentsBox("tasks",t.id,taskFiles));d.appendChild(fpop);
@@ -1840,15 +1840,18 @@ function taskCard(t){
   rmv.title="Move to Trash";rmv.onclick=e=>{e.stopPropagation();dotDrop.classList.remove("open");deleteTask(t.id);};
   // Notes / Files / Claude prompt / Model selector row — isolated from the main action toolbar.
   const nfRow=document.createElement("div");nfRow.className="nf-row";
-  filesBtn.style.marginLeft="auto";nfRow.append(notesBtn,ask,lvl,filesBtn);d.appendChild(nfRow);
-  // Dedicated Edit / Run row — Edit left-aligned, Run right-aligned, isolated from the acts toolbar.
+  filesBtn.style.marginLeft="auto";nfRow.append(notesBtn,ask,filesBtn);d.appendChild(nfRow);
+  d.appendChild(npop);
+  // Dedicated Edit / Run row — Edit left-aligned, Model+Run right-aligned, isolated from the acts toolbar.
   const erRow=document.createElement("div");erRow.className="er-row";
   const erEdit=document.createElement("button");erEdit.className="er-edit";erEdit.textContent="Edit";
   erEdit.onclick=()=>{const open=epop.classList.toggle("open");open?taskEditOpen.add(t.id):taskEditOpen.delete(t.id);};
   const erRun=document.createElement("button");erRun.className="runbtn";
   erRun.textContent=run.textContent;erRun.title=run.title;if(runLive)erRun.disabled=true;
   erRun.onclick=run.onclick;
-  erRow.append(erEdit,erRun);if(reset)erRow.append(reset);d.appendChild(erRow);
+  const erRight=document.createElement("div");erRight.style.cssText="display:flex;align-items:center;gap:6px;";
+  erRight.append(lvl,erRun);if(reset)erRight.append(reset);
+  erRow.append(erEdit,erRight);d.appendChild(erRow);
   return d;
 }
 // User-resizable task popout — floats the full task editor (taskCard) in a modal the user can drag larger from
