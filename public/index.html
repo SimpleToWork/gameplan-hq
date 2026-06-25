@@ -549,9 +549,14 @@ let identityUnknown=false; // true when the signed-in account isn't in the roste
 let page="capture";
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
 let speechRec=null;          // active Web Speech recognition while dictating in Capture; null when idle
-let captureCats=null;        // Capture: Set of disciplines the AI may pick from when drafting tasks; null/empty = all disciplines
-let captureCatsDefaulted=false; // once true, the signed-in member's profile disciplines won't re-seed captureCats (also set when the user edits the picker)
-let captureRoadmapId=null;   // Capture: roadmap target id pre-selected in the capture area; every drafted task inherits it (null = no link). Read only in captureTasks.
+// Capture picker selections persist across page refreshes via localStorage (gp_capturePrefs). Seeded from the
+// saved blob on load; saveCapturePrefs() rewrites it on every change. If a refresh restored an explicit choice,
+// captureCatsDefaulted stays true so the profile re-seed (applyCaptureCatsDefault) won't clobber it.
+let _capPrefs=(()=>{try{const o=JSON.parse(localStorage.getItem("gp_capturePrefs"));return (o&&typeof o==="object")?o:{};}catch(e){return {};}})();
+let captureCats=Array.isArray(_capPrefs.cats)?new Set(_capPrefs.cats):null; // Capture: Set of disciplines the AI may pick from when drafting tasks; null/empty = all disciplines
+let captureCatsDefaulted=!!_capPrefs.defaulted; // once true, the signed-in member's profile disciplines won't re-seed captureCats (also set when the user edits the picker); restored from a prior session so a saved choice survives refresh
+let captureRoadmapId=(typeof _capPrefs.roadmapId==="string")?_capPrefs.roadmapId:null;   // Capture: roadmap target id pre-selected in the capture area; every drafted task inherits it (null = no link). Read only in captureTasks.
+function saveCapturePrefs(){try{localStorage.setItem("gp_capturePrefs",JSON.stringify({cats:captureCats?[...captureCats]:null,defaulted:captureCatsDefaulted,roadmapId:captureRoadmapId||null}));}catch(e){}}
 let captureCatMQ=null;       // Capture: the (matchMedia, handler) pair wiring the mobile category dropdown to viewport changes; tracked so each renderCapture detaches the prior one (no listener leak across tab switches).
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
@@ -654,6 +659,7 @@ function applyCaptureCatsDefault(){
   const cats=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];
   if(cats.length)captureCats=new Set(cats);
   captureCatsDefaulted=true;                            // roster is present: apply once and stop, match or not
+  saveCapturePrefs();
   return true;
 }
 // Reset the Tasks filters to a clean default: My tasks (or All for off-roster), Today, Due date, and no
@@ -1362,12 +1368,12 @@ function renderCapture(m){m=m||document.getElementById("main");
       const row=document.createElement("label");row.className="opt";
       const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureCats&&captureCats.has(c));
       const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+color+";";
-      cb.onchange=()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();cb.checked?captureCats.add(c):captureCats.delete(c);if(!captureCats.size)captureCats=null;anchor.firstChild.textContent=catSummary();};
+      cb.onchange=()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();cb.checked?captureCats.add(c):captureCats.delete(c);if(!captureCats.size)captureCats=null;saveCapturePrefs();anchor.firstChild.textContent=catSummary();};
       row.append(cb,sw,document.createTextNode(c));pop.appendChild(row);
     });
     const acts=document.createElement("div");acts.style.cssText="display:flex;gap:6px;margin-top:8px;";
-    const reset=document.createElement("button");reset.className="btn sm";reset.textContent="Reset";reset.title="Reset to your profile categories";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();pop.remove();rebuildD();};
-    const clr=document.createElement("button");clr.className="btn sm";clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;pop.remove();rebuildD();};
+    const reset=document.createElement("button");reset.className="btn sm";reset.textContent="Reset";reset.title="Reset to your profile categories";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();saveCapturePrefs();pop.remove();rebuildD();};
+    const clr=document.createElement("button");clr.className="btn sm";clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;saveCapturePrefs();pop.remove();rebuildD();};
     acts.append(reset,clr);pop.appendChild(acts);place();
   };
   const rebuildD=()=>{
@@ -1382,10 +1388,10 @@ function renderCapture(m){m=m||document.getElementById("main");
     }
     // Multi-select: each discipline toggles independently; the AI picks one per task ONLY from the selected set.
     // No selection = the AI may use any discipline. Reset returns to the member's profile default; Clear empties the selection.
-    CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",!!(captureCats&&captureCats.has(c)),()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();captureCats.has(c)?captureCats.delete(c):captureCats.add(c);if(!captureCats.size)captureCats=null;rebuildD();})));
-    const reset=document.createElement("button");reset.textContent="Reset";reset.title="Reset to your profile categories";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();rebuildD();};
+    CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",!!(captureCats&&captureCats.has(c)),()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();captureCats.has(c)?captureCats.delete(c):captureCats.add(c);if(!captureCats.size)captureCats=null;saveCapturePrefs();rebuildD();})));
+    const reset=document.createElement("button");reset.textContent="Reset";reset.title="Reset to your profile categories";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();saveCapturePrefs();rebuildD();};
     dRow.appendChild(reset);
-    if(captureCats&&captureCats.size){const clr=document.createElement("button");clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;rebuildD();};dRow.appendChild(clr);}
+    if(captureCats&&captureCats.size){const clr=document.createElement("button");clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;saveCapturePrefs();rebuildD();};dRow.appendChild(clr);}
   };
   // Re-render the picker if the viewport crosses the breakpoint (e.g. phone rotation) so it swaps between row/dropdown.
   // Detach the listener from the previous renderCapture first so they don't pile up (each render rebuilds this DOM).
@@ -1397,10 +1403,10 @@ function renderCapture(m){m=m||document.getElementById("main");
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
   // Roadmap pre-select — every drafted task inherits this target (each proposal row can still override it before approving).
   // Drop a stale id if the target was deleted since it was picked, so we never auto-link to a missing target.
-  if(captureRoadmapId&&!DB.roadmap.find(r=>r.id===captureRoadmapId))captureRoadmapId=null;
+  if(captureRoadmapId&&!DB.roadmap.find(r=>r.id===captureRoadmapId)){captureRoadmapId=null;saveCapturePrefs();}
   const rmRow=document.createElement("div");rmRow.className="views";rmRow.style.margin="8px 0 0";
   const rmLab=document.createElement("span");rmLab.className="cmeta";rmLab.style.cssText="align-self:center;margin-right:4px;";rmLab.title="Auto-link every drafted task to this roadmap target (you can change it per task in review)";rmLab.textContent="Roadmap:";rmRow.appendChild(rmLab);
-  rmRow.appendChild(roadmapSelect(captureRoadmapId,v=>{captureRoadmapId=v;}));
+  rmRow.appendChild(roadmapSelect(captureRoadmapId,v=>{captureRoadmapId=v;saveCapturePrefs();}));
   cr.parentNode.insertBefore(rmRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});
