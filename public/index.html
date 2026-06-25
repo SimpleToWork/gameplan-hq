@@ -639,6 +639,7 @@ let ghInstalls=null;         // cached GitHub App installations [{account,manage
 let ghReposErr=null;         // last error from loading connected repos (e.g. "App not configured"); shown in Settings
 let roadmapView="list";      // list | timeline | kanban | plot | table
 let rmSort="manual";         // manual | start | target | added | az | za
+let rmTableSort={col:"area",dir:"asc"}; // table-view column sort: col=area|title|phase|start|target|asg, dir=asc|desc
 let rmSearch="";             // free-text search over roadmap title/detail; "" = off
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
 let rmFilterOpen=true;       // is the area Filter row expanded?
@@ -3170,6 +3171,16 @@ function sortTargets(items){
   if(rmSort==="za")return items.slice().sort((a,b)=>(b.title||"").localeCompare(a.title||""));
   return sortManual(items);
 }
+function sortTableTargets(items){
+  const {col,dir}=rmTableSort;const d=dir==="asc"?1:-1;
+  return items.slice().sort((a,b)=>{
+    if(col==="start")return d*cmpDateAsc(a.start,b.start);
+    if(col==="target")return d*cmpDateAsc(a.target,b.target);
+    const av=(col==="area"?a.area:col==="title"?a.title:col==="phase"?phaseOf(a):col==="asg"?(a.assignees&&a.assignees[0])||"":"")||"";
+    const bv=(col==="area"?b.area:col==="title"?b.title:col==="phase"?phaseOf(b):col==="asg"?(b.assignees&&b.assignees[0])||"":"")||"";
+    return d*av.localeCompare(bv);
+  });
+}
 // Drag-and-drop reorder within a manual-sorted sibling group: move dragged before/after the drop target, then renumber.
 async function reorderTarget(draggedId,targetId,before,group){
   if(draggedId===targetId)return;
@@ -3381,13 +3392,16 @@ function renderRoadmap(m){
   const rmS=document.createElement("input");rmS.type="search";rmS.className="ctrl";rmS.id="rmSearch";rmS.placeholder="Search roadmap\u2026";rmS.value=rmSearch;rmS.style.cssText="min-width:150px;max-width:240px;margin-left:8px;";
   rmS.oninput=()=>{rmSearch=rmS.value;renderRoadmap();};
   bar.appendChild(rmS);
-  if(roadmapView==="list"||roadmapView==="kanban"||roadmapView==="table"){
+  if(roadmapView==="list"||roadmapView==="kanban"){
     const sw=document.createElement("div");sw.style.cssText="display:flex;align-items:center;gap:7px;margin-left:auto;";
     const sl=document.createElement("span");sl.className="cmeta";sl.textContent="Sort:";
     const ss=document.createElement("select");ss.className="ctrl";ss.style.fontSize="12.5px";
     [["manual","Manual (custom order)"],["start","Start date"],["target","Target date"],["added","Date added"],["az","Title A–Z"],["za","Title Z–A"]].forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;if(rmSort===v)o.selected=true;ss.appendChild(o);});
     ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
     sw.append(sl,ss);bar.appendChild(sw);
+  }
+  if(roadmapView==="table"){
+    const gb=document.createElement("button");gb.className="btn sm";gb.style.cssText="margin-left:auto;";gb.textContent="Go to Tasks →";gb.onclick=()=>setPage("tasks");bar.appendChild(gb);
   }
   const {row:fl,scroll:flScroll,add:flAdd}=rmScrollRow("cmeta rmrow-label","Filter:");
   fl.style.margin="6px 0 4px";
@@ -3464,10 +3478,11 @@ function renderRoadmapList(m){
   if(focusRoadmapId){requestAnimationFrame(()=>{const el=m.querySelector('[data-rid="'+focusRoadmapId+'"]');if(el){focusRoadmapId=null;el.scrollIntoView({behavior:"smooth",block:"center"});el.classList.add("flash");setTimeout(()=>el.classList.remove("flash"),1600);}});}
 }
 // Table view — one flat, scannable grid of every visible target. Honours the same Area/People/Search
-// filters (rmFilteredTargets) and the Sort dropdown (sortTargets) as the List/Kanban views.
+// filters (rmFilteredTargets) as the List/Kanban views. Column headers are clickable to sort.
+// Area is the first column and defaults to A–Z sort (rmTableSort persists within the session).
 function renderRoadmapTable(m){
   if(!DB.roadmap.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No targets yet</div>Capture above, or add one by hand.</div>');return;}
-  const base=sortTargets(rmFilteredTargets());
+  const base=sortTableTargets(rmFilteredTargets());
   if(!base.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No matching targets</div>Adjust the area, people, or search filters above.</div>');return;}
   // Per-column header filters (Area / Phase / Assignees). Each column's options are scoped by the OTHER active column
   // filters (colOptionsCtx) so the dropdowns are context-aware of each other, never by the column's own filter; rows are
@@ -3477,11 +3492,15 @@ function renderRoadmapTable(m){
   const wrap=document.createElement("div");wrap.className="rmtable-wrap";
   const tbl=document.createElement("table");tbl.className="rmtable";
   const thead=document.createElement("thead");const htr=document.createElement("tr");
-  [plainTh("Target"),plainTh("Description"),
-   colFilterTh("Area","area",colOptionsCtx(base,"area",RM_COL_ACC,areaNames(),F),F,renderRoadmap),
-   colFilterTh("Phase","phase",colOptionsCtx(base,"phase",RM_COL_ACC,phaseNames(),F),F,renderRoadmap),
-   plainTh("Start"),plainTh("Target date"),
-   colFilterTh("Assignees","asg",colOptionsCtx(base,"asg",RM_COL_ACC,roster().map(m=>m.name),F),F,renderRoadmap),
+  // Sortable plain header — clicking cycles asc/desc for that column.
+  const sortTh=(label,col)=>{const th=document.createElement("th");const on=rmTableSort.col===col;th.innerHTML=esc(label)+'<span style="opacity:'+(on?.9:.3)+';font-size:9px;margin-left:3px;">'+(on?(rmTableSort.dir==="asc"?"▲":"▼"):"⇅")+'</span>';th.style.cursor="pointer";th.title="Sort by "+label;th.onclick=()=>{if(rmTableSort.col===col)rmTableSort.dir=rmTableSort.dir==="asc"?"desc":"asc";else rmTableSort={col,dir:"asc"};renderRoadmap();};return th;};
+  // Sortable + filterable header: filter button handles filter popup (stopPropagation), th click sorts.
+  const filterSortTh=(label,col,field,opts)=>{const th=colFilterTh(label,field,opts,F,renderRoadmap);const btn=th.querySelector(".colfilter");const orig=btn.onclick;btn.onclick=e=>{e.stopPropagation();orig.call(btn,e);};const on=rmTableSort.col===col;const sp=document.createElement("span");sp.style.cssText="opacity:"+(on?.9:.3)+";font-size:9px;";sp.textContent=on?(rmTableSort.dir==="asc"?" ▲":" ▼"):" ⇅";btn.appendChild(sp);th.style.cursor="pointer";th.onclick=()=>{if(rmTableSort.col===col)rmTableSort.dir=rmTableSort.dir==="asc"?"desc":"asc";else rmTableSort={col,dir:"asc"};renderRoadmap();};return th;};
+  [filterSortTh("Area","area","area",colOptionsCtx(base,"area",RM_COL_ACC,areaNames(),F)),
+   sortTh("Target","title"),plainTh("Description"),
+   filterSortTh("Phase","phase","phase",colOptionsCtx(base,"phase",RM_COL_ACC,phaseNames(),F)),
+   sortTh("Start","start"),sortTh("Target date","target"),
+   filterSortTh("Assignees","asg","asg",colOptionsCtx(base,"asg",RM_COL_ACC,roster().map(r=>r.name),F)),
    plainTh("Tasks")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
@@ -3490,13 +3509,13 @@ function renderRoadmapTable(m){
     const ac=areaColor(r.area);const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
     const linked=DB.tasks.filter(t=>t.roadmapId===r.id&&!t.trashed);const done=linked.filter(t=>t.status==="Done").length;
     const tr=document.createElement("tr");tr.dataset.rid=r.id;
-    const titleCell='<td><div class="rt-title">'+esc(r.title)+'</div></td>';
     const areaCell='<td><span class="chip" style="background:'+ac+'22;color:'+ac+'">'+esc(r.area)+'</span></td>';
+    const titleCell='<td><div class="rt-title">'+esc(r.title)+'</div></td>';
     const phaseCell='<td><span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span></td>';
     const startCell='<td class="cmeta">'+esc(r.start||"—")+'</td>';
     const targetCell='<td class="cmeta">'+esc(r.target||"—")+'</td>';
     const tasksCell='<td>'+(linked.length?'<span class="linkcount">'+done+'/'+linked.length+'</span>':'<span class="cmeta">—</span>')+'</td>';
-    tr.innerHTML=titleCell+'<td class="rt-desc"></td>'+areaCell+phaseCell+startCell+targetCell+'<td class="rt-asg"></td>'+tasksCell;
+    tr.innerHTML=areaCell+titleCell+'<td class="rt-desc"></td>'+phaseCell+startCell+targetCell+'<td class="rt-asg"></td>'+tasksCell;
     const ttEl=tr.querySelector(".rt-title");ttEl.title="Open details";ttEl.onclick=()=>openRoadmapModal(r);
     // Description column — read-only, clamped, full text on hover (DOM-set so quotes in detail are safe).
     const dc=tr.querySelector(".rt-desc");if(r.detail){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=r.detail;dv.title=r.detail;dc.appendChild(dv);}else dc.innerHTML='<span class="cmeta">—</span>';
