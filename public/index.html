@@ -1719,7 +1719,7 @@ function taskCard(t){
   const link=document.createElement("button");link.textContent=rm?"Roadmap ▸":"Roadmap";link.title=rm?"Linked to: "+rm.title:"Link to a roadmap target";
   // One-click unlink, shown only when a target is linked (no need to open the picker to clear it).
   const unlink=rm?document.createElement("button"):null;
-  if(unlink){unlink.className="rm";unlink.textContent="✕";unlink.title="Unlink roadmap target";unlink.onclick=()=>setTask(t.id,{roadmapId:null});}
+  if(unlink){unlink.className="rm";unlink.textContent="✕";unlink.title="Unlink roadmap target";unlink.onclick=e=>{e.stopPropagation();if(taskRoadmap&&taskRoadmap.targetId&&taskRoadmap.targetId===t.roadmapId){taskRoadmap=null;taskRmOpen=false;}setTask(t.id,{roadmapId:null});};}
   link.className="mini";if(rm){link.style.cssText="background:#ecebfb;color:#4646c8;border-color:#4646c855;font-weight:600;";}else{link.style.cssText="color:var(--muted);";}
   if(unlink){unlink.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0 2px;flex-shrink:0;";unlink.onmouseover=()=>{unlink.style.color="var(--danger)";};unlink.onmouseout=()=>{unlink.style.color="var(--muted)";};}
   crow.append(link);if(unlink)crow.append(unlink);crow.append(dueIn);
