@@ -465,6 +465,8 @@ import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 /* ============== CONFIG — FILL THESE IN ============== */
 const firebaseConfig = {
@@ -488,9 +490,9 @@ const FF_ENDPOINT = "/api/fireflies";  // co-located Vercel function — pulls a
 const ALLOWED_DOMAIN = "merchantsbi.com";
 /* ==================================================== */
 
-let db=null, auth=null, fbReady=false;
+let db=null, auth=null, storage=null, fbReady=false;
 try{
-  if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); auth=getAuth(app); fbReady=true; }
+  if(!firebaseConfig.apiKey.startsWith("PASTE")){ const app=initializeApp(firebaseConfig); db=getFirestore(app); auth=getAuth(app); try{storage=getStorage(app);}catch(_){} fbReady=true; }
 }catch(e){ console.error("Firebase init failed",e); }
 
 // `email` binds a Google login to a roster member (see resolveIdentity). The AUTHORITATIVE emails
@@ -801,6 +803,68 @@ async function fbAdd(name,data){ if(!fbReady)throw new Error("Firebase not confi
 async function fbUpdate(name,id,patch){ if(!fbReady)throw new Error("Firebase not configured"); await updateDoc(doc(db,name,id),patch); }
 async function fbSet(name,id,data,merge){ if(!fbReady)throw new Error("Firebase not configured"); await setDoc(doc(db,name,id),data,merge?{merge:true}:{}); }
 async function fbDelete(name,id){ if(!fbReady)throw new Error("Firebase not configured"); await deleteDoc(doc(db,name,id)); }
+
+/* ---------- File attachments (Firebase Storage) ----------
+   Files live in Storage at attachments/<coll>/<docId>/<key>-<name>; the per-file metadata
+   ({name,size,type,path,url,by,at}) is mirrored into the doc's `attachments[]` array so the
+   board shows them via the same onSnapshot listeners. Shared by tasks, agendas and agents. */
+const ATT_MAX=25*1024*1024; // 25 MB per file
+function fmtBytes(n){ if(n==null||isNaN(n))return""; const u=["B","KB","MB","GB"];let i=0,v=n; while(v>=1024&&i<u.length-1){v/=1024;i++;} return (i?v.toFixed(1):v)+" "+u[i]; }
+const attUid=()=>{try{return crypto.randomUUID();}catch(e){return Date.now().toString(36)+Math.random().toString(36).slice(2,10);}};
+// Upload one or more files, then append their metadata to <coll>/<docId>.attachments. Returns the added entries.
+async function uploadAttachments(coll,docId,files){
+  if(!fbReady||!storage)throw new Error("Storage isn’t configured.");
+  if(!docId)throw new Error("Save this first, then attach files.");
+  const added=[];
+  for(const file of files){
+    if(file.size>ATT_MAX)throw new Error('“'+file.name+'” is '+fmtBytes(file.size)+' — over the 25 MB limit.');
+    const path="attachments/"+coll+"/"+docId+"/"+attUid()+"-"+file.name;
+    const r=sRef(storage,path);
+    await uploadBytes(r,file,{contentType:file.type||"application/octet-stream"});
+    const url=await getDownloadURL(r);
+    added.push({name:file.name,size:file.size,type:file.type||"",path,url,by:identity,at:new Date().toISOString()});
+  }
+  await fbUpdate(coll,docId,{attachments:arrayUnion(...added)});
+  return added;
+}
+// Remove one attachment: delete the Storage object (best-effort) then rewrite the array without it.
+async function removeAttachment(coll,docId,att,current){
+  try{ if(att.path&&storage)await deleteObject(sRef(storage,att.path)); }catch(e){ /* object may already be gone */ }
+  const live=current||((DB[coll]||[]).find(x=>x.id===docId)||{}).attachments||[];
+  await fbUpdate(coll,docId,{attachments:live.filter(x=>x.path!==att.path)});
+}
+// Self-contained attachments UI (list + uploader). Keeps a local copy of the array so it refreshes
+// in place inside long-lived surfaces (e.g. the agent modal) that don't re-render on snapshot.
+function attachmentsBox(coll,docId,seed){
+  const box=document.createElement("div");box.style.cssText="display:flex;flex-direction:column;gap:8px;";
+  let cur=Array.isArray(seed)?seed.slice():(((DB[coll]||[]).find(x=>x.id===docId)||{}).attachments||[]).slice();
+  const list=document.createElement("div");list.style.cssText="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;";
+  const render=()=>{
+    list.innerHTML="";
+    if(!cur.length){list.innerHTML='<div class="cmeta">No files attached yet.</div>';return;}
+    cur.forEach(att=>{
+      const row=document.createElement("div");row.style.cssText="display:flex;align-items:center;gap:8px;font-size:12.5px;";
+      const lnk=document.createElement("a");lnk.href=att.url;lnk.target="_blank";lnk.rel="noopener";lnk.textContent=att.name;lnk.title="Open "+att.name;lnk.style.cssText="flex:1;min-width:0;word-break:break-all;color:var(--accent,#4646c8);text-decoration:none;";
+      const meta=document.createElement("span");meta.className="cmeta";meta.style.whiteSpace="nowrap";meta.textContent=[fmtBytes(att.size),att.by].filter(Boolean).join(" · ");
+      const x=document.createElement("button");x.className="rm";x.textContent="remove";x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;";
+      x.onclick=async()=>{if(!confirm('Remove “'+att.name+'”?'))return;try{await removeAttachment(coll,docId,att,cur);cur=cur.filter(z=>z.path!==att.path);render();banner("Attachment removed.","ok");}catch(e){banner(e.message,"err");}};
+      row.append(lnk,meta,x);list.appendChild(row);
+    });
+  };
+  render();
+  const ctrls=document.createElement("div");ctrls.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+  const file=document.createElement("input");file.type="file";file.multiple=true;file.style.cssText="font-size:12px;max-width:100%;";
+  const up=document.createElement("button");up.className="btn primary sm";up.textContent="Upload";
+  up.onclick=async()=>{
+    const files=Array.from(file.files||[]);if(!files.length){banner("Choose a file first.","err");return;}
+    up.disabled=true;up.innerHTML='<span class="spin"></span> Uploading';
+    try{const added=await uploadAttachments(coll,docId,files);cur=cur.concat(added);file.value="";render();banner("Attached "+added.length+" file"+(added.length!==1?"s":"")+".","ok");}
+    catch(e){banner(e.message,"err");}
+    up.disabled=false;up.textContent="Upload";
+  };
+  ctrls.append(file,up);box.append(list,ctrls);
+  return box;
+}
 
 let subUnsubs=[];
 function subscribeAll(){
@@ -1417,6 +1481,8 @@ function taskCard(t){
   const unlink=rm?document.createElement("button"):null;
   if(unlink){unlink.className="rm";unlink.textContent="✕";unlink.title="Unlink roadmap target";unlink.onclick=()=>setTask(t.id,{roadmapId:null});}
   const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
+  const taskFiles=Array.isArray(t.attachments)?t.attachments:[];
+  const filesBtn=document.createElement("button");filesBtn.textContent=taskFiles.length?("📎 Files ("+taskFiles.length+")"):"📎 Files";filesBtn.title="Attach / view files";
   const ask=document.createElement("button");ask.title="Ask Claude";ask.setAttribute("aria-label","Ask Claude");
   // Claude logo (inline sunburst mark, clay #D97757) replaces the "Ask Claude" text; title/aria-label keep it accessible.
   ask.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
@@ -1444,7 +1510,7 @@ function taskCard(t){
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
+  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
   // Live run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in
   // flight. Lives via onSnapshot: each board write re-renders the card, so the panel updates in place.
   if(t.runStatus==="running"||t.runStatus==="queued"){
@@ -1540,6 +1606,9 @@ function taskCard(t){
   nAdd.onclick=()=>{const v=nta.value.trim();if(!v){banner("Note can’t be empty.","err");return;}addTaskNote(t.id,v);nta.value="";banner("Note added by "+identity+".","ok");};
   npop.append(nlist,nta,nAdd);d.appendChild(npop);
   notesBtn.onclick=()=>{npop.classList.toggle("open");if(npop.classList.contains("open"))nta.focus();};
+  // files pop -> attach files to the task (stored in Firebase Storage; metadata on the task doc)
+  const fpop=document.createElement("div");fpop.className="pop";fpop.appendChild(attachmentsBox("tasks",t.id,taskFiles));d.appendChild(fpop);
+  filesBtn.onclick=()=>fpop.classList.toggle("open");
   // ask pop -> builds a prompt to paste into claude.ai
   const qpop=document.createElement("div");qpop.className="pop";
   const qt=document.createElement("textarea");qt.className="ctrl";qt.placeholder="What do you want to ask about this task? (optional — leave blank for a general approach)";
@@ -1636,6 +1705,11 @@ function openTaskNotesPop(anchor,t){
   const nAdd=document.createElement("button");nAdd.className="btn primary sm";nAdd.style.alignSelf="flex-start";nAdd.textContent="Add note as "+identity;
   nAdd.onclick=()=>{const v=nta.value.trim();if(!v){banner("Note can’t be empty.","err");return;}addTaskNote(t.id,v);pop.remove();banner("Note added by "+identity+".","ok");};
   pop.append(nlist,nta,nAdd);place();nta.focus();
+}
+// Files — the same attachments editor as the card, floated for the table.
+function openTaskFilesPop(anchor,t){
+  const {pop,place}=floatTaskPop(anchor);
+  pop.appendChild(attachmentsBox("tasks",t.id,Array.isArray(t.attachments)?t.attachments:[]));place();
 }
 // Ask Claude — the same prompt builder as the card, floated for the table.
 function openTaskAskPop(anchor,t){
@@ -1783,7 +1857,7 @@ function taskTable(items,secLabel){
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   const F=tableColFilters.tasks,o=taskColOpts;
   const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
@@ -1837,6 +1911,10 @@ function taskTable(items,secLabel){
     const notes=Array.isArray(t.notes)?t.notes:[];
     const tdNotes=document.createElement("td");const nBtn=document.createElement("button");nBtn.type="button";nBtn.className="tt-asgbtn";nBtn.textContent=notes.length?("Notes ("+notes.length+")"):"Notes";nBtn.title="View / add notes";
     nBtn.onclick=()=>openTaskNotesPop(nBtn,t);tdNotes.appendChild(nBtn);
+    // Files — opens the floating attachments editor (same store as the card's 📎 Files).
+    const files=Array.isArray(t.attachments)?t.attachments:[];
+    const tdFiles=document.createElement("td");const fBtn=document.createElement("button");fBtn.type="button";fBtn.className="tt-asgbtn";fBtn.textContent=files.length?("📎 ("+files.length+")"):"📎";fBtn.title="Attach / view files";
+    fBtn.onclick=()=>openTaskFilesPop(fBtn,t);tdFiles.appendChild(fBtn);
     // Ask — opens the floating Claude prompt builder (same as the card's Ask Claude).
     const tdAsk=document.createElement("td");const qBtn=document.createElement("button");qBtn.type="button";qBtn.className="tt-asgbtn";qBtn.title="Ask Claude";qBtn.setAttribute("aria-label","Ask Claude");
     qBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:middle;display:inline-block;"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round"><line x1="12" y1="12" x2="12" y2="3.5"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(30 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(60 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(90 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(120 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(150 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(180 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(210 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(240 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(270 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(300 12 12)"/><line x1="12" y1="12" x2="12" y2="3.5" transform="rotate(330 12 12)"/></g></svg>';
@@ -1861,7 +1939,7 @@ function taskTable(items,secLabel){
     idEl.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;";
     const idCellIco=document.createElement("span");idCellIco.className="copy-ico";idCellIco.textContent="📋";idCellIco.setAttribute("aria-hidden","true");idEl.appendChild(idCellIco);
     idEl.onclick=()=>{try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};tdId.appendChild(idEl);
-    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdAsk,tdRun,tdDur,tdId);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdId);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
@@ -3568,6 +3646,14 @@ function renderAgendas(m){
       }else{nw.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:6px;">No notes yet — click <b>Paste notes</b> and drop in your Fireflies summary (or any meeting transcript).</div>');}
       el.appendChild(nw);
     }
+    // Attachments — files for this agenda (slides, docs, pre-reads), stored in Firebase Storage.
+    {
+      const fw=document.createElement("div");fw.style.cssText="margin-top:12px;border-top:1px solid var(--line,#e6e6e3);padding-top:10px;";
+      const fcount=(a.attachments||[]).length;
+      fw.insertAdjacentHTML("beforeend",'<div style="font-weight:700;font-size:13px;margin-bottom:8px;">📎 Files'+(fcount?' ('+fcount+')':'')+'</div>');
+      fw.appendChild(attachmentsBox("agendas",a.id,Array.isArray(a.attachments)?a.attachments:[]));
+      el.appendChild(fw);
+    }
     const del=document.createElement("button");del.className="btn sm";del.style.cssText="margin-top:10px;margin-left:8px;";del.textContent="Delete agenda";
     // Inline confirm before this permanent, doubly-destructive action (also cancels the Google Calendar invite).
     del.onclick=()=>{
@@ -4303,6 +4389,11 @@ function agentModal(existing){
       fOutputs=field("Outputs",area(a.outputs,40)),fNotes=field("Notes — auth, pagination, rate limits",area(a.notes,55)),
       fRepoUrl=field("Repo (connected repos)",repoSel(a.repoUrl)),fRepoPath=field("Repo path (e.g. agents/connector-id.md)",inp(a.repoPath));
     const fDefaultTask=field("Default linked task — a successful run auto-marks it Done",taskSel(a.defaultTaskId));
+    // Attachments — reference files for this agent (specs, sample payloads, credentials docs). Needs a saved
+    // doc to attach to, so for a brand-new agent we prompt to save first; existing agents get the live uploader.
+    {const fl=document.createElement("div");fl.className="cmeta";fl.style.cssText="font-weight:600;margin-top:6px;";fl.textContent="📎 Files";wrap.appendChild(fl);
+     if(existing&&a.id)wrap.appendChild(attachmentsBox("agents",a.id,Array.isArray(a.attachments)?a.attachments:[]));
+     else wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">Save the agent first, then reopen to attach files.</div>');}
     draftBtn.onclick=async()=>{
       const d=dDesc.value.trim();if(!d){draftHint.textContent="Write a description first.";return;}
       draftBtn.disabled=true;draftBtn.innerHTML='<span class="spin"></span> Drafting';draftHint.textContent="";
