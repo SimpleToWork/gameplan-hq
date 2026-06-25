@@ -201,7 +201,7 @@
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
   /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers and context. */
-  .card.collapsed .avas,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .pop,.card.collapsed .cmeta{display:none;}
+  .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .pop,.card.collapsed .cmeta{display:none;}
   /* Don't let a lone collapsed card stretch to its grid row's height (set by taller expanded neighbors). */
   .card.collapsed{align-self:start;}
   .ccollapse{margin-left:auto;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;}
@@ -238,6 +238,12 @@
   .ava{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;margin-left:-5px;border:1.5px solid var(--surface);}
   .ava:first-child{margin-left:0;}
   .ava.empty{background:#e7e8ec;color:#9aa0a8;}
+  /* Assign button sitting beside the "Created by" label, + selected assignees as horizontal acronym bubbles beneath it. */
+  .asgbtn{border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;font-size:10.5px;padding:2px 8px;border-radius:7px;line-height:1.4;}
+  .asgbtn:hover{color:var(--ink);border-color:var(--muted);}
+  .asgbubs{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+  .asgbub{padding:2px 7px;border-radius:10px;color:#fff;font-size:9px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:default;}
+  .asgbub.empty{background:#e7e8ec;color:#9aa0a8;}
   .crow{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
   .mini{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:var(--surface);color:var(--ink);cursor:pointer;max-width:150px;}
   .acts{display:flex;gap:11px;align-items:center;font-size:11.5px;}
@@ -1449,12 +1455,16 @@ function taskCard(t){
   setChev();
   chev.onclick=e=>{e.stopPropagation();const on=d.classList.toggle("collapsed");on?taskCollapsed.add(t.id):taskCollapsed.delete(t.id);setChev();};
   const chipsRow=top.querySelector(".chips");if(chipsRow)chipsRow.appendChild(chev);
-  const ar=document.createElement("div");ar.className="avas";ar.style.marginTop="2px";
-  (t.assignees&&t.assignees.length?t.assignees:[]).slice(0,4).forEach(n=>{const mm=member(n);const a=document.createElement("div");a.className="ava";a.style.background=mm?mm.color:"#9aa0a8";a.textContent=initials(n);a.title=n;ar.appendChild(a);});
-  if(!t.assignees||!t.assignees.length){const a=document.createElement("div");a.className="ava empty";a.textContent="—";ar.appendChild(a);}
-  // Provenance label: who created the task, set apart from the assignee avatars above. Display-only; legacy tasks with no createdBy fall back to "Unknown".
-  const by=document.createElement("span");by.className="cmeta";by.style.cssText="margin-left:8px;white-space:nowrap;";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
+  // Provenance row: who created the task, with the Assign button beside it. Legacy tasks with no createdBy fall back to "Unknown".
+  const ar=document.createElement("div");ar.className="avas";ar.style.cssText="margin-top:2px;gap:8px;";
+  const by=document.createElement("span");by.className="cmeta";by.style.whiteSpace="nowrap";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
+  const asg=document.createElement("button");asg.className="asgbtn";asg.textContent="Assign";asg.title="Assign people to this task";ar.appendChild(asg);
   d.appendChild(ar);
+  // Selected assignees shown as horizontal acronym bubbles beneath the Created by field; hover a bubble for the full name.
+  const asgb=document.createElement("div");asgb.className="asgbubs";
+  (t.assignees&&t.assignees.length?t.assignees:[]).forEach(n=>{const mm=member(n);const b=document.createElement("span");b.className="asgbub";b.style.background=mm?mm.color:"#9aa0a8";b.textContent=initials(n);b.title=n;asgb.appendChild(b);});
+  if(!t.assignees||!t.assignees.length){const b=document.createElement("span");b.className="asgbub empty";b.textContent="—";b.title="Unassigned";asgb.appendChild(b);}
+  d.appendChild(asgb);
   // Internal task ID — its own subtle monospace line (truncated; full id on hover + click-to-copy). Off the crowded
   // provenance row so it can't overflow the ~310px card. Hidden when the card collapses (.cmeta rule).
   const idLine=document.createElement("div");idLine.className="cmeta idcopy";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
@@ -1474,7 +1484,6 @@ function taskCard(t){
   d.appendChild(crow);
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
-  const asg=document.createElement("button");asg.textContent="Assign";
   const edit=document.createElement("button");edit.textContent="Edit";
   const link=document.createElement("button");link.textContent=rm?"Roadmap ▸":"Roadmap";link.title=rm?"Linked to: "+rm.title:"Link to a roadmap target";
   // One-click unlink, shown only when a target is linked (no need to open the picker to clear it).
@@ -1510,7 +1519,7 @@ function taskCard(t){
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(asg,edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
+  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
   // Live run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in
   // flight. Lives via onSnapshot: each board write re-renders the card, so the panel updates in place.
   if(t.runStatus==="running"||t.runStatus==="queued"){
