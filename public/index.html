@@ -5453,13 +5453,13 @@ function renderAgents(m){
   }
   m.appendChild(head);
   // Search bar — preserves focus + caret across per-keystroke re-renders.
-  const _agSe=document.getElementById(“agentPageSearch”);const _agRefocus=!!(_agSe&&document.activeElement===_agSe);const _agCaret=_agRefocus?(_agSe.selectionStart??_agSe.value.length):0;
-  const agbar=document.createElement(“div”);agbar.style.cssText=”display:flex;gap:8px;align-items:center;margin:8px 0 4px;”;
-  const agS=document.createElement(“input”);agS.type=”search”;agS.className=”ctrl”;agS.id=”agentPageSearch”;agS.placeholder=”Search agents…”;agS.value=agentSearch;agS.style.cssText=”flex:1;min-width:160px;max-width:320px;”;
+  const _agSe=document.getElementById("agentPageSearch");const _agRefocus=!!(_agSe&&document.activeElement===_agSe);const _agCaret=_agRefocus?(_agSe.selectionStart??_agSe.value.length):0;
+  const agbar=document.createElement("div");agbar.style.cssText="display:flex;gap:8px;align-items:center;margin:8px 0 4px;";
+  const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agentPageSearch";agS.placeholder="Search agents…";agS.value=agentSearch;agS.style.cssText="flex:1;min-width:160px;max-width:320px;";
   agS.oninput=()=>{agentSearch=agS.value;renderAgents();};
   agbar.appendChild(agS);m.appendChild(agbar);
   if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}
-  if(!DB.agents.length){m.insertAdjacentHTML(“beforeend”,'<div class=”empty”><div class=”big”>No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
+  if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click "+ New agent" to draft one with Claude.</div>');return;}
   renderAgentsDiagram(m);
 }
 function renderSignIn(msg){
