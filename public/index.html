@@ -246,8 +246,9 @@
   .asgbtn{border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;font-size:10.5px;padding:2px 8px;border-radius:7px;line-height:1.4;}
   .asgbtn:hover{color:var(--ink);border-color:var(--muted);}
   .asgbubs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;}
-  .asgbub{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:default;}
-  .asgbub.empty{background:#e7e8ec;color:#9aa0a8;}
+  .asgbub{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:pointer;transition:opacity .12s,transform .08s;}
+  .asgbub:hover{opacity:.75;transform:translateY(-1px);}
+  .asgbub.empty{background:#e7e8ec;color:#9aa0a8;border:1.5px dashed #b8bcc4;}
   /* Circular acronym selector — one round toggle button per roster member (initials + member colour); click to
      select/deselect. .on = currently assigned (filled); otherwise an outlined, dimmed circle. */
   .asgwheel{display:flex;flex-wrap:wrap;gap:8px;}
@@ -1640,22 +1641,22 @@ function taskCard(t){
   setChev();
   chev.onclick=e=>{e.stopPropagation();const on=d.classList.toggle("collapsed");on?taskCollapsed.add(t.id):taskCollapsed.delete(t.id);setChev();};
   const chipsRow=top.querySelector(".chips");if(chipsRow)chipsRow.appendChild(chev);
-  // Provenance row: who created the task, with the Assign button beside it. Legacy tasks with no createdBy fall back to "Unknown".
+  // Provenance row: who created the task. Legacy tasks with no createdBy fall back to "Unknown".
   const ar=document.createElement("div");ar.className="avas";ar.style.cssText="margin-top:2px;gap:8px;";
   const by=document.createElement("span");by.className="cmeta";by.style.whiteSpace="nowrap";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
-  const asg=document.createElement("button");asg.className="asgbtn";asg.textContent="Assign";asg.title="Assign people to this task";ar.appendChild(asg);
   d.appendChild(ar);
-  // Selected assignees shown as horizontal acronym bubbles beneath the Created by field; hover a bubble for the full name.
+  // Assignee avatars — clicking opens the selector. Unassigned shows a placeholder bubble.
   const asgb=document.createElement("div");asgb.className="asgbubs";
   (t.assignees&&t.assignees.length?t.assignees:[]).forEach(n=>{const mm=member(n);const b=document.createElement("span");b.className="asgbub";b.style.background=mm?mm.color:"#9aa0a8";b.textContent=initials(n);b.title=n;asgb.appendChild(b);});
-  if(!t.assignees||!t.assignees.length){const b=document.createElement("span");b.className="asgbub empty";b.textContent="—";b.title="Unassigned";asgb.appendChild(b);}
+  if(!t.assignees||!t.assignees.length){const b=document.createElement("span");b.className="asgbub empty";b.textContent="+";b.title="Assign people";asgb.appendChild(b);}
   d.appendChild(asgb);
   // assign pop — circular acronym selector; clicking a member's round button toggles them live. Open state lives in
   // taskAssignOpen so it survives the snapshot re-render each toggle triggers (the card is rebuilt from scratch).
   const apop=document.createElement("div");apop.className="pop"+(taskAssignOpen.has(t.id)?" open":"");
   const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);apop.appendChild(awheel);
   d.appendChild(apop);
-  asg.onclick=()=>{const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
+  asgb.title=(t.assignees&&t.assignees.length)?"Click to assign/remove people":"Assign people to this task";
+  asgb.onclick=e=>{e.stopPropagation();const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
   // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
   // Done, completion time. A subtle meta line; hidden entirely when neither is known.
   const tsIns=t.insertedAt||t.createdAt||"";
