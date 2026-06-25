@@ -265,6 +265,11 @@
   .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
   .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
   .acts select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
+  .acts .dots-wrap{position:relative;}
+  .dots-drop{position:absolute;bottom:calc(100% + 4px);right:0;min-width:130px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:4px;z-index:50;display:none;flex-direction:column;}
+  .dots-drop.open{display:flex;}
+  .dots-drop button{border:none;background:none;text-align:left;padding:7px 12px;font-size:13px;border-radius:7px;cursor:pointer;color:var(--ink);width:100%;font-weight:400;}
+  .dots-drop button:hover{background:#f1f1f0;} .dots-drop button.rm{color:var(--danger);} .dots-drop button.rm:hover{background:#fdeaea;}
   .runprog{margin-top:8px;border:1px solid #D9775744;border-radius:8px;background:#D9775710;overflow:hidden;}
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}
   .runprog-h:hover{background:#D9775705;}
@@ -1724,8 +1729,13 @@ function taskCard(t){
       if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
+  const dotWrap=document.createElement("div");dotWrap.className="dots-wrap";
+  const dot=document.createElement("button");dot.textContent="⋯";dot.title="More options";
+  const dotDrop=document.createElement("div");dotDrop.className="dots-drop";
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,lvl,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
+  dotDrop.appendChild(rmv);dotWrap.append(dot,dotDrop);
+  dot.onclick=e=>{e.stopPropagation();dotDrop.classList.toggle("open");};
+  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,lvl,run);if(reset)acts.append(reset);acts.append(dotWrap);d.appendChild(acts);
   // Run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in flight, and
   // persists the last run's logs once it finishes so execution history stays visible in the task view. While a run
   // is live the runner writes runProgress repeatedly; rather than re-rendering the whole card on each (which would
@@ -1823,7 +1833,7 @@ function taskCard(t){
   qpop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>{taskAskOpen.delete(t.id);qpop.classList.remove("open");}));d.appendChild(qpop);
   ask.onclick=()=>{const open=qpop.classList.toggle("open");open?taskAskOpen.add(t.id):taskAskOpen.delete(t.id);if(open)qt.focus();};
   // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
-  rmv.title="Move to Trash";rmv.onclick=()=>deleteTask(t.id);
+  rmv.title="Move to Trash";rmv.onclick=e=>{e.stopPropagation();dotDrop.classList.remove("open");deleteTask(t.id);};
   return d;
 }
 // User-resizable task popout — floats the full task editor (taskCard) in a modal the user can drag larger from
@@ -5263,6 +5273,7 @@ function init(){
   try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","team"].includes(sp))page=sp;}catch(e){}
   restoreTaskState(); // restore the Tasks-tab filters/view/sort/column-filters the user last had
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
+  document.addEventListener("click",e=>{if(!e.target.closest(".dots-wrap"))document.querySelectorAll(".dots-drop.open").forEach(d=>d.classList.remove("open"));});
 
   if(!fbReady){
     const warn=document.getElementById("setupwarn");
