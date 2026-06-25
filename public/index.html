@@ -4312,19 +4312,26 @@ function mdStripFrontmatter(raw){
 // or the fetch fails.
 function agentViewModal(a){
   openModal(a.name||"Agent",(card,close)=>{
-    // Roomier than the default modal — this view renders a full agent spec, so give it width and height to read.
-    // The user can also size it themselves: drag the bottom-right corner (resize handle) or hit the ⤢ toggle to
-    // jump between this comfortable width and near-fullscreen.
-    const NORMAL={w:"960px",h:""},FULL={w:"min(1400px,98vw)",h:"96vh"};
-    card.style.maxWidth="98vw";card.style.maxHeight="96vh";card.style.resize="both";card.style.minWidth="320px";card.style.minHeight="240px";
-    card.style.width=NORMAL.w;
+    // Roomier than the default modal — this view renders a full agent spec, so open big and tall by default.
+    // The user can size it themselves three ways, and whatever they pick STICKS across opens (localStorage):
+    //   • drag the bottom-right corner (resize handle)  • hit the ⤢ toggle for near-fullscreen.
+    const NORMAL={w:"min(1180px,95vw)",h:"82vh"},FULL={w:"min(1500px,98vw)",h:"96vh"};
+    card.style.maxWidth="98vw";card.style.maxHeight="96vh";card.style.resize="both";card.style.minWidth="320px";card.style.minHeight="320px";
+    // Remembered size/expanded preference — restored on open, re-saved on toggle and on every manual resize.
+    const SKEY="gp.agentViewSize";let saved={};try{saved=JSON.parse(localStorage.getItem(SKEY)||"{}")||{};}catch(_){saved={};}
     // Expand/restore toggle, dropped into openModal's title bar just left of the × close button.
     const titleHead=card.firstElementChild;
     const exp=document.createElement("button");
     exp.className="btn sm";exp.style.cssText="padding:1px 7px;font-size:13px;line-height:1.4;";
-    let full=false;
-    const applySize=()=>{const s=full?FULL:NORMAL;card.style.width=s.w;card.style.height=s.h;exp.textContent=full?"⤡":"⤢";exp.title=full?"Restore size":"Expand to near-fullscreen";exp.setAttribute("aria-label",exp.title);};
-    exp.onclick=()=>{full=!full;applySize();};applySize();
+    let full=!!saved.full;
+    const saveSize=()=>{try{localStorage.setItem(SKEY,JSON.stringify({full,w:card.style.width,h:card.style.height}));}catch(_){}};
+    const applySize=()=>{const s=full?FULL:NORMAL;card.style.width=s.w;card.style.height=s.h;exp.textContent=full?"⤡":"⤢";exp.title=full?"Restore size":"Expand to near-fullscreen";exp.setAttribute("aria-label",exp.title);saveSize();};
+    exp.onclick=()=>{full=!full;applySize();};
+    applySize();
+    // Honor a previously dragged custom size when not in the (already-maximal) full mode.
+    if(!full&&saved.w){card.style.width=saved.w;if(saved.h)card.style.height=saved.h;}
+    // Persist whatever the user drags the resize handle to.
+    card.addEventListener("mouseup",saveSize);
     if(titleHead&&titleHead.lastElementChild)titleHead.insertBefore(exp,titleHead.lastElementChild);
     const meta=[a.status||"draft",a.model,a.createdBy&&("by "+a.createdBy)].filter(Boolean).map(esc).join(" · ");
     const head=document.createElement("div");head.className="cmeta";head.style.margin="-4px 0 4px";
