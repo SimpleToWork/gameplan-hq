@@ -264,6 +264,7 @@
   .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
   .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
   .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
+  .acts select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
   .runprog{margin-top:8px;border:1px solid #D9775744;border-radius:8px;background:#D9775710;overflow:hidden;}
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;}
   .runprog-body{max-height:150px;overflow-y:auto;padding:5px 9px;display:flex;flex-direction:column;gap:2px;}
@@ -1646,6 +1647,13 @@ function taskCard(t){
   // ▶ Run — hand the task to the local Claude runner (.local/runner.mjs). The button only sets a flag on
   // the board doc (runRequested + a fresh runId); the daemon on the dev machine claims it, runs `claude -p`,
   // and writes status/result back. Reflects live run state and disables itself while a run is in flight.
+  // ▼ Level — model tier the runner uses for ▶ Run. Stored as runLevel (lowercase); the runner also reads a
+  // [quick]/[standard]/[deep] marker in the title/context, and raw runModel/runEffort still override it.
+  const lvl=document.createElement("select");lvl.className="mini lvlsel";
+  lvl.title="Model level for ▶ Run — Quick (Haiku, cheapest) · Standard (Sonnet) · Deep (Opus, hardest)";
+  [["standard","◆ Standard"],["quick","⚡ Quick"],["deep","★ Deep"]].forEach(([val,lab])=>{const o=document.createElement("option");o.value=val;o.textContent=lab;if(String(t.runLevel||"standard").toLowerCase()===val)o.selected=true;lvl.appendChild(o);});
+  lvl.onclick=e=>e.stopPropagation();
+  lvl.onchange=e=>{e.stopPropagation();setTask(t.id,{runLevel:lvl.value});};
   const run=document.createElement("button");run.className="runbtn";
   const runLive=t.runStatus==="running"||t.runStatus==="queued";
   run.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";
@@ -1667,7 +1675,7 @@ function taskCard(t){
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
+  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,lvl,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
   // Run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in flight, and
   // persists the last run's logs once it finishes so execution history stays visible in the task view. While a run
   // is live the runner writes runProgress repeatedly; rather than re-rendering the whole card on each (which would
