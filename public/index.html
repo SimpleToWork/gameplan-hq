@@ -1677,6 +1677,11 @@ function openColFilterPop(anchor,label,options,filters,field,reRender){
   clr.onclick=()=>{delete filters[field];pop.remove();reRender();};
   row.append(apply,clr);pop.appendChild(row);place();
 }
+// Run-status bucket for a task, mirroring what the Run column actually surfaces: a live run (Running/Queued), a
+// previous failure (runError set, surfaced in the button's hover title), or idle ("▶ Run"). These are the filterable
+// values for the Run column. Canonical order (RUN_STATUS_ORDER) drives the dropdown ordering, like STATUSES/PRIORITIES.
+const RUN_STATUS_ORDER=["Running","Queued","Failed","Not run"];
+const runStatusLabel=t=>t.runStatus==="running"?"Running":t.runStatus==="queued"?"Queued":t.runError?"Failed":"Not run";
 // Value accessors per table (key → reader). Multi-value readers return an array (assignees/attendees); "" = none/unassigned.
 const TASK_COL_ACC={
   status:t=>t.status||"",priority:t=>t.priority||"",category:t=>t.category||"",
@@ -1685,7 +1690,8 @@ const TASK_COL_ACC={
   // Target date filters by relative bucket (Past due / Today / This week / … / No date) rather than raw date, reusing
   // the same bucketing as timeframe grouping. Buckets are relative to "now"; fine since column filters aren't persisted.
   due:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.due))],
-  rmarea:t=>{const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return r&&r.area?r.area:"";}
+  rmarea:t=>{const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return r&&r.area?r.area:"";},
+  run:t=>runStatusLabel(t)
 };
 const RM_COL_ACC={ area:r=>r.area||"", phase:r=>phaseOf(r)||"", asg:r=>(r.assignees&&r.assignees.length?r.assignees:[""]) };
 const AG_COL_ACC={ att:a=>(a.attendees&&a.attendees.length?a.attendees:[""]) };
@@ -1700,7 +1706,7 @@ function taskTable(items,secLabel){
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   const F=tableColFilters.tasks,o=taskColOpts;
   const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask"),plainTh("Run"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask"),fth("Run","run"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
@@ -2253,7 +2259,8 @@ function renderTasks(m){
     who:colOptionsCtx(_base,"who",TASK_COL_ACC,roster().map(m=>m.name),_tf),
     createdby:colOptionsCtx(_base,"createdby",TASK_COL_ACC,roster().map(m=>m.name),_tf),
     due:colOptionsCtx(_base,"due",TASK_COL_ACC,TIME_BUCKETS.map(b=>b[1]),_tf), // ordered Past due → … → No date
-    rmarea:colOptionsCtx(_base,"rmarea",TASK_COL_ACC,areaNames(),_tf)
+    rmarea:colOptionsCtx(_base,"rmarea",TASK_COL_ACC,areaNames(),_tf),
+    run:colOptionsCtx(_base,"run",TASK_COL_ACC,RUN_STATUS_ORDER,_tf) // Running / Queued / Failed / Not run
   }:null;
   // Filter toolbar: one collapse toggle per filter group (grouping lives in the status row above, not here).
   const timeT=mkGroup("Timeframe",()=>taskTimeOpen,v=>{taskTimeOpen=v;},(taskTime!=="all"?' · '+labelOf(TIME_OPTS,taskTime):''),timeRow);
