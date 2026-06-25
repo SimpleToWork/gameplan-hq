@@ -1639,11 +1639,15 @@ function taskCard(t){
   const setChev=()=>{const on=d.classList.contains("collapsed");chev.textContent=on?"▸":"▾";chev.title=on?"Expand card":"Collapse card";};
   setChev();
   chev.onclick=e=>{e.stopPropagation();const on=d.classList.toggle("collapsed");on?taskCollapsed.add(t.id):taskCollapsed.delete(t.id);setChev();};
-  d.appendChild(chev);
-  // Provenance row: who created the task, with the Assign button beside it. Legacy tasks with no createdBy fall back to "Unknown".
+  const chipsRow=top.querySelector(".chips");if(chipsRow)chipsRow.appendChild(chev);
+  // Provenance row: who created the task, with the Assign button beside it and timestamp on the right. Legacy tasks with no createdBy fall back to "Unknown".
   const ar=document.createElement("div");ar.className="avas";ar.style.cssText="margin-top:2px;gap:8px;";
   const by=document.createElement("span");by.className="cmeta";by.style.whiteSpace="nowrap";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
   const asg=document.createElement("button");asg.className="asgbtn";asg.textContent="Assign";asg.title="Assign people to this task";ar.appendChild(asg);
+  // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
+  // Done, completion time. Shown on the right side of the Created by row.
+  const tsIns=t.insertedAt||t.createdAt||"";
+  if(tsIns||t.completedAt){const tsSpan=document.createElement("span");tsSpan.className="cmeta";tsSpan.style.cssText="white-space:nowrap;margin-left:auto;";const parts=[];if(tsIns)parts.push("Inserted "+fmtTs(tsIns));if(t.completedAt)parts.push("Completed "+fmtTs(t.completedAt));tsSpan.textContent=parts.join(" · ");ar.appendChild(tsSpan);}
   d.appendChild(ar);
   // Selected assignees shown as horizontal acronym bubbles beneath the Created by field; hover a bubble for the full name.
   const asgb=document.createElement("div");asgb.className="asgbubs";
@@ -1656,14 +1660,6 @@ function taskCard(t){
   const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);apop.appendChild(awheel);
   d.appendChild(apop);
   asg.onclick=()=>{const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
-  // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
-  // Done, completion time. A subtle meta line; hidden entirely when neither is known.
-  const tsIns=t.insertedAt||t.createdAt||"";
-  if(tsIns||t.completedAt){
-    const tsLine=document.createElement("div");tsLine.className="cmeta";tsLine.style.whiteSpace="nowrap";
-    const parts=[];if(tsIns)parts.push("Inserted "+fmtTs(tsIns));if(t.completedAt)parts.push("Completed "+fmtTs(t.completedAt));
-    tsLine.textContent=parts.join(" · ");d.appendChild(tsLine);
-  }
   // Internal task ID — its own subtle monospace line (truncated; full id on hover + click-to-copy). Off the crowded
   // provenance row so it can't overflow the card width. Hidden when the card collapses (.cmeta rule).
   const idLine=document.createElement("div");idLine.className="cmeta idcopy";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
