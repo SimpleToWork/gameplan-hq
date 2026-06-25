@@ -361,7 +361,7 @@
   /* Sticky horizontal scrollbar — sits fixed at viewport bottom when table view is active and has overflow */
   #tt-sticky-bar{position:fixed;bottom:0;height:14px;overflow-x:auto;overflow-y:hidden;z-index:250;background:var(--surface);border-top:1px solid var(--line);display:none;}
   #tt-sticky-bar>div{height:1px;}
-  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:880px;}
+  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:1080px;}
   .tasktable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:#c7ccd6;text-transform:uppercase;padding:9px 12px;border-bottom:1px solid #14171f;background:#1f2330;white-space:nowrap;}
   /* in-header filter buttons re-tinted for the dark header (scoped so the Agents table keeps the light styling) */
   .tasktable th .colfilter{color:#c7ccd6;border-color:rgba(255,255,255,.20);}
@@ -744,6 +744,7 @@ const normRepo=u=>String(u||"").replace(/\.git$/,"").replace(/\/+$/,"").toLowerC
 const repoNameKey=u=>normRepo(u).replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"_"; // Firestore doc id (no slashes)
 const repoFriendly=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.name?e.name:"";};
 const repoColor=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.color?e.color:"";};
+const repoLabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
 // Save/clear a repo's friendly name. Preserves color if set; deletes doc only when both name and color are absent.
 async function setRepoName(url,name){
   const id=repoNameKey(url),v=String(name||"").trim();
@@ -2163,6 +2164,55 @@ function openTaskLogsPop(anchor,t){
   }else{const e=document.createElement("div");e.className="cmeta";e.textContent=live?"No log lines yet — the runner will stream progress here.":"No log lines were captured for this run.";content.appendChild(e);}
   if(t.runError){const err=document.createElement("div");err.style.cssText="font-size:11.5px;color:var(--danger);white-space:pre-wrap;word-break:break-word;flex-shrink:0;";err.textContent="Error: "+t.runError;content.appendChild(err);}
 }
+// Repos — checkbox list of connected repos; toggles task.repos (array of repoUrls).
+function openTaskReposPop(anchor,t){
+  const {pop,place}=floatTaskPop(anchor);
+  pop.style.cssText+=";display:flex;flex-direction:column;gap:4px;min-width:240px;";
+  const hd=document.createElement("div");hd.style.cssText="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;";hd.textContent="Associated repos";pop.appendChild(hd);
+  const repos=ghRepos||[];
+  if(!repos.length){const nm=document.createElement("div");nm.className="cmeta";nm.textContent=ghReposErr||"No connected repos — configure in Settings";pop.appendChild(nm);place();return;}
+  const cur=new Set(Array.isArray(t.repos)?t.repos.filter(Boolean):[]);
+  repos.forEach(r=>{
+    const row=document.createElement("label");row.style.cssText="display:flex;align-items:center;gap:7px;cursor:pointer;padding:3px 0;";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=cur.has(normRepo(r.url));
+    const ic=document.createElement("span");ic.innerHTML=repoNodeIconHtml(r.url,r.fullName||r.url);ic.style.flex="none";
+    const lbl=document.createElement("span");lbl.style.cssText="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";lbl.textContent=repoLabel(r.url)||r.fullName||r.url;lbl.title=r.url;
+    cb.onchange=()=>{if(cb.checked)cur.add(normRepo(r.url));else cur.delete(normRepo(r.url));
+      const saved=repos.filter(x=>cur.has(normRepo(x.url))).map(x=>x.url);
+      setTask(t.id,{repos:saved.length?saved:[]});};
+    row.append(cb,ic,lbl);pop.appendChild(row);
+  });
+  const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear all";clr.onclick=()=>{setTask(t.id,{repos:[]});pop.remove();};
+  pop.appendChild(clr);place();
+}
+// Agents — checkbox list of all agents; toggles task.agentIds (array of agent doc IDs).
+function openTaskAgentsPop(anchor,t){
+  const {pop,place}=floatTaskPop(anchor);
+  pop.style.cssText+=";display:flex;flex-direction:column;gap:3px;min-width:260px;max-height:60vh;overflow:hidden;";
+  const hd=document.createElement("div");hd.style.cssText="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;flex:none;";hd.textContent="Associated agents";pop.appendChild(hd);
+  const srch=document.createElement("input");srch.type="search";srch.className="ctrl";srch.placeholder="Search agents…";srch.style.cssText="flex:none;margin-bottom:4px;";pop.appendChild(srch);
+  const list=document.createElement("div");list.style.cssText="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px;";pop.appendChild(list);
+  const cur=new Set(Array.isArray(t.agentIds)?t.agentIds.filter(Boolean):[]);
+  const buildList=()=>{
+    list.innerHTML="";const q=srch.value.trim().toLowerCase();
+    const agents=agentsSorted().filter(a=>!q||(a.name||"").toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));
+    if(!agents.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=q?"No agents match":"No agents configured yet — visit Agents tab";list.appendChild(nm);return;}
+    agents.forEach(a=>{
+      const row=document.createElement("label");row.style.cssText="display:flex;align-items:flex-start;gap:7px;cursor:pointer;padding:3px 0;";
+      const cb=document.createElement("input");cb.type="checkbox";cb.checked=cur.has(a.id);cb.style.marginTop="2px";
+      const info=document.createElement("div");info.style.minWidth="0";
+      const nm=document.createElement("div");nm.style.cssText="font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";nm.textContent=a.name||a.id;
+      info.appendChild(nm);
+      if(a.repoUrl){const sub=document.createElement("div");sub.className="cmeta";sub.style.cssText="font-size:.78em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";sub.textContent=repoLabel(a.repoUrl);info.appendChild(sub);}
+      cb.onchange=()=>{if(cb.checked)cur.add(a.id);else cur.delete(a.id);setTask(t.id,{agentIds:[...cur]});};
+      row.append(cb,info);list.appendChild(row);
+    });
+    place();
+  };
+  srch.addEventListener("input",buildList);buildList();
+  const clr=document.createElement("button");clr.className="btn sm";clr.style.cssText="margin-top:6px;flex:none;";clr.textContent="Clear all";clr.onclick=()=>{setTask(t.id,{agentIds:[]});pop.remove();};
+  pop.appendChild(clr);place();srch.focus();
+}
 // Grouped roadmap <select> for a table cell: "No link" + one optgroup per area. Writes roadmapId via setTask.
 function taskRoadmapSelect(t){
   const s=document.createElement("select");s.className="mini";
@@ -2334,7 +2384,7 @@ function taskTable(items,secLabel){
   // Header: sortable columns use sortTh / sortFilterTh; filterable+sortable use sortFilterTh.
   const sfth=(label,key,field)=>o?sortFilterTh(label,key,S,resort,field,o[field]||[],F,renderTasks):sortTh(label,key,S,resort);
   const sth=(label,key)=>sortTh(label,key,S,resort);
-  [sth("Task","title"),plainTh("Description"),sfth("Status","status","status"),sfth("Priority","priority","priority"),sfth("Category","category","category"),sfth("Who","who","who"),sfth("Created by","createdby","createdby"),sth("Timestamps","ts"),sfth("Target","due","due"),sfth("Roadmap","roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),sfth("Run","run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [sth("Task","title"),plainTh("Description"),sfth("Status","status","status"),sfth("Priority","priority","priority"),sfth("Category","category","category"),sfth("Who","who","who"),sfth("Created by","createdby","createdby"),sth("Timestamps","ts"),sfth("Target","due","due"),sfth("Roadmap","roadmap","rmarea"),plainTh("Repos"),plainTh("Agents"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),sfth("Run","run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   // Sub-group dividers are suppressed when a column sort is active (items no longer group by taskSort key).
@@ -2346,7 +2396,7 @@ function taskTable(items,secLabel){
     const active=fval===k;
     if((multi||active)&&(prevKey===undefined||k!==prevKey)){
       const sep=document.createElement("tr");sep.className="tt-sep";
-      const td=document.createElement("td");td.colSpan=17;
+      const td=document.createElement("td");td.colSpan=19;
       const lab=document.createElement("span");lab.textContent=sd.label(t);td.appendChild(lab);
       if(secLabel!==undefined)td.appendChild(sortFilterBtn(secLabel,k,active));
       sep.appendChild(td);tb.appendChild(sep);
@@ -2396,6 +2446,22 @@ function taskTable(items,secLabel){
     dueIn.onchange=()=>setTask(t.id,{due:dueIn.value||""});tdDue.appendChild(dueIn);
     // Roadmap — grouped select.
     const tdRm=document.createElement("td");tdRm.appendChild(taskRoadmapSelect(t));
+    // Repos — array of repoUrls stored on the task; shows colored icon badges, edit button opens a picker.
+    const tdRepos=document.createElement("td");
+    const taskRepos=Array.isArray(t.repos)?t.repos.filter(Boolean):[];
+    const reposWrap=document.createElement("div");reposWrap.className="tt-who";
+    if(taskRepos.length){taskRepos.forEach(u=>{const ic=document.createElement("span");ic.innerHTML=repoNodeIconHtml(u,repoLabel(u));ic.title=repoLabel(u);ic.style.marginRight="3px";reposWrap.appendChild(ic);});}
+    else{const dash=document.createElement("span");dash.className="tt-sub";dash.textContent="—";reposWrap.appendChild(dash);}
+    const rpBtn=document.createElement("button");rpBtn.type="button";rpBtn.className="tt-asgbtn";rpBtn.textContent="✎";rpBtn.title="Edit associated repos";
+    rpBtn.onclick=()=>openTaskReposPop(rpBtn,t);reposWrap.appendChild(rpBtn);tdRepos.appendChild(reposWrap);
+    // Agents — array of agent doc IDs on the task; shows name chips, edit button opens a picker.
+    const tdAgents=document.createElement("td");
+    const taskAgentIds=Array.isArray(t.agentIds)?t.agentIds.filter(Boolean):[];
+    const agentsWrap=document.createElement("div");agentsWrap.className="tt-who";agentsWrap.style.flexWrap="wrap";
+    if(taskAgentIds.length){taskAgentIds.forEach(aid=>{const ag=DB.agents.find(x=>x.id===aid);if(!ag)return;const chip=document.createElement("span");chip.className="tt-sub";chip.style.cssText="background:#f0f0ff;color:#4646c8;border-radius:4px;padding:1px 5px;font-size:11px;white-space:nowrap;margin-right:2px;";chip.textContent=ag.name||ag.id;chip.title=(ag.summary||"")+(ag.repoUrl?" · "+repoLabel(ag.repoUrl):"");agentsWrap.appendChild(chip);});}
+    else{const dash=document.createElement("span");dash.className="tt-sub";dash.textContent="—";agentsWrap.appendChild(dash);}
+    const agBtn=document.createElement("button");agBtn.type="button";agBtn.className="tt-asgbtn";agBtn.textContent="✎";agBtn.title="Edit associated agents";
+    agBtn.onclick=()=>openTaskAgentsPop(agBtn,t);agentsWrap.appendChild(agBtn);tdAgents.appendChild(agentsWrap);
     // Notes — opens the floating per-user notes editor; the button shows the current count.
     const notes=Array.isArray(t.notes)?t.notes:[];
     const tdNotes=document.createElement("td");const nBtn=document.createElement("button");nBtn.type="button";nBtn.className="tt-asgbtn";nBtn.textContent=notes.length?("Notes ("+notes.length+")"):"Notes";nBtn.title="View / add notes";
@@ -2436,7 +2502,7 @@ function taskTable(items,secLabel){
     idEl.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;";
     const idCellIco=document.createElement("span");idCellIco.className="copy-ico";idCellIco.textContent="📋";idCellIco.setAttribute("aria-hidden","true");idEl.appendChild(idCellIco);
     idEl.onclick=()=>{try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};tdId.appendChild(idEl);
-    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdTs,tdDue,tdRm,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdLogs,tdId);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdTs,tdDue,tdRm,tdRepos,tdAgents,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdLogs,tdId);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
