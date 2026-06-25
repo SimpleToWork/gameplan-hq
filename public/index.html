@@ -107,6 +107,21 @@
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
   .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  /* Capture screen — mobile polish. The hero (prompt box + Draft/Dictate row) and its two control
+     rows (Categories, Roadmap) have no responsive styling otherwise, so on a phone they waste width,
+     truncate the selects, and the 15px textarea triggers iOS zoom-on-focus. */
+  @media(max-width:560px){
+    .hero{padding:16px;border-radius:14px;margin-top:2px;}
+    .hero h2{font-size:17px;}
+    .hero p{font-size:13px;margin-bottom:12px;}
+    .hero textarea{font-size:16px;padding:12px 14px;min-height:130px;}  /* 16px keeps iOS from auto-zooming on focus */
+    .hero .row{gap:8px;margin-top:12px;}
+    .hero .row .btn{flex:1 1 auto;justify-content:center;min-height:42px;}  /* Draft + Dictate become equal full-width tap targets */
+    .hero .row .hint{order:9;flex-basis:100%;text-align:center;margin:2px 0 0;}  /* status text drops to its own line below the buttons */
+    .hero .views{gap:7px;align-items:center;margin-bottom:10px;}
+    .hero .views .cmeta{flex-basis:100%;margin:0 0 2px;align-self:flex-start;}  /* label sits above the control, full row */
+    .hero .views button,.hero .views .ghost-select{flex:1 1 auto;min-height:40px;max-width:none;}  /* category dropdown + roadmap select fill the row */
+  }
   /* Agents directory diagram: indented node tree (repo → folder → agent) with vertical guide lines. */
   .trow{display:flex;align-items:center;gap:7px;padding:3px 7px;border-radius:7px;font-size:13px;line-height:1.3;}
   .trow.tagent{cursor:pointer;}
