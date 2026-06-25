@@ -4443,7 +4443,7 @@ function renderTeam(m){
   const rbody=document.createElement("div");rbody.className="setsec-body";
   rsec.append(rhead,rbody);m.appendChild(rsec);
   rbody.insertAdjacentHTML("beforeend",'<p class="pagesub">Repos the GitHub App can sync agent specs to. Install or remove the App on repos in GitHub, then Refresh.</p>');
-  const rlist=document.createElement("div");rlist.className="grid";rbody.appendChild(rlist);
+  const rlist=document.createElement("div");rlist.className="grid";rlist.style.cssText="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-top:4px;";rbody.appendChild(rlist);
   const paintRepos=()=>{
     rcount.textContent=ghRepos?ghRepos.length:"";rlist.innerHTML="";
     if(ghRepos===null){rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">Loading…</div>');return;}
@@ -4451,14 +4451,19 @@ function renderTeam(m){
     else if(!ghRepos.length)rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">No connected repos yet — install the GitHub App on a repo, then Refresh.</div>');
     ghRepos.forEach(r=>{
       const fr=repoFriendly(r.url); // team-assigned friendly name (blank if none); shown as the title, GitHub name as subtitle
-      const card=document.createElement("div");card.className="card";
-      const row=document.createElement("div");row.style.cssText="display:flex;align-items:center;gap:9px;";
+      const card=document.createElement("div");card.className="card";card.style.cssText="padding:14px 16px;gap:10px;";
+      // Info row: repo icon + title/subtitle + visibility chip
+      const infoRow=document.createElement("div");infoRow.style.cssText="display:flex;align-items:flex-start;gap:10px;";
+      const ico=document.createElement("div");ico.style.cssText="flex:none;width:34px;height:34px;border-radius:8px;background:#f0f0ee;display:flex;align-items:center;justify-content:center;font-size:18px;margin-top:1px;";ico.textContent="⎇";
       const tw=document.createElement("div");tw.style.cssText="flex:1;min-width:0;";
-      const t=document.createElement("div");t.className="ctitle";t.textContent=fr||r.fullName;tw.appendChild(t);
-      if(fr){const sub=document.createElement("div");sub.className="cmeta";sub.textContent=r.fullName;tw.appendChild(sub);}
-      const chip=document.createElement("span");chip.className="chip";chip.textContent=r.private?"private":"public";
+      const t=document.createElement("div");t.className="ctitle";t.style.cssText="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";t.textContent=fr||r.fullName;tw.appendChild(t);
+      const subLine=document.createElement("div");subLine.style.cssText="display:flex;align-items:center;gap:7px;margin-top:3px;flex-wrap:wrap;";
+      if(fr){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;";sub.textContent=r.fullName;subLine.appendChild(sub);}
+      const chip=document.createElement("span");chip.className="chip";chip.style.cssText=r.private?"background:#fff4e6;color:#c47a1a;border:1px solid #f0c070;":"background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;";chip.textContent=r.private?"⊙ private":"◎ public";subLine.appendChild(chip);
+      tw.appendChild(subLine);infoRow.append(ico,tw);card.appendChild(infoRow);
+      // Actions row: rename, sync, open — right-aligned
+      const actRow=document.createElement("div");actRow.style.cssText="display:flex;align-items:center;gap:7px;justify-content:flex-end;";
       const ren=document.createElement("button");ren.className="btn sm";ren.textContent="✎ Name";ren.title="Set a friendly name for this repo";
-      const open=document.createElement("a");open.className="btn sm";open.textContent="Open ↗";open.href=r.url;open.target="_blank";open.rel="noopener";
       // Two-way sync: auto-import every spec under the sync dir (.claude/agents/) + push/pull each by last-write-wins.
       const sync=document.createElement("button");sync.className="btn sm";sync.textContent="⇄ Sync agents";sync.title="Import new specs from "+SYNC_DIR+"/ and push/pull existing ones (newest wins)";
       sync.onclick=async()=>{
@@ -4467,7 +4472,8 @@ function renderTeam(m){
         catch(e){banner(e.message,"err");}
         sync.disabled=false;sync.textContent="⇄ Sync agents";
       };
-      row.append(tw,chip,ren,sync,open);card.appendChild(row);
+      const open=document.createElement("a");open.className="btn sm";open.textContent="Open ↗";open.href=r.url;open.target="_blank";open.rel="noopener";
+      actRow.append(ren,sync,open);card.appendChild(actRow);
       // Inline friendly-name editor (collapsible pop, matching the Categories/Domains rename pattern).
       const rp=document.createElement("div");rp.className="pop";
       const ri=document.createElement("input");ri.className="ctrl";ri.value=fr;ri.placeholder="Friendly name (e.g. Main Web App)";
