@@ -2304,10 +2304,25 @@ function renderTasks(m){
   // Free-text search box (leftmost). Re-renders on each keystroke; focus is restored after render (see below).
   const searchInp=document.createElement("input");searchInp.type="search";searchInp.className="ctrl";searchInp.id="taskSearch";searchInp.placeholder="Search tasks\u2026";searchInp.value=taskSearch;searchInp.style.cssText="flex:1;min-width:140px;max-width:280px;";
   searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
-  trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
-  if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
-  if(anyFilter)trow.append(clearAll);
-  if(taskLayout==="card")trow.append(collExp);  // per-card collapse only applies to the card layout (not table/chart)
+  if(isMobileFilters){
+    // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
+    // horizontally-scrollable strip (a chip bar) so they stay aligned instead of the full-width search
+    // box bumping the filter toggles onto their own wrapped lines. The action buttons (Reset / Clear /
+    // Collapse) flow onto the line beneath since the strip claims the full width of the toolbar.
+    searchInp.style.cssText="flex:1 0 120px;min-width:90px;";
+    const filterBar=document.createElement("div");
+    filterBar.style.cssText="flex:1 1 100%;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;";
+    filterBar.append(searchInp,timeT,whoT,catT,stageT,rmT);
+    trow.append(filterBar,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group below the strip
+    if(runnerReset)trow.append(runnerReset);
+    if(anyFilter)trow.append(clearAll);
+    if(taskLayout==="card")trow.append(collExp);
+  }else{
+    trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
+    if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
+    if(anyFilter)trow.append(clearAll);
+    if(taskLayout==="card")trow.append(collExp);  // per-card collapse only applies to the card layout (not table/chart)
+  }
   // (The always-visible "Filter columns" bar was removed; per-header column filters remain on each expanded section's
   // table header, still driving the shared tableColFilters.tasks applied below.)
   // Third sticky bar: the expanded filter-option rows, so the selectable options stay in reach (not just their toggles)
