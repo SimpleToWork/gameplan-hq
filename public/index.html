@@ -597,7 +597,10 @@ let _capPrefs=(()=>{try{const o=JSON.parse(localStorage.getItem("gp_capturePrefs
 let captureCats=Array.isArray(_capPrefs.cats)?new Set(_capPrefs.cats):null; // Capture: Set of disciplines the AI may pick from when drafting tasks; null/empty = all disciplines
 let captureCatsDefaulted=!!_capPrefs.defaulted; // once true, the signed-in member's profile disciplines won't re-seed captureCats (also set when the user edits the picker); restored from a prior session so a saved choice survives refresh
 let captureRoadmapId=(typeof _capPrefs.roadmapId==="string")?_capPrefs.roadmapId:null;   // Capture: roadmap target id pre-selected in the capture area; every drafted task inherits it (null = no link). Read only in captureTasks.
-function saveCapturePrefs(){try{localStorage.setItem("gp_capturePrefs",JSON.stringify({cats:captureCats?[...captureCats]:null,defaulted:captureCatsDefaulted,roadmapId:captureRoadmapId||null}));}catch(e){}}
+let captureRepos=Array.isArray(_capPrefs.repos)?new Set(_capPrefs.repos):null;         // Capture: Set of selected repo URLs (normalized); null = no repo filter
+let captureWriteRepo=(typeof _capPrefs.writeRepo==="string")?_capPrefs.writeRepo:null; // Capture: repo URL to write tasks to when >1 repos selected; null = first/only
+let captureAgentIds=Array.isArray(_capPrefs.agentIds)?new Set(_capPrefs.agentIds):null; // Capture: Set of selected agent doc IDs; null = none selected
+function saveCapturePrefs(){try{localStorage.setItem("gp_capturePrefs",JSON.stringify({cats:captureCats?[...captureCats]:null,defaulted:captureCatsDefaulted,roadmapId:captureRoadmapId||null,repos:captureRepos?[...captureRepos]:null,writeRepo:captureWriteRepo||null,agentIds:captureAgentIds?[...captureAgentIds]:null}));}catch(e){}}
 let captureCatMQ=null;       // Capture: the (matchMedia, handler) pair wiring the mobile category dropdown to viewport changes; tracked so each renderCapture detaches the prior one (no listener leak across tab switches).
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
@@ -1143,10 +1146,15 @@ async function captureTasks(){
     // Disciplines the AI may choose from: the user-selected subset, or all when nothing is selected.
     const cats=(captureCats&&captureCats.size)?CATS.filter(c=>captureCats.has(c)):CATS;
     const catFallback=(captureCats&&captureCats.size)?cats[0]:"Admin";
-    const p='Convert this team member’s plain-language plan into structured tasks for an internal board. '+
-      'Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
-      'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'. '+
-      'These tasks already exist: '+JSON.stringify(existing)+'. '+
+    const selRepoUrls=captureRepos&&captureRepos.size?[...captureRepos]:[];
+    const selRepoNames=selRepoUrls.map(u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;});
+    const selAgents=captureAgentIds&&captureAgentIds.size?DB.agents.filter(a=>captureAgentIds.has(a.id)):[];
+    const repoCtxStr=selRepoNames.length?" The team member is working in these repos: "+selRepoNames.join(", ")+".":"";
+    const agentCtxStr=selAgents.length?" Available agents relevant to this work: "+selAgents.map(a=>(a.name||a.id)+(a.summary?" ("+a.summary+")":"")).join("; ")+".":"";
+    const p=’Convert this team member’s plain-language plan into structured tasks for an internal board. ‘+
+      ‘Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): ‘+cats.join(", ")+’. ‘+
+      ‘Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is ‘+identity+’.’+repoCtxStr+agentCtxStr+’ ‘+
+      ‘These tasks already exist: ‘+JSON.stringify(existing)+’. ‘+
       'Only skip a new task as a duplicate when it is the SAME concrete piece of work as an existing one — the same specific action on the same specific subject (e.g. both are "write the Q3 budget memo"). Do NOT skip merely because two tasks share a topic, category, project, roadmap area, person, or a few keywords; related-but-distinct work is NOT a duplicate. When you are unsure whether something is truly the same task, ADD it rather than skip it — a near-duplicate the user can delete is far better than dropping real work. '+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":[{"id","title"}]}. '+
       'In skipped, copy the id and title of the existing task each input genuinely duplicated, exactly as given above. '+
@@ -1538,6 +1546,78 @@ function renderCapture(m){m=m||document.getElementById("main");
   const rmLab=document.createElement("span");rmLab.className="cmeta";rmLab.style.cssText="align-self:center;margin-right:4px;";rmLab.title="Auto-link every drafted task to this roadmap target (you can change it per task in review)";rmLab.textContent="Roadmap:";rmRow.appendChild(rmLab);
   rmRow.appendChild(roadmapSelect(captureRoadmapId,v=>{captureRoadmapId=v;saveCapturePrefs();}));
   cr.parentNode.insertBefore(rmRow,cr);
+  // Repos multiselect — context for Claude; if >1 selected, a secondary "Write to:" picker chooses the primary repo.
+  // Pre-warms the ghRepos cache so the dropdown is ready when the user clicks.
+  loadGhRepos().catch(()=>{});
+  const repoLabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
+  const repoSummary=()=>{if(!captureRepos||!captureRepos.size)return "All repos";const names=[...captureRepos].map(repoLabel);return names.length<=2?names.join(", "):names.slice(0,2).join(", ")+" +"+(names.length-2);};
+  const rpRow=document.createElement("div");rpRow.className="views";rpRow.style.margin="8px 0 0";
+  const rpLab=document.createElement("span");rpLab.className="cmeta";rpLab.style.cssText="align-self:center;margin-right:4px;";rpLab.title="Limit to specific repos — Claude will use these as context when drafting tasks";rpLab.textContent="Repos:";rpRow.appendChild(rpLab);
+  const rpWriteSel=document.createElement("select");rpWriteSel.className="ghost-select";rpWriteSel.title="Which repo to write tasks to (when multiple selected)";rpWriteSel.style.display="none";
+  const rebuildWriteSel=()=>{
+    if(!captureRepos||captureRepos.size<=1){rpWriteSel.style.display="none";return;}
+    rpWriteSel.style.display="";rpWriteSel.innerHTML="";
+    const def=document.createElement("option");def.value="";def.textContent="Write to: (first selected)";rpWriteSel.appendChild(def);
+    [...captureRepos].forEach(u=>{const o=document.createElement("option");o.value=u;o.textContent="Write to: "+repoLabel(u);if(u===captureWriteRepo)o.selected=true;rpWriteSel.appendChild(o);});
+  };
+  rpWriteSel.onchange=()=>{captureWriteRepo=rpWriteSel.value||null;saveCapturePrefs();};
+  const openRepoDropdown=anchor=>{
+    const{pop,place}=floatTaskPop(anchor);
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="280px";pop.style.overflowY="auto";
+    const repos=ghRepos||[];
+    if(!repos.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=ghReposErr||"No connected repos — configure in Settings";pop.appendChild(nm);}
+    repos.forEach(r=>{
+      const row=document.createElement("label");row.className="opt";
+      const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureRepos&&captureRepos.has(normRepo(r.url)));
+      const rc=repoColor(r.url);const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(rc||"#9aa0a8")+";flex-shrink:0;margin-right:3px;";
+      const fn=repoFriendly(r.url);const lbl=fn?fn+" — "+r.fullName:r.fullName;
+      cb.onchange=()=>{if(!captureRepos)captureRepos=new Set();const key=normRepo(r.url);
+        if(cb.checked)captureRepos.add(key);else{captureRepos.delete(key);if(captureWriteRepo===key)captureWriteRepo=null;}
+        if(!captureRepos.size)captureRepos=null;
+        if(captureRepos&&captureWriteRepo&&!captureRepos.has(captureWriteRepo))captureWriteRepo=null;
+        saveCapturePrefs();rpBtn.firstChild.textContent=repoSummary();rpBtn.style.fontWeight=(captureRepos&&captureRepos.size)?"600":"";
+        rebuildWriteSel();rebuildAgentPicker();};
+      row.append(cb,sw,document.createTextNode(lbl));pop.appendChild(row);
+    });
+    const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="8px";clr.textContent="Clear";clr.title="Clear repo filter";
+    clr.onclick=()=>{captureRepos=null;captureWriteRepo=null;saveCapturePrefs();pop.remove();rpBtn.firstChild.textContent=repoSummary();rpBtn.style.fontWeight="";rebuildWriteSel();rebuildAgentPicker();};
+    pop.appendChild(clr);place();
+  };
+  const rpBtn=document.createElement("button");rpBtn.type="button";const rpLbl=document.createTextNode(repoSummary());const rpCar=document.createElement("span");rpCar.textContent=" ▾";rpCar.style.opacity=".55";
+  rpBtn.append(rpLbl,rpCar);if(captureRepos&&captureRepos.size)rpBtn.style.fontWeight="600";
+  rpBtn.onclick=()=>openRepoDropdown(rpBtn);
+  rpRow.appendChild(rpBtn);rpRow.appendChild(rpWriteSel);rebuildWriteSel();
+  cr.parentNode.insertBefore(rpRow,cr);
+  // Agents dropdown — filtered to agents linked to the selected repos (or all agents if no repos selected).
+  const filteredAgents=()=>{const all=agentsSorted();if(!captureRepos||!captureRepos.size)return all;return all.filter(a=>a.repoUrl&&captureRepos.has(normRepo(a.repoUrl)));};
+  const agSummary=()=>{if(!captureAgentIds||!captureAgentIds.size)return "None selected";const matched=filteredAgents().filter(a=>captureAgentIds.has(a.id));if(!matched.length)return "None selected";return matched.length<=2?matched.map(a=>a.name||a.id).join(", "):matched.slice(0,2).map(a=>a.name||a.id).join(", ")+" +"+(matched.length-2);};
+  const agRow=document.createElement("div");agRow.className="views";agRow.style.margin="8px 0 0";
+  const agLab=document.createElement("span");agLab.className="cmeta";agLab.style.cssText="align-self:center;margin-right:4px;";agLab.title="Include these agents as context when drafting tasks";agLab.textContent="Agents:";agRow.appendChild(agLab);
+  const agBtn=document.createElement("button");agBtn.type="button";const agLbl=document.createTextNode(agSummary());const agCar=document.createElement("span");agCar.textContent=" ▾";agCar.style.opacity=".55";
+  agBtn.append(agLbl,agCar);if(captureAgentIds&&captureAgentIds.size)agBtn.style.fontWeight="600";
+  const openAgentDropdown=anchor=>{
+    const{pop,place}=floatTaskPop(anchor);
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="280px";pop.style.overflowY="auto";
+    const agents=filteredAgents();
+    if(!agents.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=(captureRepos&&captureRepos.size)?"No agents linked to selected repos — check Agents tab":"No agents configured yet — visit Agents tab";pop.appendChild(nm);}
+    agents.forEach(a=>{
+      const row=document.createElement("label");row.className="opt";
+      const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureAgentIds&&captureAgentIds.has(a.id));
+      const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";if(a.repoUrl)sub.textContent=repoLabel(a.repoUrl);
+      cb.onchange=()=>{if(!captureAgentIds)captureAgentIds=new Set();if(cb.checked)captureAgentIds.add(a.id);else captureAgentIds.delete(a.id);
+        if(!captureAgentIds.size)captureAgentIds=null;saveCapturePrefs();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight=(captureAgentIds&&captureAgentIds.size)?"600":"";};
+      row.append(cb,document.createTextNode(" "+(a.name||a.id)),sub);pop.appendChild(row);
+    });
+    const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="8px";clr.textContent="Clear";clr.title="Clear agent selection";
+    clr.onclick=()=>{captureAgentIds=null;saveCapturePrefs();pop.remove();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight="";};
+    pop.appendChild(clr);place();
+  };
+  agBtn.onclick=()=>openAgentDropdown(agBtn);agRow.appendChild(agBtn);
+  const rebuildAgentPicker=()=>{
+    if(captureAgentIds){const valid=new Set(filteredAgents().map(a=>a.id));captureAgentIds.forEach(id=>{if(!valid.has(id))captureAgentIds.delete(id);});if(!captureAgentIds.size)captureAgentIds=null;}
+    agBtn.firstChild.textContent=agSummary();agBtn.style.fontWeight=(captureAgentIds&&captureAgentIds.size)?"600":"";
+  };
+  cr.parentNode.insertBefore(agRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});
   // Voice-to-text: record audio, transcribe via /api/transcribe (Groq Whisper). Works on iOS/Android/desktop.
