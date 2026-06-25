@@ -201,7 +201,7 @@
   /* Persistent "you are working in this task" indicator — set on click / Go-to-Task. Bolder than the hover preview and
      wins over it (equal specificity to the hover rule, but declared later). Table active rules live in .tasktable below. */
   .card[data-task-id].active{border-color:var(--accent,#4646c8);box-shadow:0 0 0 2px var(--accent,#4646c8);}
-  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;padding-left:24px;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
   /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers, context, and run logs. */
@@ -267,7 +267,7 @@
   .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
   .acts select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
   .acts .dots-wrap{position:relative;}
-  .dots-drop{position:absolute;bottom:calc(100% + 4px);right:0;min-width:130px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:4px;z-index:50;display:none;flex-direction:column;}
+  .dots-drop{position:absolute;top:calc(100% + 4px);right:0;min-width:130px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:4px;z-index:50;display:none;flex-direction:column;}
   .dots-drop.open{display:flex;}
   .dots-drop button{border:none;background:none;text-align:left;padding:7px 12px;font-size:13px;border-radius:7px;cursor:pointer;color:var(--ink);width:100%;font-weight:400;}
   .dots-drop button:hover{background:#f1f1f0;} .dots-drop button.rm{color:var(--danger);} .dots-drop button.rm:hover{background:#fdeaea;}
@@ -1655,7 +1655,7 @@ function taskCard(t){
   const chipsRow=top.querySelector(".chips");if(chipsRow)chipsRow.appendChild(chev);
   // Provenance row: who created the task, with timestamp on the right. Legacy tasks with no createdBy fall back to "Unknown".
   const ar=document.createElement("div");ar.className="avas";ar.style.cssText="margin-top:2px;gap:8px;";
-  const by=document.createElement("span");by.className="cmeta";by.style.whiteSpace="nowrap";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
+  const by=document.createElement("span");by.className="cmeta";by.style.whiteSpace="nowrap";const _byName=t.createdBy||"Unknown";const _byMem=t.createdBy?member(t.createdBy):null;const _byCol=_byMem&&_byMem.color?_byMem.color:"inherit";by.innerHTML='Created by <span style="color:'+_byCol+';font-weight:600;">'+esc(_byName)+'</span>';if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
   // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
   // Done, completion time. Shown on the right side of the Created by row.
   const tsIns=t.insertedAt||t.createdAt||"";
@@ -1674,9 +1674,8 @@ function taskCard(t){
   asgb.title=(t.assignees&&t.assignees.length)?"Click to assign/remove people":"Assign people to this task";
   asgb.onclick=e=>{e.stopPropagation();const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
   // Internal task ID — placed on the provenance row beside "Created by" (truncated; full id on hover + click-to-copy). Hidden when the card collapses (.cmeta rule).
-  const idLine=document.createElement("div");idLine.className="cmeta idcopy";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
-  idLine.textContent="ID "+shortId(t.id)+" ";idLine.title="Click to copy task ID: "+t.id;
-  const idIco=document.createElement("span");idIco.className="copy-ico";idIco.textContent="📋";idIco.setAttribute("aria-hidden","true");idLine.appendChild(idIco);
+  const idLine=document.createElement("span");idLine.className="idcopy";idLine.style.cssText="cursor:pointer;align-self:flex-start;display:inline-flex;align-items:center;";idLine.title="Click to copy task ID: "+t.id;
+  idLine.innerHTML='<span style="background:#1a1d23;color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:0.03em;">ID '+esc(shortId(t.id))+'</span>';
   idLine.onclick=e=>{e.stopPropagation();try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};
   ar.insertBefore(idLine, ar.children[1]||null);
   const crow=document.createElement("div");crow.className="crow";
@@ -1734,13 +1733,13 @@ function taskCard(t){
       if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
-  const dotWrap=document.createElement("div");dotWrap.className="dots-wrap";
+  const dotWrap=document.createElement("div");dotWrap.className="dots-wrap";dotWrap.style.cssText="position:absolute;top:6px;right:6px;z-index:2;";
   const dot=document.createElement("button");dot.textContent="⋯";dot.title="More options";
   const dotDrop=document.createElement("div");dotDrop.className="dots-drop";
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
   dotDrop.appendChild(rmv);dotWrap.append(dot,dotDrop);
   dot.onclick=e=>{e.stopPropagation();dotDrop.classList.toggle("open");};
-  acts.append(edit,run);if(reset)acts.append(reset);acts.append(dotWrap);d.appendChild(acts);
+  d.appendChild(dotWrap);
   // Run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in flight, and
   // persists the last run's logs once it finishes so execution history stays visible in the task view. While a run
   // is live the runner writes runProgress repeatedly; rather than re-rendering the whole card on each (which would
@@ -1841,7 +1840,7 @@ function taskCard(t){
   rmv.title="Move to Trash";rmv.onclick=e=>{e.stopPropagation();dotDrop.classList.remove("open");deleteTask(t.id);};
   // Notes / Files / Claude prompt / Model selector row — isolated from the main action toolbar.
   const nfRow=document.createElement("div");nfRow.className="nf-row";
-  nfRow.append(notesBtn,filesBtn,ask,lvl);d.appendChild(nfRow);
+  filesBtn.style.marginLeft="auto";nfRow.append(notesBtn,ask,lvl,filesBtn);d.appendChild(nfRow);
   // Dedicated Edit / Run row — Edit left-aligned, Run right-aligned, isolated from the acts toolbar.
   const erRow=document.createElement("div");erRow.className="er-row";
   const erEdit=document.createElement("button");erEdit.className="er-edit";erEdit.textContent="Edit";
@@ -1849,7 +1848,7 @@ function taskCard(t){
   const erRun=document.createElement("button");erRun.className="runbtn";
   erRun.textContent=run.textContent;erRun.title=run.title;if(runLive)erRun.disabled=true;
   erRun.onclick=run.onclick;
-  erRow.append(erEdit,erRun);d.appendChild(erRow);
+  erRow.append(erEdit,erRun);if(reset)erRow.append(reset);d.appendChild(erRow);
   return d;
 }
 // User-resizable task popout — floats the full task editor (taskCard) in a modal the user can drag larger from
