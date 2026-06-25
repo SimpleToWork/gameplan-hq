@@ -3926,7 +3926,17 @@ function openModal(title, build){
 }
 function renderTeam(m){
   m=m||document.getElementById("main");m.innerHTML="";
-  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Settings</div><p class="pagesub">Your people, their domains, and the categories, areas &amp; phases used across the board.</p>');
+  // Page header with a Collapse all / Expand all toggle (right-aligned). The button label reflects current
+  // state: if every section is collapsed it offers "Expand all", otherwise "Collapse all". Clicking it (and
+  // each individual section header) keeps the label in sync and persists state via settingsCollapsed.
+  const phead=document.createElement("div");phead.style.cssText="display:flex;align-items:center;gap:12px;";
+  phead.insertAdjacentHTML("beforeend",'<div class="pagehead" style="margin:0;">Settings</div>');
+  const collapseAllBtn=document.createElement("button");collapseAllBtn.className="btn sm";collapseAllBtn.style.marginLeft="auto";
+  phead.appendChild(collapseAllBtn);m.appendChild(phead);
+  m.insertAdjacentHTML("beforeend",'<p class="pagesub">Your people, their domains, and the categories, areas &amp; phases used across the board.</p>');
+  const allCollapsed=()=>{const s=[...m.querySelectorAll(".setsec")];return s.length>0&&s.every(x=>x.classList.contains("collapsed"));};
+  const refreshCollapseAllLabel=()=>{const c=allCollapsed();collapseAllBtn.textContent=c?"Expand all":"Collapse all";collapseAllBtn.title=c?"Expand all sections":"Collapse all sections";};
+  collapseAllBtn.onclick=()=>{const collapse=!allCollapsed();m.querySelectorAll(".setsec").forEach(sec=>{const nmEl=sec.querySelector(".nm"),name=nmEl?nmEl.textContent:"",chev=sec.querySelector(".setsec-chev"),hd=sec.querySelector(".setsec-head");sec.classList.toggle("collapsed",collapse);if(name){collapse?settingsCollapsed.add(name):settingsCollapsed.delete(name);}if(chev)chev.textContent=collapse?"▸":"▾";if(hd)hd.title=collapse?"Click to expand":"Click to collapse";});saveSettingsCollapsed();refreshCollapseAllLabel();};
   // Each section is collapsible: clicking its header toggles its body (collapsed state persists in
   // settingsCollapsed). The "+ Add" button lives top-right of the header and opens a modal (no inline add
   // rows); clicking it doesn't toggle the section. Returns the body element to append the section's content to.
@@ -3940,7 +3950,7 @@ function renderTeam(m){
     if(onAdd){const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent=addLabel;add.onclick=e=>{e.stopPropagation();onAdd();};h.appendChild(add);}
     const body=document.createElement("div");body.className="setsec-body";
     if(sub)body.insertAdjacentHTML("beforeend",'<p class="pagesub">'+sub+'</p>');
-    h.onclick=()=>{const c=sec.classList.toggle("collapsed");c?settingsCollapsed.add(name):settingsCollapsed.delete(name);saveSettingsCollapsed();chev.textContent=c?"▸":"▾";h.title=c?"Click to expand":"Click to collapse";};
+    h.onclick=()=>{const c=sec.classList.toggle("collapsed");c?settingsCollapsed.add(name):settingsCollapsed.delete(name);saveSettingsCollapsed();chev.textContent=c?"▸":"▾";h.title=c?"Click to expand":"Click to collapse";refreshCollapseAllLabel();};
     sec.append(h,body);m.appendChild(sec);
     return body;
   };
@@ -4129,7 +4139,7 @@ function renderTeam(m){
   const rcount=document.createElement("span");rcount.className="cat-count";
   const refresh=document.createElement("button");refresh.className="btn sm";refresh.style.marginLeft="auto";refresh.textContent="↻ Refresh";
   rhead.append(rchev,rtitle,rcount,refresh);
-  rhead.onclick=()=>{const c=rsec.classList.toggle("collapsed");c?settingsCollapsed.add("Connected repos"):settingsCollapsed.delete("Connected repos");saveSettingsCollapsed();rchev.textContent=c?"▸":"▾";rhead.title=c?"Click to expand":"Click to collapse";};
+  rhead.onclick=()=>{const c=rsec.classList.toggle("collapsed");c?settingsCollapsed.add("Connected repos"):settingsCollapsed.delete("Connected repos");saveSettingsCollapsed();rchev.textContent=c?"▸":"▾";rhead.title=c?"Click to expand":"Click to collapse";refreshCollapseAllLabel();};
   const rbody=document.createElement("div");rbody.className="setsec-body";
   rsec.append(rhead,rbody);m.appendChild(rsec);
   rbody.insertAdjacentHTML("beforeend",'<p class="pagesub">Repos the GitHub App can sync agent specs to. Install or remove the App on repos in GitHub, then Refresh.</p>');
@@ -4158,6 +4168,7 @@ function renderTeam(m){
   };
   paintRepos();loadGhRepos().then(paintRepos).catch(paintRepos);
   refresh.onclick=e=>{e.stopPropagation();ghRepos=null;ghReposErr=null;paintRepos();loadGhRepos(true).then(paintRepos).catch(paintRepos);};
+  refreshCollapseAllLabel();
 }
 
 /* ---------- Auth gate ---------- */
