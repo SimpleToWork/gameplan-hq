@@ -187,6 +187,10 @@
   .cat-name{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;}
   .cat-count{font-size:12px;color:var(--faint);}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:9px;}
+  /* Task cards run wider so status / priority / category / date fit on one row (see .crow). Scoped to the
+     task board grid only — the other .grid users (settings, trash, mini cards) keep the narrower default. */
+  .grid.taskgrid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr));}
+  @media(max-width:480px){.grid.taskgrid{grid-template-columns:1fr;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
@@ -244,7 +248,11 @@
   .asgbubs{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
   .asgbub{padding:2px 7px;border-radius:10px;color:#fff;font-size:9px;font-weight:600;font-family:'Space Grotesk',sans-serif;letter-spacing:.3px;cursor:default;}
   .asgbub.empty{background:#e7e8ec;color:#9aa0a8;}
-  .crow{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
+  /* Status / priority / category / date all live on one horizontal row — nowrap, with the selects sharing
+     the remaining width (they can shrink) while the date input keeps a readable fixed-ish width. */
+  .crow{display:flex;gap:7px;align-items:center;flex-wrap:nowrap;}
+  .crow .mini{flex:1 1 0;min-width:0;max-width:none;}
+  .crow input[type=date].mini{flex:0 0 auto;min-width:130px;max-width:150px;}
   .mini{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:var(--surface);color:var(--ink);cursor:pointer;max-width:150px;}
   .acts{display:flex;gap:11px;align-items:center;font-size:11.5px;}
   .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
@@ -1466,7 +1474,7 @@ function taskCard(t){
   if(!t.assignees||!t.assignees.length){const b=document.createElement("span");b.className="asgbub empty";b.textContent="—";b.title="Unassigned";asgb.appendChild(b);}
   d.appendChild(asgb);
   // Internal task ID — its own subtle monospace line (truncated; full id on hover + click-to-copy). Off the crowded
-  // provenance row so it can't overflow the ~310px card. Hidden when the card collapses (.cmeta rule).
+  // provenance row so it can't overflow the card width. Hidden when the card collapses (.cmeta rule).
   const idLine=document.createElement("div");idLine.className="cmeta idcopy";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
   idLine.textContent="ID "+shortId(t.id)+" ";idLine.title="Click to copy task ID: "+t.id;
   const idIco=document.createElement("span");idIco.className="copy-ico";idIco.textContent="📋";idIco.setAttribute("aria-hidden","true");idLine.appendChild(idIco);
@@ -2589,7 +2597,7 @@ function renderTasks(m){
       if(taskLayout==="table"){
         wrap.appendChild(taskTable(sec.items,sec.label));
       }else{
-        const grid=document.createElement("div");grid.className="grid";
+        const grid=document.createElement("div");grid.className="grid taskgrid";
         // Fold sec.items into sort runs; each run's divider carries a "Filter" button that narrows this section to that
         // value (toggle via taskSecSortFilter). With a filter active, only the matching run shows, its button now "Clear".
         let prevKey,run=null;const runs=[];
