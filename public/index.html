@@ -204,6 +204,7 @@
   .chips{display:flex;gap:6px;flex-wrap:wrap;padding-left:24px;}
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
+  .run-git-badge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:700;background:#1a1d23;color:#a8d99c;padding:1px 6px;border-radius:4px;white-space:nowrap;letter-spacing:0.03em;flex-shrink:0;cursor:default;}
   /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers, context, and run logs. */
   .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .er-row,.card.collapsed .nf-row,.card.collapsed .pop,.card.collapsed .cmeta,.card.collapsed .runprog{display:none;}
   /* Don't let a lone collapsed card stretch to its grid row's height (set by taller expanded neighbors). */
@@ -1720,6 +1721,9 @@ function updateRunPanel(t){
   if(old&&fresh)old.replaceWith(fresh);
   else if(old)old.remove();
   else if(fresh){const acts=card.querySelector(":scope > .acts");acts?acts.after(fresh):card.appendChild(fresh);}
+  // Update git badge in title row (runGit is a stream field so this won't trigger a full re-render)
+  const titleRow=card.querySelector(".ctitle-row");
+  if(titleRow){const ob=titleRow.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):titleRow.appendChild(nb);}else if(ob)ob.remove();}
 }
 // In-place update of the Run / Duration / Logs cells for one task row in the table layout. Patches only the three
 // run-related cells (cols 13-15) so streamed log updates never rebuild the full table and close open select dropdowns
@@ -1738,6 +1742,8 @@ function updateRunTableRow(t){
   // Logs button — col 15
   const tdLogs=tr.cells[15];
   if(tdLogs){const logBtn=tdLogs.querySelector(".tt-asgbtn");if(logBtn){logBtn.textContent=logLines.length?("📜 ("+logLines.length+")"):"📜";if(logLines.length||t.runError||t.runEndedAt){logBtn.disabled=false;logBtn.title="View runtime logs from the runner";logBtn.onclick=()=>openTaskLogsPop(logBtn,t);}else{logBtn.disabled=true;logBtn.title="No runtime logs yet — run this task to capture execution history";}}}
+  // Git badge — title cell (col 0), live-patched when runGit arrives as a stream field
+  const tdTitle=tr.cells[0];if(tdTitle){const tw=tdTitle.querySelector(".tt-titlewrap");if(tw){const ob=tw.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.style.marginLeft="auto";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):tw.appendChild(nb);}else if(ob)ob.remove();}}
 }
 function taskCard(t){
   const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"")+(activeTaskId===t.id?" active":"");d.dataset.taskId=t.id;
@@ -1747,7 +1753,7 @@ function taskCard(t){
   const dueChip=dd?'<span class="chip" style="background:'+(overdue?"#fdeaea":"#eef4fb")+';color:'+(overdue?"#c0392b":"#2c6cb0")+'">⏰ '+esc(t.due)+(overdue?" · overdue":"")+'</span>':'';
   const top=document.createElement("div");
   top.innerHTML='<div class="chips"><span class="chip" style="background:'+sc[0]+';color:'+sc[1]+'">'+t.status+'</span><span class="chip" style="background:'+pc[0]+';color:'+pc[1]+'">'+t.priority+'</span>'+dueChip+(rm?'<span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title)+'</span>':'')+'</div>'+
-    '<div class="ctitle" style="margin-top:6px;">'+esc(t.title)+'</div>'+(t.context?'<div class="cmeta" style="margin-top:3px;">'+esc(t.context)+'</div>':'');
+    '<div class="ctitle-row" style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><div class="ctitle">'+esc(t.title)+'</div>'+(t.runGit?'<span class="run-git-badge" title="Git update: '+esc(t.runGit)+'">'+esc(t.runGit.slice(0,8))+'</span>':'')+'</div>'+(t.context?'<div class="cmeta" style="margin-top:3px;">'+esc(t.context)+'</div>':'');
   d.appendChild(top);
   // Per-card collapse toggle — flips just this card instantly (no full re-render) and records state in taskCollapsed.
   const chev=document.createElement("button");chev.className="ccollapse";chev.type="button";
@@ -2333,7 +2339,7 @@ function taskTable(items,secLabel){
     // ⤢ Popout — open the full task editor in a resizable modal without leaving the table.
     const popBtn=document.createElement("button");popBtn.type="button";popBtn.className="tt-popbtn";popBtn.textContent="⤢";popBtn.title="Open in a resizable popout";
     popBtn.onclick=e=>{e.stopPropagation();openTaskPopout(t);};
-    tw.append(titleEl,popBtn);tdTask.appendChild(tw);
+    tw.append(titleEl,popBtn);if(t.runGit){const gb=document.createElement("span");gb.className="run-git-badge";gb.style.marginLeft="auto";gb.title="Git update: "+t.runGit;gb.textContent=t.runGit.slice(0,8);tw.appendChild(gb);}tdTask.appendChild(tw);
     // Description — its own column (the task's context/notes); read-only, clamped, full text on hover.
     const tdDesc=document.createElement("td");
     if(t.context){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=t.context;dv.title=t.context;tdDesc.appendChild(dv);}
