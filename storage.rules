@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Gameplan HQ — file attachments for tasks, agendas and agents. Mirrors firestore.rules:
+// every signed-in @merchantsbi.com user may read and write; everyone else is denied. Attachments
+// live under attachments/<collection>/<docId>/<file>. A 25 MB per-file cap matches the SPA's client check.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // True for a verified Google account on the company domain.
+    function isTeam() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower().matches('^[^@]+@merchantsbi[.]com$');
+    }
+
+    match /attachments/{allPaths=**} {
+      allow read: if isTeam();
+      // Writes must be from a team member and within the 25 MB per-file limit.
+      allow write: if isTeam()
+        && (request.resource == null || request.resource.size < 25 * 1024 * 1024);
+    }
+
+    // Anything not matched above is denied by default.
+  }
+}
