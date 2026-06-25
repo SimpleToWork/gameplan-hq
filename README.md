@@ -173,6 +173,35 @@ from the secrets you entered (the model and the saved transcript never see the r
   Nathan Mosseri, Harel Baruchi.
 - Disciplines: AI, Dev-Ops, Front-End, UI/UX, ETL, Back-End, Sales, Operations, Admin.
 
+## Firestore rules deployment
+
+`firestore.rules` is the authoritative source. Edit it locally, then deploy via the script —
+no need for the Firebase console or the Firebase CLI.
+
+**One-time IAM setup** (run once as a GCP owner/admin — grants the existing board service
+account the Firebase Rules Admin role in addition to its existing Firestore data access):
+
+```
+gcloud projects add-iam-policy-binding gameplan-hq-5995b \
+  --member="serviceAccount:<SA_EMAIL>" \
+  --role="roles/firebaserulesadmin"
+```
+
+Replace `<SA_EMAIL>` with the `client_email` from `.local/firestore-sa.json`. After granting
+the role, deploying rules is a single command:
+
+```
+npm run deploy:rules
+```
+
+The script (`scripts/deploy-rules.mjs`) signs a JWT with the service-account key, exchanges it
+for a short-lived Google access token, creates a new ruleset version via the Firebase Rules
+REST API, and points the `cloud.firestore` release at it. It prints the exact `gcloud` command
+if the permission is still missing.
+
+The service-account key lives at `.local/firestore-sa.json` (git-ignored). See the board
+write-access notes for how the key was originally obtained.
+
 ## Deploy
 
 1. Push to GitHub (`gameplan-hq`, private).
