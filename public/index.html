@@ -1834,7 +1834,7 @@ function taskCard(t){
   prow.append(copyB,openB);
   qBtn.onclick=()=>{pbox.value=buildTaskPrompt(t,qt.value);pbox.style.display="block";prow.style.display="flex";pbox.scrollIntoView({block:"nearest"});};
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
-  qpop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>{taskAskOpen.delete(t.id);qpop.classList.remove("open");}));d.appendChild(qpop);
+  qpop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>{taskAskOpen.delete(t.id);qpop.classList.remove("open");}));
   ask.onclick=()=>{const open=qpop.classList.toggle("open");open?taskAskOpen.add(t.id):taskAskOpen.delete(t.id);if(open)qt.focus();};
   // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
   rmv.title="Move to Trash";rmv.onclick=e=>{e.stopPropagation();dotDrop.classList.remove("open");deleteTask(t.id);};
@@ -1842,6 +1842,7 @@ function taskCard(t){
   const nfRow=document.createElement("div");nfRow.className="nf-row";
   filesBtn.style.marginLeft="auto";nfRow.append(notesBtn,ask,filesBtn);d.appendChild(nfRow);
   d.appendChild(npop);
+  d.appendChild(qpop);
   // Dedicated Edit / Run row — Edit left-aligned, Model+Run right-aligned, isolated from the acts toolbar.
   const erRow=document.createElement("div");erRow.className="er-row";
   const erEdit=document.createElement("button");erEdit.className="er-edit";erEdit.textContent="Edit";
