@@ -2673,6 +2673,7 @@ function makeColumnsResizable(table,key){
 }
 // Status-based view (the main row). Timeframe + person filters are layered on top in taskFilter.
 function taskViewMatch(t){
+  if(taskView==="viewall")return t.status!=="Archived";
   if(taskView==="done")return t.status==="Done";
   if(taskView==="archived")return t.status==="Archived";
   if(taskView==="working")return t.status==="Working on it";
@@ -2857,7 +2858,7 @@ function renderTasks(m){
   // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
   // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
   const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
-  const VIEW_OPTS=[["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]];
+  const VIEW_OPTS=[["viewall","View All"],["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]];
   if(isMobileFilters){
     vb.appendChild(taskMenuBtn("Status",VIEW_OPTS,taskView,k=>{taskView=k;renderTasks();}));
   }else{
