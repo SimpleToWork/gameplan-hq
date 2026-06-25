@@ -972,10 +972,10 @@ function attachmentsBox(coll,docId,seed){
 // Fields the runner writes during execution — log lines, cost, status transitions, result, and git metadata. They
 // feed only the run-progress panel / table run cells, never ordering / filtering / any editable field. Keeping this
 // set broad means a runStatus flip (queued→running) or a final result write won't trigger a full board re-render and
-// wipe an in-progress edit. Fields set at run-start by the UI (runRequested, runId, runRequestedBy, runRequestedAt,
-// runLevel) are intentionally excluded so clicking ▶ Run still triggers a full re-render to update the button state.
+// wipe an in-progress edit. Also includes run-start fields (runRequested, runId, runRequestedBy, runRequestedAt,
+// runLevel) — updateRunPanel patches the run/reset buttons in-place so a full re-render is no longer needed.
 // liveStreamOnly returns the list of tasks whose ONLY changes are these fields — or null if anything else moved.
-const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit"]);
+const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit","runRequested","runId","runRequestedBy","runRequestedAt","runLevel"]);
 function liveStreamOnly(prev,next){
   if(!prev||prev.length!==next.length)return null;
   const pm=new Map(prev.map(t=>[t.id,t]));const changed=[];
@@ -1738,6 +1738,15 @@ function updateRunPanel(t){
   // Update git badge in title row (runGit is a stream field so this won't trigger a full re-render)
   const titleRow=card.querySelector(".ctitle-row");
   if(titleRow){const ob=titleRow.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):titleRow.appendChild(nb);}else if(ob)ob.remove();}
+  // Patch the run button and reset button in the acts bar so run-start fields (runRequested, runStatus, etc.)
+  // no longer need a full re-render to update the button state.
+  const runLive=t.runStatus==="running"||t.runStatus==="queued";
+  const runBtn=card.querySelector(".runbtn");
+  if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";runBtn.disabled=runLive;runBtn.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}
+  const acts=card.querySelector(":scope > .acts");
+  if(acts){const existReset=acts.querySelector("[data-runreset]");
+    if(runLive&&!existReset){const reset=document.createElement("button");reset.className="rm";reset.dataset.runreset="1";reset.textContent="✕ reset";reset.title="Clear a stuck run state (use if it's been stuck on running/queued). Does not stop a process already running on the dev machine.";reset.onclick=e=>{e.stopPropagation();if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});banner("Run state reset.","ok");};if(runBtn)runBtn.after(reset);else acts.appendChild(reset);}
+    else if(!runLive&&existReset)existReset.remove();}
 }
 // In-place update of the Run / Duration / Logs cells for one task row in the table layout. Patches only the three
 // run-related cells (cols 13-15) so streamed log updates never rebuild the full table and close open select dropdowns
@@ -1853,7 +1862,7 @@ function taskCard(t){
   // mid-run it never flips to done/error, so the task shows "running" forever. This resets the board state.
   // NOTE: it does NOT kill a claude process genuinely still alive on the dev machine — stop that there.
   const reset=runLive?document.createElement("button"):null;
-  if(reset){reset.className="rm";reset.textContent="✕ reset";
+  if(reset){reset.className="rm";reset.dataset.runreset="1";reset.textContent="✕ reset";
     reset.title="Clear a stuck run state (use if it's been stuck on running/queued). Does not stop a process already running on the dev machine.";
     reset.onclick=e=>{e.stopPropagation();
       if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;
