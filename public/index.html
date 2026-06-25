@@ -462,6 +462,14 @@
   .col-resizer::after{content:"";position:absolute;top:22%;right:4px;width:1px;height:56%;background:var(--line);transition:background .12s;}
   .col-resizer:hover::after,.col-resizer.dragging::after{background:var(--accent,#4646c8);width:2px;}
   body.col-resizing{cursor:col-resize;}
+  /* Column-level sort (Tasks / Roadmap / Agendas table views) */
+  .th-srt{display:inline-flex;align-items:center;gap:3px;cursor:pointer;border-radius:3px;padding:1px 2px 1px 0;transition:color .12s;}
+  .th-srt:hover{color:#fff;}
+  .th-srt.active{color:#aeb2ff;}
+  .th-srt-arr{font-size:9px;opacity:.32;line-height:1;transition:opacity .12s;}
+  .th-srt.active .th-srt-arr{opacity:1;}
+  .th-srt:hover .th-srt-arr{opacity:.7;}
+  .th-hd{display:flex;align-items:center;gap:4px;} /* sort label + filter funnel in one <th> */
   body.col-resizing *{cursor:col-resize!important;-webkit-user-select:none;user-select:none;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   /* Rendered-markdown view (agent .md files) */
@@ -638,8 +646,10 @@ let ghRepos=null;            // cached repos the GitHub App can access [{fullNam
 let ghInstalls=null;         // cached GitHub App installations [{account,manageUrl}]
 let ghReposErr=null;         // last error from loading connected repos (e.g. "App not configured"); shown in Settings
 let roadmapView="list";      // list | timeline | kanban | plot | table
-let rmSort="manual";         // manual | start | target | added | az | za
-let rmTableSort={col:"area",dir:"asc"}; // table-view column sort: col=area|title|phase|start|target|asg, dir=asc|desc
+let rmSort="manual";         // manual | start | target | added | az | za | area | phase | asg
+let taskTableColSort={col:null,dir:"asc"}; // active column-level sort for the task table; null col = use global taskSort order
+let rmTableColSort={col:"area",dir:"asc"}; // active column-level sort for the roadmap table; defaults to A–Z by area
+let agTableColSort={col:null,dir:"asc"};   // active column-level sort for the agendas table
 let rmSearch="";             // free-text search over roadmap title/detail; "" = off
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
 let rmFilterOpen=true;       // is the area Filter row expanded?
@@ -2140,6 +2150,28 @@ const TASK_COL_ACC={
 const RM_COL_ACC={ area:r=>r.area||"", phase:r=>phaseOf(r)||"", asg:r=>(r.assignees&&r.assignees.length?r.assignees:[""]) };
 const AG_COL_ACC={ att:a=>(a.attendees&&a.attendees.length?a.attendees:[""]) };
 const plainTh=t=>{const th=document.createElement("th");th.textContent=t;return th;};
+// Sortable column header. S={col,dir}; clicking toggles direction or picks this column asc.
+function sortTh(label,key,S,onSort){
+  const th=document.createElement("th");const active=S.col===key;
+  const sp=document.createElement("span");sp.className="th-srt"+(active?" active":"");
+  const arr=document.createElement("span");arr.className="th-srt-arr";arr.textContent=active?(S.dir==="asc"?"↑":"↓"):"↕";
+  sp.appendChild(document.createTextNode(label+" "));sp.appendChild(arr);
+  sp.onclick=()=>{if(S.col===key)S.dir=S.dir==="asc"?"desc":"asc";else{S.col=key;S.dir="asc";}onSort();};
+  th.appendChild(sp);return th;
+}
+// Sortable + filterable column header — sort label click-to-sort, funnel button click-to-filter.
+function sortFilterTh(label,key,S,onSort,field,options,filters,reRender){
+  const th=document.createElement("th");const active=S.col===key;const on=!!(filters[field]&&filters[field].size);
+  const sp=document.createElement("span");sp.className="th-srt"+(active?" active":"");
+  const arr=document.createElement("span");arr.className="th-srt-arr";arr.textContent=active?(S.dir==="asc"?"↑":"↓"):"↕";
+  sp.appendChild(document.createTextNode(label+" "));sp.appendChild(arr);
+  sp.onclick=()=>{if(S.col===key)S.dir=S.dir==="asc"?"desc":"asc";else{S.col=key;S.dir="asc";}onSort();};
+  const btn=document.createElement("button");btn.type="button";btn.className="colfilter"+(on?" on":"");
+  btn.innerHTML='<svg class="cf-funnel" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z" fill="currentColor"/></svg>'+(on?'<span class="cf-dot"></span>':'');
+  btn.title=on?(label+": "+[...filters[field]].map(v=>v===""?"—":v).join(", ")):("Filter by "+label);
+  btn.onclick=e=>{e.stopPropagation();openColFilterPop(btn,label,options,filters,field,reRender);};
+  const wrap=document.createElement("div");wrap.className="th-hd";wrap.append(sp,btn);th.appendChild(wrap);return th;
+}
 // Truncated display of a long Firestore id: first 7 chars + ellipsis. Full id is always kept in the title + copied on click.
 const shortId=id=>id&&id.length>8?id.slice(0,7)+"…":(id||"");
 // Run-duration cell for the Tasks table. While a run is live it shows the elapsed clock since ▶ Run was clicked
@@ -2164,15 +2196,33 @@ function runDurationCell(t){
 function taskTable(items,secLabel){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
-  // Header — categorical columns carry a value-picker filter (global state in tableColFilters.tasks, applied in
-  // renderTasks; options in taskColOpts). Falls back to a plain header when opts aren't computed (non-table paths).
   const thead=document.createElement("thead");const htr=document.createElement("tr");
-  const F=tableColFilters.tasks,o=taskColOpts;
-  const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),plainTh("Timestamps"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  const F=tableColFilters.tasks,o=taskColOpts;const S=taskTableColSort;
+  const resort=()=>renderTasks();
+  // Per-column sort comparators for the task table.
+  const TCS={
+    title:(a,b)=>(a.title||"").localeCompare(b.title||""),
+    status:(a,b)=>(STATUSES.indexOf(a.status)||0)-(STATUSES.indexOf(b.status)||0),
+    priority:(a,b)=>(PRANK[a.priority]??2)-(PRANK[b.priority]??2),
+    category:(a,b)=>(CATS.indexOf(a.category)+1||99)-(CATS.indexOf(b.category)+1||99),
+    who:(a,b)=>{const pa=((a.assignees||[]).filter(Boolean)[0]||"").toLowerCase(),pb=((b.assignees||[]).filter(Boolean)[0]||"").toLowerCase();if(!pa&&!pb)return 0;if(!pa)return 1;if(!pb)return -1;return pa.localeCompare(pb);},
+    createdby:(a,b)=>(a.createdBy||"").localeCompare(b.createdBy||""),
+    ts:(a,b)=>cmpDateAsc(taskTs(a),taskTs(b)),
+    due:(a,b)=>cmpDateAsc(a.due,b.due),
+    roadmap:(a,b)=>{const ra=DB.roadmap.find(r=>r.id===a.roadmapId),rb=DB.roadmap.find(r=>r.id===b.roadmapId);return (ra?ra.title:"").localeCompare(rb?rb.title:"");},
+    run:(a,b)=>RUN_STATUS_ORDER.indexOf(runStatusLabel(a))-RUN_STATUS_ORDER.indexOf(runStatusLabel(b)),
+  };
+  // Apply column sort when active (overrides pre-sort order from taskSections; suppresses sub-group dividers).
+  const useColSort=!!(S.col&&TCS[S.col]);
+  if(useColSort){const cmp=TCS[S.col];const d=S.dir==="asc"?1:-1;items=items.slice().sort((a,b)=>d*cmp(a,b));}
+  // Header: sortable columns use sortTh / sortFilterTh; filterable+sortable use sortFilterTh.
+  const sfth=(label,key,field)=>o?sortFilterTh(label,key,S,resort,field,o[field]||[],F,renderTasks):sortTh(label,key,S,resort);
+  const sth=(label,key)=>sortTh(label,key,S,resort);
+  [sth("Task","title"),plainTh("Description"),sfth("Status","status","status"),sfth("Priority","priority","priority"),sfth("Category","category","category"),sfth("Who","who","who"),sfth("Created by","createdby","createdby"),sth("Timestamps","ts"),sfth("Target","due","due"),sfth("Roadmap","roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),sfth("Run","run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
-  const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
+  // Sub-group dividers are suppressed when a column sort is active (items no longer group by taskSort key).
+  const sd=sortDividers(taskSort);const multi=useColSort?false:new Set(items.map(sd.key)).size>1;let prevKey;
   const fval=secLabel!==undefined?(taskSecSortFilter[secLabel]||""):"";   // active sort-value filter for this section (set by a divider's Filter button)
   items.forEach(t=>{
     const k=sd.key(t);
@@ -2806,7 +2856,7 @@ function renderTasks(m){
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim()||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";tableColFilters.tasks={};renderTasks();};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks();};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -3172,7 +3222,7 @@ function sortTargets(items){
   return sortManual(items);
 }
 function sortTableTargets(items){
-  const {col,dir}=rmTableSort;const d=dir==="asc"?1:-1;
+  const {col,dir}=rmTableColSort;const d=dir==="asc"?1:-1;
   return items.slice().sort((a,b)=>{
     if(col==="start")return d*cmpDateAsc(a.start,b.start);
     if(col==="target")return d*cmpDateAsc(a.target,b.target);
@@ -3482,25 +3532,31 @@ function renderRoadmapList(m){
 // Area is the first column and defaults to A–Z sort (rmTableSort persists within the session).
 function renderRoadmapTable(m){
   if(!DB.roadmap.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No targets yet</div>Capture above, or add one by hand.</div>');return;}
-  const base=sortTableTargets(rmFilteredTargets());
+  let base=sortTargets(rmFilteredTargets());
   if(!base.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No matching targets</div>Adjust the area, people, or search filters above.</div>');return;}
+  const F=tableColFilters.roadmap;const S=rmTableColSort;const resort=()=>renderRoadmap();
+  // Per-column sort comparators for the roadmap table.
+  const RMCS={
+    title:(a,b)=>(a.title||"").localeCompare(b.title||""),
+    area:(a,b)=>(a.area||"").localeCompare(b.area||""),
+    phase:(a,b)=>(phaseOf(a)||"").localeCompare(phaseOf(b)||""),
+    start:(a,b)=>cmpDateAsc(a.start,b.start),
+    target:(a,b)=>cmpDateAsc(a.target,b.target),
+    asg:(a,b)=>{const pa=(a.assignees&&a.assignees.length?a.assignees[0]:""),pb=(b.assignees&&b.assignees.length?b.assignees[0]:"");if(!pa&&!pb)return 0;if(!pa)return 1;if(!pb)return -1;return pa.localeCompare(pb);},
+  };
+  if(S.col&&RMCS[S.col]){const cmp=RMCS[S.col];const d=S.dir==="asc"?1:-1;base=base.slice().sort((a,b)=>d*cmp(a,b));}
   // Per-column header filters (Area / Phase / Assignees). Each column's options are scoped by the OTHER active column
   // filters (colOptionsCtx) so the dropdowns are context-aware of each other, never by the column's own filter; rows are
   // `base` narrowed by all the active column filters.
-  const F=tableColFilters.roadmap;
   const rows=base.filter(r=>colFiltersMatch(r,F,RM_COL_ACC));
   const wrap=document.createElement("div");wrap.className="rmtable-wrap";
   const tbl=document.createElement("table");tbl.className="rmtable";
   const thead=document.createElement("thead");const htr=document.createElement("tr");
-  // Sortable plain header — clicking cycles asc/desc for that column.
-  const sortTh=(label,col)=>{const th=document.createElement("th");const on=rmTableSort.col===col;th.innerHTML=esc(label)+'<span style="opacity:'+(on?.9:.3)+';font-size:9px;margin-left:3px;">'+(on?(rmTableSort.dir==="asc"?"▲":"▼"):"⇅")+'</span>';th.style.cursor="pointer";th.title="Sort by "+label;th.onclick=()=>{if(rmTableSort.col===col)rmTableSort.dir=rmTableSort.dir==="asc"?"desc":"asc";else rmTableSort={col,dir:"asc"};renderRoadmap();};return th;};
-  // Sortable + filterable header: filter button handles filter popup (stopPropagation), th click sorts.
-  const filterSortTh=(label,col,field,opts)=>{const th=colFilterTh(label,field,opts,F,renderRoadmap);const btn=th.querySelector(".colfilter");const orig=btn.onclick;btn.onclick=e=>{e.stopPropagation();orig.call(btn,e);};const on=rmTableSort.col===col;const sp=document.createElement("span");sp.style.cssText="opacity:"+(on?.9:.3)+";font-size:9px;";sp.textContent=on?(rmTableSort.dir==="asc"?" ▲":" ▼"):" ⇅";btn.appendChild(sp);th.style.cursor="pointer";th.onclick=()=>{if(rmTableSort.col===col)rmTableSort.dir=rmTableSort.dir==="asc"?"desc":"asc";else rmTableSort={col,dir:"asc"};renderRoadmap();};return th;};
-  [filterSortTh("Area","area","area",colOptionsCtx(base,"area",RM_COL_ACC,areaNames(),F)),
-   sortTh("Target","title"),plainTh("Description"),
-   filterSortTh("Phase","phase","phase",colOptionsCtx(base,"phase",RM_COL_ACC,phaseNames(),F)),
-   sortTh("Start","start"),sortTh("Target date","target"),
-   filterSortTh("Assignees","asg","asg",colOptionsCtx(base,"asg",RM_COL_ACC,roster().map(r=>r.name),F)),
+  [sortFilterTh("Area","area",S,resort,"area",colOptionsCtx(base,"area",RM_COL_ACC,areaNames(),F),F,renderRoadmap),
+   sortTh("Target","title",S,resort),plainTh("Description"),
+   sortFilterTh("Phase","phase",S,resort,"phase",colOptionsCtx(base,"phase",RM_COL_ACC,phaseNames(),F),F,renderRoadmap),
+   sortTh("Start","start",S,resort),sortTh("Target date","target",S,resort),
+   sortFilterTh("Assignees","asg",S,resort,"asg",colOptionsCtx(base,"asg",RM_COL_ACC,roster().map(r=>r.name),F),F,renderRoadmap),
    plainTh("Tasks")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
@@ -4083,14 +4139,20 @@ function renderAgendas(m){
 function renderAgendasTable(m,rows){
   const wrap=document.createElement("div");wrap.className="agtable-wrap";
   const t=document.createElement("table");t.className="agtable";
-  // Attendees column carries a value-picker filter (by member). Options from the unfiltered `rows`; the displayed
-  // set is `rows` narrowed by the active column filter.
-  const base=rows.slice();const F=tableColFilters.agendas;
+  const base=rows.slice();const F=tableColFilters.agendas;const S=agTableColSort;const resort=()=>renderAgendas();
+  // Per-column sort comparators for the agendas table.
+  const AGCS={
+    title:(a,b)=>(a.title||"").localeCompare(b.title||""),
+    date:(a,b)=>cmpDateAsc(a.date,b.date),
+    att:(a,b)=>((a.attendees||[]).length-(b.attendees||[]).length),
+    items:(a,b)=>((a.roadmapIds||[]).length-(b.roadmapIds||[]).length),
+  };
   rows=base.filter(a=>colFiltersMatch(a,F,AG_COL_ACC));
+  if(S.col&&AGCS[S.col]){const cmp=AGCS[S.col];const d=S.dir==="asc"?1:-1;rows=rows.slice().sort((a,b)=>d*cmp(a,b));}
   const thead=document.createElement("thead");const htr=document.createElement("tr");
-  [plainTh("Agenda"),plainTh("Description"),plainTh("When"),
-   colFilterTh("Attendees","att",colOptions(base,AG_COL_ACC.att,roster().map(m=>m.name)),F,renderAgendas),
-   plainTh("RSVP"),plainTh("Items"),plainTh("Meet")].forEach(th=>htr.appendChild(th));
+  [sortTh("Agenda","title",S,resort),plainTh("Description"),sortTh("When","date",S,resort),
+   sortFilterTh("Attendees","att",S,resort,"att",colOptions(base,AG_COL_ACC.att,roster().map(m=>m.name)),F,renderAgendas),
+   plainTh("RSVP"),sortTh("Items","items",S,resort),plainTh("Meet")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);t.appendChild(thead);
   const tb=document.createElement("tbody");
   if(!rows.length&&base.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.className="at-sub";td.style.padding="14px 12px";td.textContent="No agendas match the attendee filter.";tr.appendChild(td);tb.appendChild(tr);}
