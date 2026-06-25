@@ -191,7 +191,7 @@
      task board grid only — the other .grid users (settings, trash, mini cards) keep the narrower default. */
   .grid.taskgrid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr));}
   @media(max-width:480px){.grid.taskgrid{grid-template-columns:1fr;}}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;position:relative;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
   .card[data-task-id]:hover{border-color:#9d9dde;border-color:color-mix(in srgb,var(--accent,#4646c8) 55%,#fff);}
@@ -208,7 +208,7 @@
   .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .pop,.card.collapsed .cmeta,.card.collapsed .runprog{display:none;}
   /* Don't let a lone collapsed card stretch to its grid row's height (set by taller expanded neighbors). */
   .card.collapsed{align-self:start;}
-  .ccollapse{margin-left:auto;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;}
+  .ccollapse{position:absolute;top:8px;left:8px;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;z-index:1;}
   .ccollapse:hover{color:var(--ink,#2a2f38);}
   /* Collapsed agenda card: show only its header (h3 with the title + controls), hide the body. */
   .ag.collapsed > *:not(h3){display:none;}
@@ -1639,7 +1639,7 @@ function taskCard(t){
   const setChev=()=>{const on=d.classList.contains("collapsed");chev.textContent=on?"▸":"▾";chev.title=on?"Expand card":"Collapse card";};
   setChev();
   chev.onclick=e=>{e.stopPropagation();const on=d.classList.toggle("collapsed");on?taskCollapsed.add(t.id):taskCollapsed.delete(t.id);setChev();};
-  const chipsRow=top.querySelector(".chips");if(chipsRow)chipsRow.appendChild(chev);
+  d.appendChild(chev);
   // Provenance row: who created the task, with the Assign button beside it. Legacy tasks with no createdBy fall back to "Unknown".
   const ar=document.createElement("div");ar.className="avas";ar.style.cssText="margin-top:2px;gap:8px;";
   const by=document.createElement("span");by.className="cmeta";by.style.whiteSpace="nowrap";by.textContent="Created by "+(t.createdBy||"Unknown");if(t.createdBy)by.title=t.createdBy;ar.appendChild(by);
