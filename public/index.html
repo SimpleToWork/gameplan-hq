@@ -1162,9 +1162,12 @@ async function captureTasks(){
       'In skipped, copy the id and title of the existing task each input genuinely duplicated, exactly as given above. '+
       'assignee = a named person if explicitly named for that task, otherwise "'+identity+'". '+EXTRACT_GUARD+'\nPlan:\n"""'+txt+'"""';
     const text=await callClaude(p);const res=extractJSON(text,"object");
+    const taskRepoUrl=captureWriteRepo||(captureRepos&&captureRepos.size?[...captureRepos][0]:null)||null;
+    const taskAgentIds=captureAgentIds&&captureAgentIds.size?[...captureAgentIds]:null;
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
-      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:captureRoadmapId||null,_include:true}));
+      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:captureRoadmapId||null,
+      repoUrl:taskRepoUrl,agentIds:taskAgentIds,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
@@ -1822,6 +1825,55 @@ function taskCard(t){
   const priSel=mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v}));priSel.classList.add("crow-sm");
   crow.append(catSel,stSel,priSel);
   d.appendChild(crow);
+  // ── Run context row: repo + agents assigned to this task ──────────────────────
+  {
+    const rlabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
+    const rcrow=document.createElement("div");rcrow.className="crow cmeta";rcrow.style.cssText="flex-wrap:wrap;gap:4px;align-items:center;padding-top:2px;";
+    // Repo chip
+    const repoChip=document.createElement("span");repoChip.className="mini";
+    repoChip.style.cssText="cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px;display:inline-flex;align-items:center;gap:4px;";
+    const repoDot=document.createElement("span");repoDot.style.cssText="width:8px;height:8px;border-radius:50%;background:"+(t.repoUrl?repoColor(t.repoUrl)||"#5271ff":"#9aa0a8")+";flex-shrink:0;";
+    const repoLbl=document.createElement("span");repoLbl.textContent=t.repoUrl?rlabel(t.repoUrl):"+ Repo";
+    if(t.repoUrl){repoChip.style.background="#5271ff22";repoChip.style.color="#5271ff";repoChip.style.borderColor="#5271ff55";}else{repoChip.style.color="var(--muted)";}
+    repoChip.append(repoDot,repoLbl);
+    repoChip.title=t.repoUrl?"Repo: "+t.repoUrl+" — click to change":"Assign a repo to this task";
+    repoChip.onclick=e=>{
+      e.stopPropagation();
+      const pop=document.createElement("div");pop.className="pop open";pop.style.cssText="min-width:220px;top:unset;left:0;z-index:999;";
+      // Build repo list from known repos
+      const knownRepos=[...new Set([...DB.repoNames.map(r=>r.repoUrl),...(t.repoUrl?[t.repoUrl]:[])])].filter(Boolean);
+      if(t.repoUrl){const clrLi=document.createElement("div");clrLi.className="pm-item";clrLi.textContent="✕ Clear repo";clrLi.style.color="var(--danger)";clrLi.onclick=ev=>{ev.stopPropagation();setTask(t.id,{repoUrl:null});pop.remove();};pop.appendChild(clrLi);}
+      knownRepos.forEach(u=>{const li=document.createElement("div");li.className="pm-item";li.style.cssText="display:flex;align-items:center;gap:6px;";const dot=document.createElement("span");dot.style.cssText="width:8px;height:8px;border-radius:50%;background:"+(repoColor(u)||"#5271ff")+";flex-shrink:0;";li.append(dot,rlabel(u));if(normRepo(u)===normRepo(t.repoUrl||""))li.style.fontWeight="600";li.onclick=ev=>{ev.stopPropagation();setTask(t.id,{repoUrl:u});pop.remove();};pop.appendChild(li);});
+      if(!knownRepos.length){const li=document.createElement("div");li.className="pm-item";li.style.color="var(--muted)";li.textContent="No repos yet — add repos in Capture";pop.appendChild(li);}
+      repoChip.style.position="relative";repoChip.appendChild(pop);
+      const close=ev=>{if(!pop.contains(ev.target)){pop.remove();document.removeEventListener("click",close);}};
+      setTimeout(()=>document.addEventListener("click",close),0);
+    };
+    rcrow.appendChild(repoChip);
+    // Agent chips
+    const taskAgentIds=Array.isArray(t.agentIds)?t.agentIds:[];
+    taskAgentIds.forEach(aid=>{
+      const ag=DB.agents.find(x=>x.id===aid);if(!ag)return;
+      const chip=document.createElement("span");chip.className="mini";chip.style.cssText="cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px;display:inline-flex;align-items:center;gap:4px;background:#1a1d2322;color:#ccc;border-color:#ffffff22;";
+      chip.textContent=ag.name||ag.type||"Agent";chip.title=(ag.summary||"")+" — click to remove";
+      chip.onclick=e=>{e.stopPropagation();setTask(t.id,{agentIds:taskAgentIds.filter(x=>x!==aid)});};
+      rcrow.appendChild(chip);
+    });
+    // Add agent button
+    const addAgent=document.createElement("span");addAgent.className="mini";addAgent.style.cssText="cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px;color:var(--muted);";addAgent.textContent="+ Agent";addAgent.title="Assign an agent to this task";
+    addAgent.onclick=e=>{
+      e.stopPropagation();
+      const pop=document.createElement("div");pop.className="pop open";pop.style.cssText="min-width:220px;top:unset;left:0;z-index:999;";
+      const avail=DB.agents.filter(a=>!taskAgentIds.includes(a.id));
+      if(!avail.length){const li=document.createElement("div");li.className="pm-item";li.style.color="var(--muted)";li.textContent="No agents available";pop.appendChild(li);}
+      avail.forEach(ag=>{const li=document.createElement("div");li.className="pm-item";li.textContent=ag.name||ag.type||"Agent";li.title=ag.summary||"";li.onclick=ev=>{ev.stopPropagation();setTask(t.id,{agentIds:[...taskAgentIds,ag.id]});pop.remove();};pop.appendChild(li);});
+      addAgent.style.position="relative";addAgent.appendChild(pop);
+      const close=ev=>{if(!pop.contains(ev.target)){pop.remove();document.removeEventListener("click",close);}};
+      setTimeout(()=>document.addEventListener("click",close),0);
+    };
+    rcrow.appendChild(addAgent);
+    d.appendChild(rcrow);
+  }
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
   const edit=document.createElement("button");edit.textContent="Edit";
