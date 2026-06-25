@@ -1564,11 +1564,11 @@ function renderCapture(m){m=m||document.getElementById("main");
   rpWriteSel.onchange=()=>{captureWriteRepo=rpWriteSel.value||null;saveCapturePrefs();};
   const openRepoDropdown=anchor=>{
     const{pop,place}=floatTaskPop(anchor);
-    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="280px";pop.style.overflowY="auto";
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="280px";pop.style.overflowY="auto";pop.style.maxWidth="none";pop.style.width="max-content";
     const repos=ghRepos||[];
     if(!repos.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=ghReposErr||"No connected repos — configure in Settings";pop.appendChild(nm);}
     repos.forEach(r=>{
-      const row=document.createElement("label");row.className="opt";
+      const row=document.createElement("label");row.className="opt";row.style.whiteSpace="nowrap";
       const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureRepos&&captureRepos.has(normRepo(r.url)));
       const rc=repoColor(r.url);const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(rc||"#9aa0a8")+";flex-shrink:0;margin-right:3px;";
       const fn=repoFriendly(r.url);const lbl=fn?fn+" — "+r.fullName:r.fullName;
@@ -1598,7 +1598,7 @@ function renderCapture(m){m=m||document.getElementById("main");
   agBtn.append(agLbl,agCar);if(captureAgentIds&&captureAgentIds.size)agBtn.style.fontWeight="600";
   const openAgentDropdown=anchor=>{
     const{pop,place}=floatTaskPop(anchor);
-    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="340px";
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.height="340px";pop.style.maxHeight="80vh";pop.style.overflow="hidden";pop.style.resize="both";pop.style.minWidth="260px";pop.style.minHeight="180px";
     // Search input at the top of the dropdown.
     const srch=document.createElement("input");srch.type="search";srch.className="ctrl";srch.placeholder="Search agents…";srch.style.cssText="margin-bottom:4px;flex:none;";
     pop.appendChild(srch);
@@ -1616,7 +1616,7 @@ function renderCapture(m){m=m||document.getElementById("main");
         cb.onchange=()=>{if(!captureAgentIds)captureAgentIds=new Set();if(cb.checked)captureAgentIds.add(a.id);else captureAgentIds.delete(a.id);
           if(!captureAgentIds.size)captureAgentIds=null;saveCapturePrefs();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight=(captureAgentIds&&captureAgentIds.size)?"600":"";};
         row.append(cb,document.createTextNode(" "+(a.name||a.id)),sub);
-        if(a.summary){const desc=document.createElement("div");desc.className="cmeta";desc.style.cssText="margin-left:20px;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;";desc.textContent=a.summary;row.appendChild(desc);}
+        if(a.summary){const desc=document.createElement("div");desc.className="cmeta";desc.style.cssText="margin-left:20px;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";desc.textContent=a.summary;row.appendChild(desc);}
         list.appendChild(row);
       });
     };
