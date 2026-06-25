@@ -1522,10 +1522,10 @@ function taskCard(t){
   run.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
   if(runLive)run.disabled=true;
   run.onclick=e=>{e.stopPropagation();if(runLive)return;
-    if(!confirm('Run "'+t.title+'" with Claude on the local runner?\n\nThe runner on the dev machine will pick it up, work the task, and report status + a summary back here.'))return;
-    const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-    setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
-    banner("Queued for the local runner — it'll start shortly.","ok");};
+    runApprovalModal(t,()=>{
+      const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
+      setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
+      banner("Queued for the local runner — it'll start shortly.","ok");});};
   // ✕ Reset — clear a stuck run. runStatus is just a field; if the runner dies (or its writeback errors)
   // mid-run it never flips to done/error, so the task shows "running" forever. This resets the board state.
   // NOTE: it does NOT kill a claude process genuinely still alive on the dev machine — stop that there.
@@ -1954,10 +1954,10 @@ function taskTable(items,secLabel){
     runBtn.title=t.runError?("Last run failed: "+t.runError):ttRunLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
     if(ttRunLive)runBtn.disabled=true;
     runBtn.onclick=e=>{e.stopPropagation();if(ttRunLive)return;
-      if(!confirm('Run "'+t.title+'" with Claude on the local runner?\n\nThe runner on the dev machine will pick it up, work the task, and report status + a summary back here.'))return;
-      const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-      setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
-      banner("Queued for the local runner — it'll start shortly.","ok");};
+      runApprovalModal(t,()=>{
+        const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
+        setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
+        banner("Queued for the local runner — it'll start shortly.","ok");});};
     tdRun.appendChild(runBtn);
     // Duration — how long the last (or in-flight) run took, measured from ▶ Run. See runDurationCell.
     const tdDur=document.createElement("td");tdDur.appendChild(runDurationCell(t));
@@ -3946,6 +3946,30 @@ function openModal(title, build){
   ov.appendChild(card);document.body.appendChild(ov);
   build(card, close);
   return close;
+}
+// Run approval modal — replaces the old confirm() before handing a task to the local Claude runner. Shows a
+// basic task overview (title, category, roadmap target) and requires an explicit Approve & Run. onApprove fires
+// only on approval; both the card and the table-row ▶ Run share this so the queue logic stays in one place.
+function runApprovalModal(t,onApprove){
+  const rm=t.roadmapId?DB.roadmap.find(r=>r.id===t.roadmapId):null;
+  openModal("Run task with Claude",(card,close)=>{
+    const row=(label,html)=>'<div style="display:flex;gap:10px;margin-bottom:10px;"><div style="flex:0 0 84px;color:var(--muted);font-size:12px;font-weight:600;padding-top:2px;">'+label+'</div><div style="flex:1;min-width:0;">'+html+'</div></div>';
+    const catChip='<span class="chip" style="background:'+(CAT_COLOR[t.category]||"#888")+'22;color:'+(CAT_COLOR[t.category]||"#888")+'">'+esc(t.category||"—")+'</span>';
+    const rmChip=rm?'<span class="chip" style="background:#ecebfb;color:#4646c8">▸ '+esc(rm.title||"Untitled target")+'</span>'+(rm.area?' <span class="chip" style="background:#f0f0ee;color:#7a7f88">'+esc(rm.area)+'</span>':''):'<span style="color:var(--muted);font-size:13px;">— No roadmap target —</span>';
+    const ov=document.createElement("div");
+    ov.innerHTML=row("Task",'<div style="font-weight:600;font-size:15px;line-height:1.3;">'+esc(t.title||"Untitled")+'</div>')
+      +row("Category",'<div class="chips">'+catChip+'</div>')
+      +row("Roadmap",'<div class="chips">'+rmChip+'</div>');
+    card.appendChild(ov);
+    const note=document.createElement("p");note.className="pagesub";note.style.cssText="margin:4px 0 14px;";
+    note.textContent="The local runner will pick this up, work the task, and report status + a summary back here.";
+    card.appendChild(note);
+    const acts=document.createElement("div");acts.style.cssText="display:flex;gap:8px;justify-content:flex-end;";
+    const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
+    const go=document.createElement("button");go.className="btn primary";go.textContent="▶ Approve & Run";
+    go.onclick=()=>{close();onApprove();};
+    acts.append(cancel,go);card.appendChild(acts);
+  });
 }
 function renderTeam(m){
   m=m||document.getElementById("main");m.innerHTML="";
