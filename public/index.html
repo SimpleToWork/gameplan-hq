@@ -1660,13 +1660,20 @@ function taskCard(t){
   const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);apop.appendChild(awheel);
   d.appendChild(apop);
   asg.onclick=()=>{const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
-  // Internal task ID — its own subtle monospace line (truncated; full id on hover + click-to-copy). Off the crowded
-  // provenance row so it can't overflow the card width. Hidden when the card collapses (.cmeta rule).
+  // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
+  // Done, completion time. A subtle meta line; hidden entirely when neither is known.
+  const tsIns=t.insertedAt||t.createdAt||"";
+  if(tsIns||t.completedAt){
+    const tsLine=document.createElement("div");tsLine.className="cmeta";tsLine.style.whiteSpace="nowrap";
+    const parts=[];if(tsIns)parts.push("Inserted "+fmtTs(tsIns));if(t.completedAt)parts.push("Completed "+fmtTs(t.completedAt));
+    tsLine.textContent=parts.join(" · ");d.appendChild(tsLine);
+  }
+  // Internal task ID — placed on the provenance row beside "Created by" (truncated; full id on hover + click-to-copy). Hidden when the card collapses (.cmeta rule).
   const idLine=document.createElement("div");idLine.className="cmeta idcopy";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
   idLine.textContent="ID "+shortId(t.id)+" ";idLine.title="Click to copy task ID: "+t.id;
   const idIco=document.createElement("span");idIco.className="copy-ico";idIco.textContent="📋";idIco.setAttribute("aria-hidden","true");idLine.appendChild(idIco);
   idLine.onclick=e=>{e.stopPropagation();try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};
-  d.appendChild(idLine);
+  ar.insertBefore(idLine, asg);
   const crow=document.createElement("div");crow.className="crow";
   // Discipline select is tinted with its discipline colour so the category reads at a glance.
   const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));
