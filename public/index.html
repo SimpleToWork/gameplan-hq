@@ -785,7 +785,9 @@ function subscribeAll(){
   subUnsubs.forEach(u=>{try{u();}catch(e){}});subUnsubs=[];
   ["tasks","roadmap","agendas","areas","members","domains","phases","disciplines","agents","agentRuns"].forEach(k=>{
     subUnsubs.push(onSnapshot(col(k),snap=>{
+      const prevTasks=k==="tasks"?DB.tasks:null;   // keep the pre-update tasks so we can spot live→finished run transitions
       DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
+      if(k==="tasks")recordRunDurations(prevTasks,DB.tasks);
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       if(k==="disciplines"){
@@ -808,6 +810,39 @@ function resyncNow(){
   if(!fbReady){banner("Firebase isn’t configured — nothing to sync.","err");return;}
   subscribeAll();   // teardown + re-subscribe; first snapshots re-render with the latest server data
   banner("Synced — live data refreshed.","ok");
+}
+// Run duration tracking. The board has no server-side timer, so the web app measures it: ▶ Run stamps runRequestedAt
+// (the "clock starts when the button is clicked"), and when this client witnesses a task's run go from live
+// (queued/running) to finished, it stamps runEndedAt + runDurationMs back onto the doc. runDurationRunId pins the
+// measurement to the run it belongs to, so the writeback never loops and a fresh ▶ Run re-measures from zero.
+// Resets (✕ reset / runner reset) are deliberate aborts, not real completions, so they're skipped. Limitation: the
+// final number is only captured if a board is open at the moment the run ends — runs that finish with nobody watching
+// keep showing the live elapsed clock and just don't freeze a total.
+function recordRunDurations(prev,next){
+  if(!prev||!prev.length||!next)return;
+  const isLive=s=>s==="running"||s==="queued";
+  const pmap=Object.fromEntries(prev.map(t=>[t.id,t]));
+  const now=Date.now();
+  next.forEach(t=>{
+    const p=pmap[t.id];if(!p)return;
+    if(!isLive(p.runStatus)||isLive(t.runStatus))return;   // only the live→finished edge counts
+    if(t.runDurationRunId===t.runId)return;                // already timed this run
+    if(/^(runner )?reset by /.test(t.runError||""))return;  // a manual reset isn't a real run completion
+    const start=Date.parse(t.runRequestedAt||p.runRequestedAt||"");
+    if(!start)return;
+    const dur=now-start;if(dur<=0)return;
+    setTask(t.id,{runEndedAt:new Date(now).toISOString(),runDurationMs:dur,runDurationRunId:t.runId});
+  });
+}
+// Compact human duration: "8s", "2m 5s", "1h 3m". Drops the trailing unit once it's zero. Empty for non-positive input.
+function fmtDur(ms){
+  if(!(ms>0))return "";
+  const s=Math.round(ms/1000);
+  if(s<60)return s+"s";
+  const m=Math.floor(s/60);
+  if(m<60){const rs=s%60;return rs?m+"m "+rs+"s":m+"m";}
+  const h=Math.floor(m/60),rm=m%60;
+  return rm?h+"h "+rm+"m":h+"h";
 }
 // Paint the (read-only) identity label from the bound identity. No longer a switcher.
 function refreshIdentity(){
@@ -1373,7 +1408,7 @@ function taskCard(t){
   run.onclick=e=>{e.stopPropagation();if(runLive)return;
     if(!confirm('Run "'+t.title+'" with Claude on the local runner?\n\nThe runner on the dev machine will pick it up, work the task, and report status + a summary back here.'))return;
     const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-    setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null});
+    setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
     banner("Queued for the local runner — it'll start shortly.","ok");};
   // ✕ Reset — clear a stuck run. runStatus is just a field; if the runner dies (or its writeback errors)
   // mid-run it never flips to done/error, so the task shows "running" forever. This resets the board state.
@@ -1698,6 +1733,25 @@ const AG_COL_ACC={ att:a=>(a.attendees&&a.attendees.length?a.attendees:[""]) };
 const plainTh=t=>{const th=document.createElement("th");th.textContent=t;return th;};
 // Truncated display of a long Firestore id: first 7 chars + ellipsis. Full id is always kept in the title + copied on click.
 const shortId=id=>id&&id.length>8?id.slice(0,7)+"…":(id||"");
+// Run-duration cell for the Tasks table. While a run is live it shows the elapsed clock since ▶ Run was clicked
+// (refreshed whenever the board re-renders on a runProgress write); once finished it shows the frozen total stamped
+// by recordRunDurations; otherwise an em dash. Hover gives the exact start/finish times.
+function runDurationCell(t){
+  const span=document.createElement("span");span.className="tt-sub";span.style.whiteSpace="nowrap";
+  const live=t.runStatus==="running"||t.runStatus==="queued";
+  const start=Date.parse(t.runRequestedAt||"");
+  if(live){
+    const el=start?fmtDur(Date.now()-start):"";
+    span.textContent="⏳ "+(el||"…");
+    span.title="Elapsed since this run was requested"+(start?(" ("+new Date(start).toLocaleString()+")"):"");
+  }else if(t.runDurationMs>0){
+    span.textContent=fmtDur(t.runDurationMs);
+    span.title="Total run duration"+(start?(" · started "+new Date(start).toLocaleString()):"")+(t.runEndedAt?(" · finished "+new Date(t.runEndedAt).toLocaleString()):"");
+  }else{
+    span.textContent="—";
+  }
+  return span;
+}
 function taskTable(items,secLabel){
   const wrap=document.createElement("div");wrap.className="tasktable-wrap";
   const tbl=document.createElement("table");tbl.className="tasktable";
@@ -1706,7 +1760,7 @@ function taskTable(items,secLabel){
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   const F=tableColFilters.tasks,o=taskColOpts;
   const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask"),fth("Run","run"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
@@ -1717,7 +1771,7 @@ function taskTable(items,secLabel){
     const active=fval===k;
     if((multi||active)&&(prevKey===undefined||k!==prevKey)){
       const sep=document.createElement("tr");sep.className="tt-sep";
-      const td=document.createElement("td");td.colSpan=13;
+      const td=document.createElement("td");td.colSpan=14;
       const lab=document.createElement("span");lab.textContent=sd.label(t);td.appendChild(lab);
       if(secLabel!==undefined)td.appendChild(sortFilterBtn(secLabel,k,active));
       sep.appendChild(td);tb.appendChild(sep);
@@ -1774,15 +1828,17 @@ function taskTable(items,secLabel){
     runBtn.onclick=e=>{e.stopPropagation();if(ttRunLive)return;
       if(!confirm('Run "'+t.title+'" with Claude on the local runner?\n\nThe runner on the dev machine will pick it up, work the task, and report status + a summary back here.'))return;
       const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-      setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null});
+      setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
       banner("Queued for the local runner — it'll start shortly.","ok");};
     tdRun.appendChild(runBtn);
+    // Duration — how long the last (or in-flight) run took, measured from ▶ Run. See runDurationCell.
+    const tdDur=document.createElement("td");tdDur.appendChild(runDurationCell(t));
     // ID — internal task id as visible monospace text, click-to-copy.
     const tdId=document.createElement("td");const idEl=document.createElement("span");idEl.className="idcopy";idEl.textContent=shortId(t.id)+" ";idEl.title="Click to copy task ID: "+t.id;
     idEl.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;";
     const idCellIco=document.createElement("span");idCellIco.className="copy-ico";idCellIco.textContent="📋";idCellIco.setAttribute("aria-hidden","true");idEl.appendChild(idCellIco);
     idEl.onclick=()=>{try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};tdId.appendChild(idEl);
-    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdAsk,tdRun,tdId);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdAsk,tdRun,tdDur,tdId);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
