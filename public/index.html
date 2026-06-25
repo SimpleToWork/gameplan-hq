@@ -2522,6 +2522,21 @@ function renderTasks(m){
   // renders nothing (see below), so the focus scroll/flash would never find the task. Also clear that section's
   // sort-value sub-filter so the task's run isn't hidden within it. Covers both card and table layouts.
   if(focusTaskId){const fs=sections.find(s=>s.items.some(t=>t.id===focusTaskId));if(fs){taskSecExpanded.add(fs.label);delete taskSecSortFilter[fs.label];}}
+  // High-level summary of all currently-visible tasks, shown above the section list so the totals stay
+  // readable before any parent group is collapsed. Person grouping can place one task under several people,
+  // so de-dupe by id for an accurate total; then break the distinct set down by status as coloured chips.
+  if(sections.length){
+    const uniq=new Map();sections.forEach(s=>s.items.forEach(t=>uniq.set(t.id,t)));
+    const allVis=[...uniq.values()];const totalVisible=allVis.length;
+    const statusCounts=STATUSES.map(st=>[st,allVis.filter(t=>t.status===st).length]).filter(([,n])=>n);
+    const sum=document.createElement("div");sum.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 8px;font-size:12.5px;color:var(--muted);";
+    const lead=document.createElement("span");lead.innerHTML='<b style="color:var(--ink);font-size:14px;">'+totalVisible+'</b> task'+(totalVisible!==1?'s':'')+' visible across '+sections.length+' group'+(sections.length!==1?'s':'');
+    sum.appendChild(lead);
+    statusCounts.forEach(([st,n])=>{const pair=ST_COLOR[st]||["#eee","#888"];const chip=document.createElement("span");
+      chip.style.cssText="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;background:"+pair[0]+";color:"+pair[1]+";font-size:11.5px;font-weight:600;";
+      chip.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+pair[1]+';"></span>'+esc(st)+' '+n;sum.appendChild(chip);});
+    m.appendChild(sum);
+  }
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecExpanded.
   if(sections.length){
