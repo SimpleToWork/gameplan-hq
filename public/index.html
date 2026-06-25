@@ -869,9 +869,10 @@ async function captureTasks(){
     const p='Convert this team member’s plain-language plan into structured tasks for an internal board. '+
       'Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'. '+
-      'These tasks already exist — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
+      'These tasks already exist: '+JSON.stringify(existing)+'. '+
+      'Only skip a new task as a duplicate when it is the SAME concrete piece of work as an existing one — the same specific action on the same specific subject (e.g. both are "write the Q3 budget memo"). Do NOT skip merely because two tasks share a topic, category, project, roadmap area, person, or a few keywords; related-but-distinct work is NOT a duplicate. When you are unsure whether something is truly the same task, ADD it rather than skip it — a near-duplicate the user can delete is far better than dropping real work. '+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":[{"id","title"}]}. '+
-      'In skipped, copy the id and title of the existing task each input duplicated, exactly as given above. '+
+      'In skipped, copy the id and title of the existing task each input genuinely duplicated, exactly as given above. '+
       'assignee = a named person if explicitly named for that task, otherwise "'+identity+'". '+EXTRACT_GUARD+'\nPlan:\n"""'+txt+'"""';
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
@@ -2543,10 +2544,11 @@ async function captureForTarget(r,extra,btn,out){
       'Categories (choose exactly ONE per task by primary deliverable): '+CATS.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). '+
       'Roadmap target: "'+r.title+'"'+(r.detail?' — '+r.detail:'')+' [area: '+r.area+', phase: '+(phaseOf(r)||"—")+']. '+
-      'These tasks already exist for this target — do NOT re-add anything meaning the same as one of them: '+JSON.stringify(existing)+'. '+
+      'These tasks already exist for this target: '+JSON.stringify(existing)+'. '+
+      'Only skip a proposed task as a duplicate when it is the SAME concrete piece of work as an existing one — the same specific action on the same specific subject. Do NOT skip merely because two tasks share this target, a topic, category, or a few keywords; related-but-distinct work is NOT a duplicate. When unsure whether something is truly the same task, propose it rather than skip it. '+
       (extra?'Extra guidance from the user: "'+extra+'". ':'')+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context"}],"skipped":[{"id","title"}]}. '+
-      'In skipped, copy the id and title of the existing task each input duplicated, exactly as given above. '+EXTRACT_GUARD;
+      'In skipped, copy the id and title of the existing task each input genuinely duplicated, exactly as given above. '+EXTRACT_GUARD;
     const text=await callClaude(p);const res=extractJSON(text,"object");
     // Mirror the Capture flow: draft → review → approve. Tasks carry roadmapId so approved ones link to this target.
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:r.id,_include:true}));
