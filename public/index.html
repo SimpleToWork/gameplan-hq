@@ -610,6 +610,7 @@ let taskPerson=null;         // Set of assignee names to filter tasks by; null =
 let taskCategory=null;       // Set of disciplines (categories) to filter tasks by; null = no discipline filter
 let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
+let taskFromRoadmap=null;    // Roadmap item {id,title,area} we navigated from via "Go to tasks"; null = not a roadmap-driven nav. Cleared on manual filter change.
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskSecSortFilter={};        // per Group-by section, narrow its tasks to one value of the active Sort-by field: { "<sectionLabel>": "<sortKey>" }; cleared when Sort-by/Group-by change
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
@@ -2785,6 +2786,7 @@ function goToRoadmapTasks(r){
   taskCatDefaulted=true;
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
+  taskFromRoadmap={id:r.id,title:r.title,area:r.area};
   setPage("tasks");
 }
 // Jump to a target on the main Roadmap (List) view: flip to list, clear area/people filters and expand its
@@ -3015,17 +3017,17 @@ function renderTasks(m){
   const curTarget=(taskRoadmap&&taskRoadmap.targetId)||"";
   const areaSel=document.createElement("select");areaSel.className="mini";
   [["","All areas"],...rmAreas.map(a=>[a,a]),["__none__","(Unlinked)"]].forEach(([v,lbl])=>{const o=document.createElement("option");o.value=v;o.textContent=lbl;if(v===curArea||(v==="__none__"&&curTarget==="__none__")||(v===""&&!curArea&&curTarget!=="__none__"))o.selected=true;areaSel.appendChild(o);});
-  areaSel.onchange=()=>{const v=areaSel.value;taskRoadmap=!v?null:v==="__none__"?{area:null,targetId:"__none__"}:{area:v,targetId:null};renderTasks();};
+  areaSel.onchange=()=>{const v=areaSel.value;taskRoadmap=!v?null:v==="__none__"?{area:null,targetId:"__none__"}:{area:v,targetId:null};taskFromRoadmap=null;renderTasks();};
   rf.appendChild(areaSel);
   if(curArea){  // parent chosen → show the child target select for that area
     const inArea=DB.roadmap.filter(r=>r.area===curArea).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
     const tgtSel=document.createElement("select");tgtSel.className="mini";
     const o0=document.createElement("option");o0.value="";o0.textContent="All in area ("+inArea.length+")";tgtSel.appendChild(o0);
     inArea.forEach(r=>{const o=document.createElement("option");o.value=r.id;o.textContent=r.title;if(r.id===curTarget)o.selected=true;tgtSel.appendChild(o);});
-    tgtSel.onchange=()=>{taskRoadmap={area:curArea,targetId:tgtSel.value||null};renderTasks();};
+    tgtSel.onchange=()=>{taskRoadmap={area:curArea,targetId:tgtSel.value||null};taskFromRoadmap=null;renderTasks();};
     rf.appendChild(tgtSel);
   }
-  if(taskRoadmap){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskRoadmap=null;renderTasks();};rf.appendChild(clr);}
+  if(taskRoadmap){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskRoadmap=null;taskFromRoadmap=null;renderTasks();};rf.appendChild(clr);}
   // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
   // Mobile: collapses to a single dropdown so it sits inline in the compact banner (no margin-left:auto to pack left).
   const gb=document.createElement("div");gb.className="views";gb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:auto;";
@@ -3100,7 +3102,7 @@ function renderTasks(m){
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim()||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks();};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks();};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -3131,6 +3133,11 @@ function renderTasks(m){
   // Free-text search box (leftmost). Re-renders on each keystroke; focus is restored after render (see below).
   const searchInp=document.createElement("input");searchInp.type="search";searchInp.className="ctrl";searchInp.id="taskSearch";searchInp.placeholder="Search tasks\u2026";searchInp.value=taskSearch;searchInp.style.cssText="flex:1;min-width:140px;max-width:280px;";
   searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
+  // "\u2190 Back to Roadmap" \u2014 only shown when the user arrived via goToRoadmapTasks(); cleared on manual filter change.
+  const backRm=taskFromRoadmap?document.createElement("button"):null;
+  if(backRm){backRm.className="btn sm";backRm.style.cssText="flex-shrink:0;background:#ecebfb;border-color:#4646c855;color:#4646c8;font-weight:600;";
+    backRm.textContent="\u2190 "+(taskFromRoadmap.title||"Roadmap");backRm.title="Go back to this item on the Roadmap";
+    backRm.onclick=()=>{const r=taskFromRoadmap;taskFromRoadmap=null;goToRoadmapItem(r);};}
   if(isMobileFilters){
     // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
     // horizontally-scrollable strip (a chip bar) so they stay aligned instead of the full-width search
@@ -3140,11 +3147,13 @@ function renderTasks(m){
     const filterBar=document.createElement("div");
     filterBar.style.cssText="flex:1 1 100%;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;";
     filterBar.append(searchInp,timeT,whoT,catT,stageT,rmT);
+    if(backRm)trow.append(backRm);
     trow.append(filterBar,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group below the strip
     if(runnerReset)trow.append(runnerReset);
     if(anyFilter)trow.append(clearAll);
     if(taskLayout==="card")trow.append(collExp);
   }else{
+    if(backRm)trow.append(backRm);
     trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
     if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
     if(anyFilter)trow.append(clearAll);
