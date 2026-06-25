@@ -1528,16 +1528,17 @@ function taskCard(t){
       banner("Run state reset.","ok");};}
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
   acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
-  // Live run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in
-  // flight. Lives via onSnapshot: each board write re-renders the card, so the panel updates in place.
-  if(t.runStatus==="running"||t.runStatus==="queued"){
+  // Run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in flight, and
+  // persists the last run's logs once it finishes so execution history stays visible in the task view. Lives via
+  // onSnapshot: each board write re-renders the card, so the panel updates in place.
+  const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
+  if(t.runStatus==="running"||t.runStatus==="queued"||runLines.length){
     const rp=document.createElement("div");rp.className="runprog";
     const head=document.createElement("div");head.className="runprog-h";
-    head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":"🔴 Live — Claude is working…";
+    head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";
     rp.appendChild(head);
-    const lines=Array.isArray(t.runProgress)?t.runProgress:[];
-    if(lines.length){const body=document.createElement("div");body.className="runprog-body";
-      lines.slice(-14).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
+    if(runLines.length){const body=document.createElement("div");body.className="runprog-body";
+      runLines.slice(-14).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
       rp.appendChild(body);}
     d.appendChild(rp);
   }
@@ -1742,6 +1743,32 @@ function openTaskAskPop(anchor,t){
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
   pop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>pop.remove()));place();qt.focus();
 }
+// Logs — floats this task's runtime logs (the runProgress lines the runner streams) so execution history is visible
+// from the table without opening the card. Shows a status/duration summary, the full log lines (monospace, scrollable),
+// and any run error. Persists after the run finishes; live data flows through onSnapshot, so a reopen reflects the latest.
+function openTaskLogsPop(anchor,t){
+  const {pop,place}=floatTaskPop(anchor);
+  pop.style.cssText+=";min-width:300px;max-width:480px;";
+  const live=t.runStatus==="running"||t.runStatus==="queued";
+  const head=document.createElement("div");head.style.cssText="font-size:11px;font-weight:600;color:#D97757;margin-bottom:6px;";
+  head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run failed":t.runEndedAt?"✓ Last run":"Runtime logs";
+  pop.appendChild(head);
+  // Summary: who/when started + duration, mirroring runDurationCell's data.
+  const meta=[];const start=Date.parse(t.runRequestedAt||"");
+  if(start)meta.push("Started "+new Date(start).toLocaleString()+(t.runRequestedBy?(" by "+t.runRequestedBy):""));
+  if(live&&start)meta.push("Elapsed "+fmtDur(Date.now()-start));
+  else if(t.runDurationMs>0)meta.push("Took "+fmtDur(t.runDurationMs));
+  if(meta.length){const m=document.createElement("div");m.className="cmeta";m.style.cssText="margin-bottom:6px;line-height:1.5;";m.textContent=meta.join(" · ");pop.appendChild(m);}
+  const lines=Array.isArray(t.runProgress)?t.runProgress:[];
+  if(lines.length){
+    const body=document.createElement("div");body.style.cssText="max-height:300px;overflow:auto;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
+    lines.forEach(l=>{const ln=document.createElement("div");ln.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;word-break:break-word;";ln.textContent=l;body.appendChild(ln);});
+    pop.appendChild(body);
+    setTimeout(()=>{body.scrollTop=body.scrollHeight;},0);   // jump to the latest line
+  }else{const e=document.createElement("div");e.className="cmeta";e.textContent=live?"No log lines yet — the runner will stream progress here.":"No log lines were captured for this run.";pop.appendChild(e);}
+  if(t.runError){const err=document.createElement("div");err.style.cssText="margin-top:6px;font-size:11.5px;color:var(--danger);white-space:pre-wrap;word-break:break-word;";err.textContent="Error: "+t.runError;pop.appendChild(err);}
+  place();
+}
 // Grouped roadmap <select> for a table cell: "No link" + one optgroup per area. Writes roadmapId via setTask.
 function taskRoadmapSelect(t){
   const s=document.createElement("select");s.className="mini";
@@ -1874,7 +1901,7 @@ function taskTable(items,secLabel){
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   const F=tableColFilters.tasks,o=taskColOpts;
   const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
@@ -1885,7 +1912,7 @@ function taskTable(items,secLabel){
     const active=fval===k;
     if((multi||active)&&(prevKey===undefined||k!==prevKey)){
       const sep=document.createElement("tr");sep.className="tt-sep";
-      const td=document.createElement("td");td.colSpan=14;
+      const td=document.createElement("td");td.colSpan=15;
       const lab=document.createElement("span");lab.textContent=sd.label(t);td.appendChild(lab);
       if(secLabel!==undefined)td.appendChild(sortFilterBtn(secLabel,k,active));
       sep.appendChild(td);tb.appendChild(sep);
@@ -1951,12 +1978,20 @@ function taskTable(items,secLabel){
     tdRun.appendChild(runBtn);
     // Duration — how long the last (or in-flight) run took, measured from ▶ Run. See runDurationCell.
     const tdDur=document.createElement("td");tdDur.appendChild(runDurationCell(t));
+    // Logs — opens a floating panel with this task's runtime logs (runProgress lines from the runner). Persists
+    // after the run finishes so execution history is visible from the table; live-updates while a run is in flight.
+    const tdLogs=document.createElement("td");const logLines=Array.isArray(t.runProgress)?t.runProgress:[];
+    const logBtn=document.createElement("button");logBtn.type="button";logBtn.className="tt-asgbtn";
+    logBtn.textContent=logLines.length?("📜 ("+logLines.length+")"):"📜";
+    if(logLines.length||t.runError||t.runEndedAt){logBtn.title="View runtime logs from the runner";logBtn.onclick=()=>openTaskLogsPop(logBtn,t);}
+    else{logBtn.disabled=true;logBtn.title="No runtime logs yet — run this task to capture execution history";}
+    tdLogs.appendChild(logBtn);
     // ID — internal task id as visible monospace text, click-to-copy.
     const tdId=document.createElement("td");const idEl=document.createElement("span");idEl.className="idcopy";idEl.textContent=shortId(t.id)+" ";idEl.title="Click to copy task ID: "+t.id;
     idEl.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;";
     const idCellIco=document.createElement("span");idCellIco.className="copy-ico";idCellIco.textContent="📋";idCellIco.setAttribute("aria-hidden","true");idEl.appendChild(idCellIco);
     idEl.onclick=()=>{try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};tdId.appendChild(idEl);
-    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdId);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdLogs,tdId);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
