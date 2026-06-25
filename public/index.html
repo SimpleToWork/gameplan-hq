@@ -1707,7 +1707,7 @@ function taskCard(t){
   // Inline target-date editor — adjust the due date right on the card (no edit modal). The chip above stays as the overdue flag.
   const dueIn=document.createElement("input");dueIn.type="date";dueIn.className="mini";dueIn.value=t.due||"";dueIn.title="Target date";
   dueIn.onchange=()=>setTask(t.id,{due:dueIn.value||""});
-  crow.append(mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})),catSel,dueIn);
+  crow.append(catSel,mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})));
   d.appendChild(crow);
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
@@ -1717,7 +1717,8 @@ function taskCard(t){
   const unlink=rm?document.createElement("button"):null;
   if(unlink){unlink.className="rm";unlink.textContent="✕";unlink.title="Unlink roadmap target";unlink.onclick=()=>setTask(t.id,{roadmapId:null});}
   const _rmbtnStyle="border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;";link.style.cssText=_rmbtnStyle;link.onmouseover=()=>{link.style.color="var(--ink)";};link.onmouseout=()=>{link.style.color="var(--muted)";};if(unlink){unlink.style.cssText=_rmbtnStyle;unlink.onmouseover=()=>{unlink.style.color="var(--danger)";};unlink.onmouseout=()=>{unlink.style.color="var(--muted)";};}
-  rmright.append(link);if(unlink)rmright.append(unlink);
+  crow.append(link);if(unlink)crow.append(unlink);
+  rmright.append(dueIn);
   const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
   const taskFiles=Array.isArray(t.attachments)?t.attachments:[];
   const filesBtn=document.createElement("button");filesBtn.innerHTML='<span style="font-size:16px;vertical-align:middle;line-height:1;">📎</span>'+(taskFiles.length?" Files ("+taskFiles.length+")":"  Files");filesBtn.title="Attach / view files";
@@ -1861,7 +1862,7 @@ function taskCard(t){
   rmv.title="Move to Trash";rmv.onclick=e=>{e.stopPropagation();dotDrop.classList.remove("open");deleteTask(t.id);};
   // Notes / Files / Claude prompt / Model selector row — isolated from the main action toolbar.
   const nfRow=document.createElement("div");nfRow.className="nf-row";
-  filesBtn.style.marginLeft="auto";nfRow.append(notesBtn,ask,filesBtn);d.appendChild(nfRow);
+  filesBtn.style.marginLeft="auto";notesBtn.style.marginLeft="6px";nfRow.append(notesBtn,ask,filesBtn);d.appendChild(nfRow);
   d.appendChild(npop);
   d.appendChild(qpop);
   // Dedicated Edit / Run row — Edit left-aligned, Model+Run right-aligned, isolated from the acts toolbar.
