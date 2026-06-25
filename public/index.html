@@ -681,8 +681,9 @@ const normRepo=u=>String(u||"").replace(/\.git$/,"").replace(/\/+$/,"").toLowerC
 function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
 // The date a task's timeframe filtering/grouping keys off — due date or entry date (createdAt), per the toggle.
 const taskDateOf=t=>taskDateField==="entry"?t.createdAt:t.due;
-// Activity timestamp for the "Timestamp" sort: completion time for finished tasks, else inserted-at (createdAt).
-const taskTs=t=>t.completedAt||t.createdAt||"";
+// Activity timestamp for the "Timestamp" sort: completion time for finished tasks, else inserted-at
+// (full-precision insertedAt, falling back to legacy date-only createdAt).
+const taskTs=t=>t.completedAt||t.insertedAt||t.createdAt||"";
 // Does a task's chosen date fall in the selected timeframe bucket? Tasks with no such date match only "all".
 function taskTimeMatch(t){
   if(taskTime==="all")return true;
@@ -949,6 +950,16 @@ function fmtDur(ms){
   const h=Math.floor(m/60),rm=m%60;
   return rm?h+"h "+rm+"m":h+"h";
 }
+// Format an ISO timestamp as a compact local "Mon D, YYYY · h:mm AM/PM". Date-only inputs ("YYYY-MM-DD",
+// e.g. legacy createdAt) parse to local midnight and omit the time. Empty for blank/invalid input.
+function fmtTs(s){
+  if(!s)return "";
+  const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(s);
+  const d=dateOnly?parseDay(s):new Date(s);
+  if(!d||isNaN(d))return "";
+  const ds=d.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});
+  return dateOnly?ds:ds+" · "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+}
 // Paint the (read-only) identity label from the bound identity. No longer a switcher.
 function refreshIdentity(){
   const el=document.getElementById("identity");if(!el)return;
@@ -1019,7 +1030,7 @@ async function captureTasks(){
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
-      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:captureRoadmapId||null,_include:true}));
+      assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:captureRoadmapId||null,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
@@ -1268,7 +1279,7 @@ async function emptyTrash(){
   try{for(const id of ids)await fbDelete("tasks",id);banner("Trash emptied — "+ids.length+" task"+(ids.length!==1?"s":"")+" deleted permanently.","ok");}catch(e){banner(e.message,"err");}
 }
 async function addManualTask(title,category,priority,due){
-  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||today(),createdBy:identity,createdAt:today(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
 }
 
 /* ---------- Task "Ask" => copy-paste prompt for claude.ai ---------- */
@@ -1483,6 +1494,14 @@ function taskCard(t){
   (t.assignees&&t.assignees.length?t.assignees:[]).forEach(n=>{const mm=member(n);const b=document.createElement("span");b.className="asgbub";b.style.background=mm?mm.color:"#9aa0a8";b.textContent=initials(n);b.title=n;asgb.appendChild(b);});
   if(!t.assignees||!t.assignees.length){const b=document.createElement("span");b.className="asgbub empty";b.textContent="—";b.title="Unassigned";asgb.appendChild(b);}
   d.appendChild(asgb);
+  // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
+  // Done, completion time. A subtle meta line; hidden entirely when neither is known.
+  const tsIns=t.insertedAt||t.createdAt||"";
+  if(tsIns||t.completedAt){
+    const tsLine=document.createElement("div");tsLine.className="cmeta";tsLine.style.whiteSpace="nowrap";
+    const parts=[];if(tsIns)parts.push("Inserted "+fmtTs(tsIns));if(t.completedAt)parts.push("Completed "+fmtTs(t.completedAt));
+    tsLine.textContent=parts.join(" · ");d.appendChild(tsLine);
+  }
   // Internal task ID — its own subtle monospace line (truncated; full id on hover + click-to-copy). Off the crowded
   // provenance row so it can't overflow the card width. Hidden when the card collapses (.cmeta rule).
   const idLine=document.createElement("div");idLine.className="cmeta idcopy";idLine.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;align-self:flex-start;";
@@ -1911,7 +1930,7 @@ function taskTable(items,secLabel){
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   const F=tableColFilters.tasks,o=taskColOpts;
   const fth=(label,field)=>o?colFilterTh(label,field,o[field]||[],F,renderTasks):plainTh(label);
-  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [plainTh("Task"),plainTh("Description"),fth("Status","status"),fth("Priority","priority"),fth("Category","category"),fth("Who","who"),fth("Created by","createdby"),plainTh("Timestamps"),fth("Target","due"),fth("Roadmap","rmarea"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),fth("Run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   const sd=sortDividers(taskSort);const multi=new Set(items.map(sd.key)).size>1;let prevKey;
@@ -1922,7 +1941,7 @@ function taskTable(items,secLabel){
     const active=fval===k;
     if((multi||active)&&(prevKey===undefined||k!==prevKey)){
       const sep=document.createElement("tr");sep.className="tt-sep";
-      const td=document.createElement("td");td.colSpan=15;
+      const td=document.createElement("td");td.colSpan=17;
       const lab=document.createElement("span");lab.textContent=sd.label(t);td.appendChild(lab);
       if(secLabel!==undefined)td.appendChild(sortFilterBtn(secLabel,k,active));
       sep.appendChild(td);tb.appendChild(sep);
@@ -1955,6 +1974,13 @@ function taskTable(items,secLabel){
     const tdCreated=document.createElement("td");
     if(t.createdBy){const cw=document.createElement("div");cw.className="tt-who";const cav=avatarsRow([t.createdBy]);if(cav){cav.style.marginTop="0";cw.appendChild(cav);}const cn=document.createElement("span");cn.className="tt-sub";cn.style.marginTop="0";cn.textContent=t.createdBy;cn.title=t.createdBy;cw.appendChild(cn);tdCreated.appendChild(cw);}
     else tdCreated.innerHTML='<span class="tt-sub">—</span>';
+    // Timestamps — when the task was inserted (full-precision insertedAt, falling back to legacy date-only
+    // createdAt) and, once Done, when it was completed. Each on its own subtle line; "—" when neither is known.
+    const tdTs=document.createElement("td");
+    const insTs=t.insertedAt||t.createdAt||"";
+    if(insTs){const l=document.createElement("div");l.className="tt-sub";l.style.marginTop="0";const f=fmtTs(insTs);l.textContent="Ins: "+f;l.title="Inserted "+f;tdTs.appendChild(l);}
+    if(t.completedAt){const l=document.createElement("div");l.className="tt-sub";l.style.marginTop="0";const f=fmtTs(t.completedAt);l.textContent="Done: "+f;l.title="Completed "+f;tdTs.appendChild(l);}
+    if(!tdTs.childNodes.length)tdTs.innerHTML='<span class="tt-sub">—</span>';
     // Target — inline date editor.
     const tdDue=document.createElement("td");const dueIn=document.createElement("input");dueIn.type="date";dueIn.className="mini";dueIn.value=t.due||"";dueIn.title="Target date";
     if(overdue)dueIn.style.cssText+=";color:#c0392b;font-weight:600;border-color:#c0392b55;";
@@ -2001,7 +2027,7 @@ function taskTable(items,secLabel){
     idEl.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;";
     const idCellIco=document.createElement("span");idCellIco.className="copy-ico";idCellIco.textContent="📋";idCellIco.setAttribute("aria-hidden","true");idEl.appendChild(idCellIco);
     idEl.onclick=()=>{try{navigator.clipboard.writeText(t.id);banner("Task ID copied.","ok");}catch(_){}};tdId.appendChild(idEl);
-    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdDue,tdRm,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdLogs,tdId);
+    tr.append(tdTask,tdDesc,tdSt,tdPri,tdCat,tdWho,tdCreated,tdTs,tdDue,tdRm,tdNotes,tdFiles,tdAsk,tdRun,tdDur,tdLogs,tdId);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);wrap.appendChild(tbl);
@@ -2896,7 +2922,7 @@ async function captureForTarget(r,extra,btn,out){
       'In skipped, copy the id and title of the existing task each input genuinely duplicated, exactly as given above. '+EXTRACT_GUARD;
     const text=await callClaude(p);const res=extractJSON(text,"object");
     // Mirror the Capture flow: draft → review → approve. Tasks carry roadmapId so approved ones link to this target.
-    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),roadmapId:r.id,_include:true}));
+    const added=(res.added||[]).map(t=>({title:t.title||"Task",category:CATS.includes(t.category)?t.category:"Admin",priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",assignees:[identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:r.id,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){if(out)out.textContent=skipped.length?("All "+skipped.length+" matched tasks already on this target."):"No new tasks suggested.";banner("No new tasks to add.","ok");return;}
     if(out)out.textContent="";
@@ -3936,7 +3962,7 @@ function renderProposedTasks(a,tasks,container){
     for(const r of chosen){
       const title=r.title.value.trim();
       if(existing.has(title.toLowerCase())){skip++;continue;}
-      try{await fbAdd("tasks",{title,category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,due:today(),createdBy:identity,createdAt:today(),roadmapId:r.roadmapId});existing.add(title.toLowerCase());n++;}
+      try{await fbAdd("tasks",{title,category:r.cat.value,priority:r.pri.value,status:"Not started",assignees:r.assignees.length?r.assignees:[identity],context:r.context,due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:r.roadmapId});existing.add(title.toLowerCase());n++;}
       catch(e){banner(e.message,"err");}
     }
     banner("Created "+n+" task"+(n!==1?"s":"")+(skip?", skipped "+skip+" already on the board":"")+".","ok");
