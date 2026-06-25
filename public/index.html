@@ -241,6 +241,10 @@
   .promptbox{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:12px;font-family:ui-monospace,Menlo,monospace;color:var(--ink);background:#fafafb;resize:vertical;min-height:120px;}
   .areahead{display:flex;align-items:center;gap:9px;margin:18px 0 10px;}
   .areahead .nm{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;}
+  /* Collapsible Settings-page sections: click the header to toggle the body. */
+  .setsec-head{cursor:pointer;user-select:none;}
+  .setsec-chev{font-size:11px;color:var(--muted,#7a7f88);width:12px;flex:none;display:inline-block;text-align:center;}
+  .setsec.collapsed .setsec-body{display:none;}
   .target{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;margin-bottom:8px;}
   .target .tt{font-size:14px;font-weight:500;}
   .target .td{font-size:12.5px;color:var(--muted);margin-top:3px;}
@@ -548,6 +552,10 @@ let agendaSearch="";           // free-text search over agenda title/notes/atten
 let agendaLayout=(localStorage.getItem("gp_agendaLayout")==="table")?"table":"cards"; // "cards" (full editable cards) | "table" (read-only overview; row click → that card)
 let agendaScrollTo=null;       // id of an agenda to scroll+flash to after the next render (set when jumping table → cards)
 let taskSecExpanded=new Set();  // labels of task sections the user has expanded; sections render collapsed (header-only) by default each session
+// Names of Settings-page sections the user has collapsed (header-only). Default expanded; persists across
+// reloads (and survives live re-renders of the Settings page) via localStorage.
+let settingsCollapsed=(()=>{try{const a=JSON.parse(localStorage.getItem("gp_settingsCollapsed"));return new Set(Array.isArray(a)?a:[]);}catch(e){return new Set();}})();
+function saveSettingsCollapsed(){try{localStorage.setItem("gp_settingsCollapsed",JSON.stringify([...settingsCollapsed]));}catch(e){}}
 let focusTaskId=null;        // id of a task to scroll to + flash once on the next Tasks render (e.g. "Go to task" from Capture); cleared after it fires
 let activeTaskId=null;       // id of the task the user navigated to and is "working in"; gets a persistent border until they Go-to-Task elsewhere
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
@@ -3738,13 +3746,22 @@ function openModal(title, build){
 function renderTeam(m){
   m=m||document.getElementById("main");m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Settings</div><p class="pagesub">Your people, their domains, and the categories, areas &amp; phases used across the board.</p>');
-  // Each section's "+ Add" button lives top-right of its header and opens a modal (no inline add rows).
+  // Each section is collapsible: clicking its header toggles its body (collapsed state persists in
+  // settingsCollapsed). The "+ Add" button lives top-right of the header and opens a modal (no inline add
+  // rows); clicking it doesn't toggle the section. Returns the body element to append the section's content to.
   const sectionHead=(name,count,onAdd,addLabel,sub)=>{
-    const h=document.createElement("div");h.className="areahead";
-    h.innerHTML='<span class="nm">'+esc(name)+'</span><span class="cat-count">'+count+'</span>';
-    const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent=addLabel;add.onclick=onAdd;
-    h.appendChild(add);m.appendChild(h);
-    if(sub)m.insertAdjacentHTML("beforeend",'<p class="pagesub">'+sub+'</p>');
+    const collapsed=settingsCollapsed.has(name);
+    const sec=document.createElement("div");sec.className="setsec"+(collapsed?" collapsed":"");
+    const h=document.createElement("div");h.className="areahead setsec-head";h.title=collapsed?"Click to expand":"Click to collapse";
+    const chev=document.createElement("span");chev.className="setsec-chev";chev.textContent=collapsed?"▸":"▾";
+    h.appendChild(chev);
+    h.insertAdjacentHTML("beforeend",'<span class="nm">'+esc(name)+'</span><span class="cat-count">'+count+'</span>');
+    if(onAdd){const add=document.createElement("button");add.className="btn sm";add.style.marginLeft="auto";add.textContent=addLabel;add.onclick=e=>{e.stopPropagation();onAdd();};h.appendChild(add);}
+    const body=document.createElement("div");body.className="setsec-body";
+    if(sub)body.insertAdjacentHTML("beforeend",'<p class="pagesub">'+sub+'</p>');
+    h.onclick=()=>{const c=sec.classList.toggle("collapsed");c?settingsCollapsed.add(name):settingsCollapsed.delete(name);saveSettingsCollapsed();chev.textContent=c?"▸":"▾";h.title=c?"Click to expand":"Click to collapse";};
+    sec.append(h,body);m.appendChild(sec);
+    return body;
   };
   const fieldModal=(title,placeholder,btnLabel,addFn,opts)=>openModal(title,(card,close)=>{
     const ni=document.createElement("input");ni.className="ctrl";ni.placeholder=placeholder;ni.style.cssText="width:100%;margin-bottom:8px;";
@@ -3760,7 +3777,7 @@ function renderTeam(m){
   const addDisciplineModal=()=>fieldModal("Add category","Category name (e.g. QA)","Add category",addDiscipline);
   const addAreaModal=()=>fieldModal("Add area","Area name (e.g. Development)","Add area",addArea);
   const addPhaseModal=()=>fieldModal("Add phase","Phase name (e.g. Phase IV)","Add phase",addPhase);
-  sectionHead("Members",roster().length,addMemberModal,"+ Add member");
+  const mBody=sectionHead("Members",roster().length,addMemberModal,"+ Add member");
   const grid=document.createElement("div");grid.className="grid";
   roster().forEach(mem=>{
     const owns=DB.domains.filter(d=>(d.owners||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()));
@@ -3803,10 +3820,10 @@ function renderTeam(m){
     rem.onclick=()=>{if(!mem.id){banner("Team is still seeding — try again in a moment.","err");return;}acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove "+mem.name+"?";y.onclick=()=>removeMember(mem);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     grid.appendChild(card);
   });
-  m.appendChild(grid);
+  mBody.appendChild(grid);
   m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
-  sectionHead("Domains",DB.domains.length,addDomainModal,"+ Add domain","Areas of expertise. Assign owners to show who has authority over that kind of development.");
-  if(!DB.domains.length)m.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No domains yet — use “+ Add domain” above.</div>');
+  const dBody=sectionHead("Domains",DB.domains.length,addDomainModal,"+ Add domain","Areas of expertise. Assign owners to show who has authority over that kind of development.");
+  if(!DB.domains.length)dBody.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">No domains yet — use “+ Add domain” above.</div>');
   const dgrid=document.createElement("div");dgrid.className="grid";
   DB.domains.forEach(d=>{
     const card=document.createElement("div");card.className="card";
@@ -3827,10 +3844,10 @@ function renderTeam(m){
     rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove “"+d.name+"”?";y.onclick=()=>removeDomain(d);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     dgrid.appendChild(card);
   });
-  m.appendChild(dgrid);
+  dBody.appendChild(dgrid);
   m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
   // Disciplines manager — create/rename/recolour/reorder/remove the task categories (CATS) used app-wide.
-  sectionHead("Categories",DB.disciplines.length,addDisciplineModal,"+ Add category","Task categories used across Capture, Tasks and filters \u2014 colour-coded everywhere.");
+  const cBody=sectionHead("Categories",DB.disciplines.length,addDisciplineModal,"+ Add category","Task categories used across Capture, Tasks and filters \u2014 colour-coded everywhere.");
   const csorted=DB.disciplines.slice().sort((a,b)=>(a.order??0)-(b.order??0));
   const cgrid=document.createElement("div");cgrid.className="grid";
   csorted.forEach((d,idx)=>{
@@ -3863,10 +3880,10 @@ function renderTeam(m){
     rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove \u201c"+d.name+"\u201d?";y.onclick=()=>removeDiscipline(d);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     cgrid.appendChild(card);
   });
-  m.appendChild(cgrid);
+  cBody.appendChild(cgrid);
   m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
   // Areas manager — roadmap categories (relocated here from the Roadmap toolbar). Each target belongs to an area.
-  sectionHead("Areas",DB.areas.length,addAreaModal,"+ Add area","Roadmap categories — every target belongs to an area. Colour-coded across the Roadmap.");
+  const aBody=sectionHead("Areas",DB.areas.length,addAreaModal,"+ Add area","Roadmap categories — every target belongs to an area. Colour-coded across the Roadmap.");
   const agrid=document.createElement("div");agrid.className="grid";
   areasSorted().forEach(a=>{
     const inUse=DB.roadmap.filter(r=>r.area===a.name).length;
@@ -3890,10 +3907,10 @@ function renderTeam(m){
     rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove “"+a.name+"”?";y.onclick=()=>removeArea(a);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     agrid.appendChild(card);
   });
-  m.appendChild(agrid);
+  aBody.appendChild(agrid);
   m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
   // Phases manager — roadmap delivery phases (relocated here from the Roadmap toolbar).
-  sectionHead("Phases",DB.phases.length,addPhaseModal,"+ Add phase","Roadmap delivery phases — each target sits in a phase. Used by the Roadmap kanban and colour-by-phase view.");
+  const pBody=sectionHead("Phases",DB.phases.length,addPhaseModal,"+ Add phase","Roadmap delivery phases — each target sits in a phase. Used by the Roadmap kanban and colour-by-phase view.");
   const pgrid=document.createElement("div");pgrid.className="grid";
   phasesSorted().forEach(p=>{
     const inUse=DB.roadmap.filter(r=>phaseOf(r)===p.name).length;
@@ -3917,17 +3934,25 @@ function renderTeam(m){
     rem.onclick=()=>{acts.innerHTML="";const y=document.createElement("button");y.className="rm";y.style.color="var(--danger)";y.textContent="Remove “"+p.name+"”?";y.onclick=()=>removePhase(p);const n=document.createElement("button");n.textContent="Cancel";n.onclick=()=>renderTeam();acts.append(y,n);};
     pgrid.appendChild(card);
   });
-  m.appendChild(pgrid);
+  pBody.appendChild(pgrid);
+  m.insertAdjacentHTML("beforeend",'<div style="margin-bottom:14px;"></div>');
 
   // Connected repos (GitHub App) — read-only list of repos agents can sync specs to. Install/remove happens
-  // on GitHub; this reflects whatever the App can access. Loads async and repaints in place.
-  const rhead=document.createElement("div");rhead.className="areahead";
+  // on GitHub; this reflects whatever the App can access. Loads async and repaints in place. Collapsible like
+  // the other sections; the ↻ Refresh button stops propagation so it doesn't toggle the section.
+  const rCollapsed=settingsCollapsed.has("Connected repos");
+  const rsec=document.createElement("div");rsec.className="setsec"+(rCollapsed?" collapsed":"");
+  const rhead=document.createElement("div");rhead.className="areahead setsec-head";rhead.title=rCollapsed?"Click to expand":"Click to collapse";
+  const rchev=document.createElement("span");rchev.className="setsec-chev";rchev.textContent=rCollapsed?"▸":"▾";
   const rtitle=document.createElement("span");rtitle.className="nm";rtitle.textContent="Connected repos";
   const rcount=document.createElement("span");rcount.className="cat-count";
   const refresh=document.createElement("button");refresh.className="btn sm";refresh.style.marginLeft="auto";refresh.textContent="↻ Refresh";
-  rhead.append(rtitle,rcount,refresh);m.appendChild(rhead);
-  m.insertAdjacentHTML("beforeend",'<p class="pagesub">Repos the GitHub App can sync agent specs to. Install or remove the App on repos in GitHub, then Refresh.</p>');
-  const rlist=document.createElement("div");rlist.className="grid";m.appendChild(rlist);
+  rhead.append(rchev,rtitle,rcount,refresh);
+  rhead.onclick=()=>{const c=rsec.classList.toggle("collapsed");c?settingsCollapsed.add("Connected repos"):settingsCollapsed.delete("Connected repos");saveSettingsCollapsed();rchev.textContent=c?"▸":"▾";rhead.title=c?"Click to expand":"Click to collapse";};
+  const rbody=document.createElement("div");rbody.className="setsec-body";
+  rsec.append(rhead,rbody);m.appendChild(rsec);
+  rbody.insertAdjacentHTML("beforeend",'<p class="pagesub">Repos the GitHub App can sync agent specs to. Install or remove the App on repos in GitHub, then Refresh.</p>');
+  const rlist=document.createElement("div");rlist.className="grid";rbody.appendChild(rlist);
   const paintRepos=()=>{
     rcount.textContent=ghRepos?ghRepos.length:"";rlist.innerHTML="";
     if(ghRepos===null){rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">Loading…</div>');return;}
@@ -3951,7 +3976,7 @@ function renderTeam(m){
     (ghInstalls||[]).forEach(i=>{if(!i.manageUrl)return;const a=document.createElement("a");a.className="btn sm";a.style.marginTop="6px";a.textContent="Manage "+(i.account?"@"+i.account:"")+" on GitHub →";a.href=i.manageUrl;a.target="_blank";a.rel="noopener";rlist.appendChild(a);});
   };
   paintRepos();loadGhRepos().then(paintRepos).catch(paintRepos);
-  refresh.onclick=()=>{ghRepos=null;ghReposErr=null;paintRepos();loadGhRepos(true).then(paintRepos).catch(paintRepos);};
+  refresh.onclick=e=>{e.stopPropagation();ghRepos=null;ghReposErr=null;paintRepos();loadGhRepos(true).then(paintRepos).catch(paintRepos);};
 }
 
 /* ---------- Auth gate ---------- */
