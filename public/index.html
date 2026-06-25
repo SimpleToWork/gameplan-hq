@@ -563,7 +563,7 @@ let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=p
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskSecSortFilter={};        // per Group-by section, narrow its tasks to one value of the active Sort-by field: { "<sectionLabel>": "<sortKey>" }; cleared when Sort-by/Group-by change
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
-let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target
+let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target | timestamp | roadmap
 let taskSortDir="asc";       // sort direction within the chosen Sort-by: "asc" | "desc" (in-memory, like taskSort)
 let taskLayout=(()=>{const v=localStorage.getItem("gp_taskLayout");return (v==="table"||v==="chart")?v:"card";})(); // "card" (editable cards) | "table" (row click → card) | "chart" (stacked status bars by group)
 let taskChartOrient=(localStorage.getItem("gp_taskChartOrient")==="bar")?"bar":"col"; // chart orientation: "col" (vertical columns) | "bar" (horizontal bars)
@@ -681,6 +681,8 @@ const normRepo=u=>String(u||"").replace(/\.git$/,"").replace(/\/+$/,"").toLowerC
 function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
 // The date a task's timeframe filtering/grouping keys off — due date or entry date (createdAt), per the toggle.
 const taskDateOf=t=>taskDateField==="entry"?t.createdAt:t.due;
+// Activity timestamp for the "Timestamp" sort: completion time for finished tasks, else inserted-at (createdAt).
+const taskTs=t=>t.completedAt||t.createdAt||"";
 // Does a task's chosen date fall in the selected timeframe bucket? Tasks with no such date match only "all".
 function taskTimeMatch(t){
   if(taskTime==="all")return true;
@@ -762,6 +764,7 @@ function taskSections(list){
     person:(a,b)=>{const pa=firstAssignee(a),pb=firstAssignee(b);if(pa!==pb){if(pa===null)return 1;if(pb===null)return -1;return pa.localeCompare(pb);}return prank(a)-prank(b);},
     entry:(a,b)=>{const da=a.createdAt||"",db=b.createdAt||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
     target:(a,b)=>{const da=a.due||"",db=b.due||"";if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
+    timestamp:(a,b)=>{const da=taskTs(a),db=taskTs(b);if(da!==db){if(!da)return 1;if(!db)return -1;return da<db?-1:1;}return prank(a)-prank(b);},
     roadmap:(a,b)=>{const r=rrank(a)-rrank(b);return r||prank(a)-prank(b);},
   };
   // Apply the chosen comparator, then flip the whole result for descending (tiebreakers reverse too — fine for a direction toggle).
@@ -786,6 +789,7 @@ function sortDividers(mode){
   if(mode==="person") return {key:t=>{const a=fa(t);return a?a.toLowerCase():"\uffff";},label:t=>fa(t)||"Unassigned"};
   if(mode==="entry")  return {key:t=>bucketKeyOf(parseDay(t.createdAt)),label:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.createdAt))]};
   if(mode==="target") return {key:t=>bucketKeyOf(parseDay(t.due)),     label:t=>BUCKET_LABEL[bucketKeyOf(parseDay(t.due))]};
+  if(mode==="timestamp"){const day=t=>parseDay(taskTs(t).slice(0,10));return {key:t=>bucketKeyOf(day(t)),label:t=>BUCKET_LABEL[bucketKeyOf(day(t))]};}
   if(mode==="roadmap"){const tt=id=>DB.roadmap.find(r=>r.id===id);return {key:t=>{const r=tt(t.roadmapId);return r?r.id:"";},label:t=>{const r=tt(t.roadmapId);return r?(r.title||"Untitled target"):"No roadmap";}};}
   return {key:t=>t.priority||"",label:t=>t.priority||"No priority"}; // priority (default)
 }
@@ -1236,7 +1240,13 @@ async function movePhase(ph,dir){
 }
 
 /* ---------- Task ops ---------- */
-async function setTask(id,patch){try{await fbUpdate("tasks",id,patch);}catch(e){banner(e.message,"err");}}
+async function setTask(id,patch){
+  // Stamp completedAt when a task first becomes Done (preserve original time on re-saves); clear it when leaving Done.
+  if(patch&&Object.prototype.hasOwnProperty.call(patch,"status")){
+    if(patch.status==="Done"){const cur=DB.tasks.find(t=>t.id===id);if(!cur||cur.status!=="Done"||!cur.completedAt)patch=Object.assign({completedAt:nowTs()},patch);}
+    else patch=Object.assign({completedAt:null},patch);
+  }
+  try{await fbUpdate("tasks",id,patch);}catch(e){banner(e.message,"err");}}
 // Append a note tagged with the current identity. arrayUnion so concurrent adds don't clobber.
 async function addTaskNote(id,text){
   const note={text,by:identity,at:today()};
@@ -2391,7 +2401,7 @@ function renderTasks(m){
   }
   vb.appendChild(gb);
   // Sort-by — orders cards within each section (also a display option, not a filter). Sits beside Group-by.
-  const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["roadmap","Roadmap"]];
+  const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["timestamp","Timestamp"],["roadmap","Roadmap"]];
   const sb=document.createElement("div");sb.className="views";sb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:10px;";
   if(isMobileFilters){
     sb.appendChild(taskMenuBtn("Sort",SORT_OPTS,taskSort,k=>{taskSort=k;taskSecSortFilter={};renderTasks();}));
