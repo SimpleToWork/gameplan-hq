@@ -929,11 +929,13 @@ function attachmentsBox(coll,docId,seed){
   return box;
 }
 
-// Fields the runner streams repeatedly while a run is live — log lines plus the running cost. They feed only the
-// in-card run-progress panel, never ordering / filtering / any editable field. liveStreamOnly returns the list of
-// tasks whose ONLY changes (vs the previous snapshot) are these fields — or null if anything else moved (a task
-// appeared/disappeared, runStatus flipped, an edit landed, …), in which case a full re-render is required.
-const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt"]);
+// Fields the runner writes during execution — log lines, cost, status transitions, result, and git metadata. They
+// feed only the run-progress panel / table run cells, never ordering / filtering / any editable field. Keeping this
+// set broad means a runStatus flip (queued→running) or a final result write won't trigger a full board re-render and
+// wipe an in-progress edit. Fields set at run-start by the UI (runRequested, runId, runRequestedBy, runRequestedAt,
+// runLevel) are intentionally excluded so clicking ▶ Run still triggers a full re-render to update the button state.
+// liveStreamOnly returns the list of tasks whose ONLY changes are these fields — or null if anything else moved.
+const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit"]);
 function liveStreamOnly(prev,next){
   if(!prev||prev.length!==next.length)return null;
   const pm=new Map(prev.map(t=>[t.id,t]));const changed=[];
@@ -960,12 +962,17 @@ function subscribeAll(){
       DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
       if(k==="tasks"){
         recordRunDurations(prevTasks,DB.tasks);
-        // A run streams its logs as frequent runProgress writes. When a snapshot changed ONLY those stream fields,
-        // patch the affected cards' run panels in place and skip the board re-render — otherwise every log line would
-        // rebuild the cards and wipe an in-progress edit (open roadmap picker, unsaved note/title, focus). Card layout
-        // only: the table's live duration clock relies on the full re-render to keep ticking.
-        const streamed=page==="tasks"&&taskLayout==="card"?liveStreamOnly(prevTasks,DB.tasks):null;
-        if(streamed){streamed.forEach(updateRunPanel);return;}
+        // A run streams its logs as frequent runProgress writes, and also updates runStatus / runError / etc. during
+        // its lifecycle. When a snapshot changed ONLY those runner-execution fields (RUN_STREAM_FIELDS), patch the
+        // affected rows/cards in place and skip the full board re-render — otherwise every log line would rebuild the
+        // DOM and wipe an in-progress edit (open roadmap picker, unsaved note/title, focus) or close a native select
+        // dropdown the user had open. Chart layout is excluded (no per-task DOM to patch cheaply).
+        const streamed=page==="tasks"&&taskLayout!=="chart"?liveStreamOnly(prevTasks,DB.tasks):null;
+        if(streamed){
+          if(taskLayout==="card")streamed.forEach(updateRunPanel);
+          else if(taskLayout==="table")streamed.forEach(updateRunTableRow);
+          return;
+        }
       }
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
@@ -1598,6 +1605,24 @@ function updateRunPanel(t){
   if(old&&fresh)old.replaceWith(fresh);
   else if(old)old.remove();
   else if(fresh){const acts=card.querySelector(":scope > .acts");acts?acts.after(fresh):card.appendChild(fresh);}
+}
+// In-place update of the Run / Duration / Logs cells for one task row in the table layout. Patches only the three
+// run-related cells (cols 13-15) so streamed log updates never rebuild the full table and close open select dropdowns
+// or float pops the user has open on other rows. Column indices mirror the header order in taskTable().
+function updateRunTableRow(t){
+  const main=document.getElementById("main");if(!main)return;
+  const tr=main.querySelector('tr[data-task-id="'+CSS.escape(t.id)+'"]');if(!tr)return;
+  const ttRunLive=t.runStatus==="running"||t.runStatus==="queued";
+  const logLines=Array.isArray(t.runProgress)?t.runProgress:[];
+  // Run button — col 13
+  const tdRun=tr.cells[13];
+  if(tdRun){const runBtn=tdRun.querySelector(".tt-runbtn");if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";runBtn.disabled=ttRunLive;runBtn.title=t.runError?("Last run failed: "+t.runError):ttRunLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}}
+  // Duration — col 14
+  const tdDur=tr.cells[14];
+  if(tdDur){const old=tdDur.firstChild;const fresh=runDurationCell(t);if(old)old.replaceWith(fresh);else tdDur.appendChild(fresh);}
+  // Logs button — col 15
+  const tdLogs=tr.cells[15];
+  if(tdLogs){const logBtn=tdLogs.querySelector(".tt-asgbtn");if(logBtn){logBtn.textContent=logLines.length?("📜 ("+logLines.length+")"):"📜";if(logLines.length||t.runError||t.runEndedAt){logBtn.disabled=false;logBtn.title="View runtime logs from the runner";logBtn.onclick=()=>openTaskLogsPop(logBtn,t);}else{logBtn.disabled=true;logBtn.title="No runtime logs yet — run this task to capture execution history";}}}
 }
 function taskCard(t){
   const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"")+(activeTaskId===t.id?" active":"");d.dataset.taskId=t.id;
