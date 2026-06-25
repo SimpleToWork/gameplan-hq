@@ -897,6 +897,26 @@ function attachmentsBox(coll,docId,seed){
   return box;
 }
 
+// Fields the runner streams repeatedly while a run is live — log lines plus the running cost. They feed only the
+// in-card run-progress panel, never ordering / filtering / any editable field. liveStreamOnly returns the list of
+// tasks whose ONLY changes (vs the previous snapshot) are these fields — or null if anything else moved (a task
+// appeared/disappeared, runStatus flipped, an edit landed, …), in which case a full re-render is required.
+const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt"]);
+function liveStreamOnly(prev,next){
+  if(!prev||prev.length!==next.length)return null;
+  const pm=new Map(prev.map(t=>[t.id,t]));const changed=[];
+  for(const nt of next){
+    const pt=pm.get(nt.id);if(!pt)return null;
+    let diff=false;
+    for(const key of new Set([...Object.keys(pt),...Object.keys(nt)])){
+      if(JSON.stringify(pt[key])===JSON.stringify(nt[key]))continue;
+      if(!RUN_STREAM_FIELDS.has(key))return null;   // a non-stream field changed → needs a full render
+      diff=true;
+    }
+    if(diff)changed.push(nt);
+  }
+  return changed;
+}
 let subUnsubs=[];
 function subscribeAll(){
   // Tear down any existing listeners before re-subscribing, so a manual "Sync now" can't stack duplicate listeners.
@@ -905,7 +925,15 @@ function subscribeAll(){
     subUnsubs.push(onSnapshot(col(k),snap=>{
       const prevTasks=k==="tasks"?DB.tasks:null;   // keep the pre-update tasks so we can spot live→finished run transitions
       DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
-      if(k==="tasks")recordRunDurations(prevTasks,DB.tasks);
+      if(k==="tasks"){
+        recordRunDurations(prevTasks,DB.tasks);
+        // A run streams its logs as frequent runProgress writes. When a snapshot changed ONLY those stream fields,
+        // patch the affected cards' run panels in place and skip the board re-render — otherwise every log line would
+        // rebuild the cards and wipe an in-progress edit (open roadmap picker, unsaved note/title, focus). Card layout
+        // only: the table's live duration clock relies on the full re-render to keep ticking.
+        const streamed=page==="tasks"&&taskLayout==="card"?liveStreamOnly(prevTasks,DB.tasks):null;
+        if(streamed){streamed.forEach(updateRunPanel);return;}
+      }
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       if(k==="disciplines"){
@@ -1480,6 +1508,30 @@ async function transcribeAudio(blob){
 
 function mkSelect(options,value,onchange){const s=document.createElement("select");s.className="mini";options.forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});s.onchange=()=>onchange(s.value);return s;}
 
+// Builds the in-card run-progress panel (header + last log lines), or null when there's nothing to show. Shared by
+// taskCard (initial render) and updateRunPanel (in-place live refresh) so both stay identical.
+function buildRunPanel(t){
+  const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
+  if(!(t.runStatus==="running"||t.runStatus==="queued"||runLines.length))return null;
+  const rp=document.createElement("div");rp.className="runprog";
+  const head=document.createElement("div");head.className="runprog-h";
+  head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";
+  rp.appendChild(head);
+  if(runLines.length){const body=document.createElement("div");body.className="runprog-body";
+    runLines.slice(-14).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
+    rp.appendChild(body);}
+  return rp;
+}
+// In-place run-panel refresh for one task's inline card: swap (or add/remove) just the .runprog block so a streamed
+// log update never rebuilds the card and discards an in-progress edit. No-op if the card isn't currently on screen.
+function updateRunPanel(t){
+  const main=document.getElementById("main");if(!main)return;
+  const card=main.querySelector('.card[data-task-id="'+CSS.escape(t.id)+'"]');if(!card)return;
+  const old=card.querySelector(":scope > .runprog"),fresh=buildRunPanel(t);
+  if(old&&fresh)old.replaceWith(fresh);
+  else if(old)old.remove();
+  else if(fresh){const acts=card.querySelector(":scope > .acts");acts?acts.after(fresh):card.appendChild(fresh);}
+}
 function taskCard(t){
   const d=document.createElement("div");d.className="card"+(taskCollapsed.has(t.id)?" collapsed":"")+(activeTaskId===t.id?" active":"");d.dataset.taskId=t.id;
   const pc=PRI_COLOR[t.priority]||PRI_COLOR.Medium, sc=ST_COLOR[t.status]||ST_COLOR["Not started"];
@@ -1570,19 +1622,10 @@ function taskCard(t){
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
   acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
   // Run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in flight, and
-  // persists the last run's logs once it finishes so execution history stays visible in the task view. Lives via
-  // onSnapshot: each board write re-renders the card, so the panel updates in place.
-  const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
-  if(t.runStatus==="running"||t.runStatus==="queued"||runLines.length){
-    const rp=document.createElement("div");rp.className="runprog";
-    const head=document.createElement("div");head.className="runprog-h";
-    head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";
-    rp.appendChild(head);
-    if(runLines.length){const body=document.createElement("div");body.className="runprog-body";
-      runLines.slice(-14).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
-      rp.appendChild(body);}
-    d.appendChild(rp);
-  }
+  // persists the last run's logs once it finishes so execution history stays visible in the task view. While a run
+  // is live the runner writes runProgress repeatedly; rather than re-rendering the whole card on each (which would
+  // wipe any open editor), the snapshot handler swaps just this panel in place via updateRunPanel.
+  const rp=buildRunPanel(t);if(rp)d.appendChild(rp);
   // assign pop
   const apop=document.createElement("div");apop.className="pop";
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;l.append(cb,document.createTextNode(mem.name));apop.appendChild(l);});
