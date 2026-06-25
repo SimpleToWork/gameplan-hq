@@ -1152,10 +1152,10 @@ async function captureTasks(){
     const selAgents=captureAgentIds&&captureAgentIds.size?DB.agents.filter(a=>captureAgentIds.has(a.id)):[];
     const repoCtxStr=selRepoNames.length?" The team member is working in these repos: "+selRepoNames.join(", ")+".":"";
     const agentCtxStr=selAgents.length?" Available agents relevant to this work: "+selAgents.map(a=>(a.name||a.id)+(a.summary?" ("+a.summary+")":"")).join("; ")+".":"";
-    const p=’Convert this team member’s plain-language plan into structured tasks for an internal board. ‘+
-      ‘Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): ‘+cats.join(", ")+’. ‘+
-      ‘Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is ‘+identity+’.’+repoCtxStr+agentCtxStr+’ ‘+
-      ‘These tasks already exist: ‘+JSON.stringify(existing)+’. ‘+
+    const p='Convert this team member\'s plain-language plan into structured tasks for an internal board. '+
+      'Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
+      'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'.'+repoCtxStr+agentCtxStr+' '+
+      'These tasks already exist: '+JSON.stringify(existing)+'. '+
       'Only skip a new task as a duplicate when it is the SAME concrete piece of work as an existing one — the same specific action on the same specific subject (e.g. both are "write the Q3 budget memo"). Do NOT skip merely because two tasks share a topic, category, project, roadmap area, person, or a few keywords; related-but-distinct work is NOT a duplicate. When you are unsure whether something is truly the same task, ADD it rather than skip it — a near-duplicate the user can delete is far better than dropping real work. '+
       'Reply with ONLY JSON (no prose, no fences): {"added":[{"title","category","priority","context","assignee"}],"skipped":[{"id","title"}]}. '+
       'In skipped, copy the id and title of the existing task each input genuinely duplicated, exactly as given above. '+
