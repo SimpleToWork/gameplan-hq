@@ -916,6 +916,7 @@ function attachmentsBox(coll,docId,seed){
 }
 
 let subUnsubs=[];
+let _capRmSig="";   // signature of the roadmap set last painted into the Capture picker; lets us re-render Capture only when targets actually change
 function subscribeAll(){
   // Tear down any existing listeners before re-subscribing, so a manual "Sync now" can't stack duplicate listeners.
   subUnsubs.forEach(u=>{try{u();}catch(e){}});subUnsubs=[];
@@ -935,8 +936,13 @@ function subscribeAll(){
       // Seed the discipline defaults from the user's profile disciplines once the roster syncs. Each returns true on
       // the pass it actually seeds, so we force a render even on Capture (which is otherwise skipped) to paint the default.
       const seededDefault=applyDomainDefault()|applyCaptureCatsDefault();
+      // Capture normally suppresses data-driven re-renders so live updates don't disrupt typing. But its roadmap
+      // picker must reflect targets as they load/rename/delete — re-render Capture when the roadmap set changes
+      // (and no draft review is open, so we don't wipe an in-progress review).
+      let capRmChanged=false;
+      if(page==="capture"&&k==="roadmap"){const sig=DB.roadmap.map(r=>r.id+":"+(r.area||"")+":"+(r.title||"")).join("|");if(sig!==_capRmSig){_capRmSig=sig;const cr=document.getElementById("capResult");if(!cr||!cr.innerHTML)capRmChanged=true;}}
       // Data-driven re-render: keep the scroll position so a live update (or a drag-reorder) doesn't snap the page to the top.
-      if(page!=="capture"||seededDefault){ const y=window.scrollY; render(); window.scrollTo(0,y); }
+      if(page!=="capture"||seededDefault||capRmChanged){ const y=window.scrollY; render(); window.scrollTo(0,y); }
     },err=>banner("Sync error: "+err.message,"err")));
   });
 }
@@ -1437,8 +1443,9 @@ function renderCapture(m){m=m||document.getElementById("main");
   rebuildD();
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
   // Roadmap pre-select — every drafted task inherits this target (each proposal row can still override it before approving).
-  // Drop a stale id if the target was deleted since it was picked, so we never auto-link to a missing target.
-  if(captureRoadmapId&&!DB.roadmap.find(r=>r.id===captureRoadmapId)){captureRoadmapId=null;saveCapturePrefs();}
+  // Drop a stale id only once the roadmap has actually loaded and the target is genuinely gone — guarding on
+  // DB.roadmap.length so an early render (before the roadmap snapshot arrives) can't wipe a restored selection.
+  if(captureRoadmapId&&DB.roadmap.length&&!DB.roadmap.find(r=>r.id===captureRoadmapId)){captureRoadmapId=null;saveCapturePrefs();}
   const rmRow=document.createElement("div");rmRow.className="views";rmRow.style.margin="8px 0 0";
   const rmLab=document.createElement("span");rmLab.className="cmeta";rmLab.style.cssText="align-self:center;margin-right:4px;";rmLab.title="Auto-link every drafted task to this roadmap target (you can change it per task in review)";rmLab.textContent="Roadmap:";rmRow.appendChild(rmLab);
   rmRow.appendChild(roadmapSelect(captureRoadmapId,v=>{captureRoadmapId=v;saveCapturePrefs();}));
