@@ -3451,9 +3451,6 @@ function renderRoadmap(m){
     ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
     sw.append(sl,ss);bar.appendChild(sw);
   }
-  if(roadmapView==="table"){
-    const gb=document.createElement("button");gb.className="btn sm";gb.style.cssText="margin-left:auto;";gb.textContent="Go to Tasks →";gb.onclick=()=>setPage("tasks");bar.appendChild(gb);
-  }
   const {row:fl,scroll:flScroll,add:flAdd}=rmScrollRow("cmeta rmrow-label","Filter:");
   fl.style.margin="6px 0 4px";
   areasSorted().forEach(a=>{
@@ -3571,9 +3568,10 @@ function renderRoadmapTable(m){
     const phaseCell='<td><span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span></td>';
     const startCell='<td class="cmeta">'+esc(r.start||"—")+'</td>';
     const targetCell='<td class="cmeta">'+esc(r.target||"—")+'</td>';
-    const tasksCell='<td>'+(linked.length?'<span class="linkcount">'+done+'/'+linked.length+'</span>':'<span class="cmeta">—</span>')+'</td>';
+    const tasksCell='<td class="rt-tasks">'+(linked.length?'<span class="linkcount">'+done+'/'+linked.length+'</span>':'<span class="cmeta">—</span>')+'</td>';
     tr.innerHTML=areaCell+titleCell+'<td class="rt-desc"></td>'+phaseCell+startCell+targetCell+'<td class="rt-asg"></td>'+tasksCell;
     const ttEl=tr.querySelector(".rt-title");ttEl.title="Open details";ttEl.onclick=()=>openRoadmapModal(r);
+    const tkEl=tr.querySelector(".rt-tasks");if(linked.length){tkEl.title="Go to tasks for this target";tkEl.style.cursor="pointer";tkEl.onclick=e=>{e.stopPropagation();goToRoadmapTasks(r);};}
     // Description column — read-only, clamped, full text on hover (DOM-set so quotes in detail are safe).
     const dc=tr.querySelector(".rt-desc");if(r.detail){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=r.detail;dv.title=r.detail;dc.appendChild(dv);}else dc.innerHTML='<span class="cmeta">—</span>';
     const av=avatarsRow(r.assignees);tr.querySelector(".rt-asg").appendChild(av||document.createTextNode("—"));
