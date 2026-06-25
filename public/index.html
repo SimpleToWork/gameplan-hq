@@ -269,7 +269,7 @@
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}
   .runprog-h:hover{background:#D9775705;}
   .runprog-toggle{font-size:12px;color:#D97757;flex-shrink:0;}
-  .runprog-body{max-height:150px;overflow-y:auto;padding:5px 9px;display:flex;flex-direction:column;gap:2px;}
+  .runprog-body{max-height:280px;overflow-y:auto;padding:5px 9px;display:flex;flex-direction:column;gap:2px;scroll-behavior:smooth;}
   .runprog.collapsed .runprog-body{display:none;}
   .runprog-l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .pop{border-top:1px dashed var(--line);padding-top:8px;display:none;flex-direction:column;gap:6px;}
@@ -1577,7 +1577,7 @@ function buildRunPanel(t){
   head.onclick=e=>{e.stopPropagation();const on=rp.classList.toggle("collapsed");on?runPanelCollapsed.add(t.id):runPanelCollapsed.delete(t.id);tog.textContent=on?"▸":"▾";};
   rp.appendChild(head);
   if(runLines.length){const body=document.createElement("div");body.className="runprog-body";
-    runLines.slice(-14).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
+    runLines.slice(-20).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
     rp.appendChild(body);}
   return rp;
 }
@@ -1938,7 +1938,7 @@ function openTaskLogsPop(anchor,t){
   if(meta.length){const m=document.createElement("div");m.className="cmeta";m.style.cssText="margin-bottom:6px;line-height:1.5;";m.textContent=meta.join(" · ");pop.appendChild(m);}
   const lines=Array.isArray(t.runProgress)?t.runProgress:[];
   if(lines.length){
-    const body=document.createElement("div");body.style.cssText="max-height:400px;min-width:0;overflow-y:auto;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
+    const body=document.createElement("div");body.style.cssText="max-height:500px;min-width:0;overflow-y:auto;scroll-behavior:smooth;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
     lines.forEach(l=>{const ln=document.createElement("div");ln.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;word-break:break-word;";ln.textContent=l;body.appendChild(ln);});
     pop.appendChild(body);
     setTimeout(()=>{body.scrollTop=body.scrollHeight;},0);   // jump to the latest line
