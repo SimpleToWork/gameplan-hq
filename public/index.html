@@ -1674,9 +1674,9 @@ function taskCard(t){
   run.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
   if(runLive)run.disabled=true;
   run.onclick=e=>{e.stopPropagation();if(runLive)return;
-    runApprovalModal(t,()=>{
+    runApprovalModal(t,(selectedLevel)=>{
       const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-      setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
+      setTask(t.id,{runRequested:true,runId,runLevel:selectedLevel,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
       banner("Queued for the local runner — it'll start shortly.","ok");});};
   // ✕ Reset — clear a stuck run. runStatus is just a field; if the runner dies (or its writeback errors)
   // mid-run it never flips to done/error, so the task shows "running" forever. This resets the board state.
@@ -2156,9 +2156,9 @@ function taskTable(items,secLabel){
     runBtn.title=t.runError?("Last run failed: "+t.runError):ttRunLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
     if(ttRunLive)runBtn.disabled=true;
     runBtn.onclick=e=>{e.stopPropagation();if(ttRunLive)return;
-      runApprovalModal(t,()=>{
+      runApprovalModal(t,(selectedLevel)=>{
         const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-        setTask(t.id,{runRequested:true,runId,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
+        setTask(t.id,{runRequested:true,runId,runLevel:selectedLevel,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
         banner("Queued for the local runner — it'll start shortly.","ok");});};
     tdRun.appendChild(runBtn);
     // Duration — how long the last (or in-flight) run took, measured from ▶ Run. See runDurationCell.
@@ -4171,13 +4171,19 @@ function runApprovalModal(t,onApprove){
       +row("Category",'<div class="chips">'+catChip+'</div>')
       +row("Roadmap",'<div class="chips">'+rmChip+'</div>');
     card.appendChild(ov);
+    // Level selector — lets the user pick the model tier right before approving, without having to close the modal and fiddle with the card dropdown first.
+    const lvlWrap=document.createElement("div");lvlWrap.innerHTML=row("Level","");
+    const lvlCell=lvlWrap.querySelector("div:last-child");
+    const lvlSel=document.createElement("select");lvlSel.className="ctrl";lvlSel.style.cssText="width:100%;font-size:13px;";
+    [["standard","◆ Standard — Sonnet (default)"],["quick","⚡ Quick — Haiku (fastest / cheapest)"],["deep","★ Deep — Opus (hardest tasks)"]].forEach(([val,lab])=>{const o=document.createElement("option");o.value=val;o.textContent=lab;if(String(t.runLevel||"standard").toLowerCase()===val)o.selected=true;lvlSel.appendChild(o);});
+    lvlCell.appendChild(lvlSel);card.appendChild(lvlWrap);
     const note=document.createElement("p");note.className="pagesub";note.style.cssText="margin:4px 0 14px;";
     note.textContent="The local runner will pick this up, work the task, and report status + a summary back here.";
     card.appendChild(note);
     const acts=document.createElement("div");acts.style.cssText="display:flex;gap:8px;justify-content:flex-end;";
     const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
     const go=document.createElement("button");go.className="btn primary";go.textContent="▶ Approve & Run";
-    go.onclick=()=>{close();onApprove();};
+    go.onclick=()=>{close();onApprove(lvlSel.value);};
     acts.append(cancel,go);card.appendChild(acts);
   });
 }
