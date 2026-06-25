@@ -603,6 +603,11 @@ let taskFilterMQ=null;       // mobile: the (matchMedia,handler) pair re-renderi
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let runPanelCollapsed=new Set(); // ids of task run panels collapsed; survives live re-renders
 let taskAssignOpen=new Set(); // ids of task cards whose circular assignee selector is open; survives live re-renders
+let taskEditOpen=new Set();   // ids of task cards with edit (title/context) pop open; survives live re-renders
+let taskNotesOpen=new Set();  // ids of task cards with notes pop open; survives live re-renders
+let taskRoadmapOpen=new Set();// ids of task cards with roadmap picker pop open; survives live re-renders
+let taskFilesOpen=new Set();  // ids of task cards with files pop open; survives live re-renders
+let taskAskOpen=new Set();    // ids of task cards with ask-Claude pop open; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
 let agendaPlanOpen=false;      // is the "Plan a meeting" section expanded? collapsed by default each session
 let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
@@ -1699,17 +1704,17 @@ function taskCard(t){
   // wipe any open editor), the snapshot handler swaps just this panel in place via updateRunPanel.
   const rp=buildRunPanel(t);if(rp)d.appendChild(rp);
   // edit pop
-  const epop=document.createElement("div");epop.className="pop";
+  const epop=document.createElement("div");epop.className="pop"+(taskEditOpen.has(t.id)?" open":"");
   const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.width="100%";
   const cx=document.createElement("textarea");cx.className="ctrl";cx.value=t.context||"";cx.placeholder="Context / notes";
   const eSave=document.createElement("button");eSave.className="btn primary sm";eSave.style.alignSelf="flex-start";eSave.textContent="Save";
-  eSave.onclick=()=>{if(!ti.value.trim()){banner("Title can’t be empty.","err");return;}setTask(t.id,{title:ti.value.trim(),context:cx.value.trim()});banner("Task updated.","ok");epop.classList.remove("open");};
+  eSave.onclick=()=>{if(!ti.value.trim()){banner("Title can’t be empty.","err");return;}setTask(t.id,{title:ti.value.trim(),context:cx.value.trim()});banner("Task updated.","ok");taskEditOpen.delete(t.id);epop.classList.remove("open");};
   const eLbl1=document.createElement("label");eLbl1.className="cmeta";eLbl1.textContent="Title";
   const eLbl2=document.createElement("label");eLbl2.className="cmeta";eLbl2.textContent="Description / notes";
   epop.append(eLbl1,ti,eLbl2,cx,eSave);d.appendChild(epop);
-  edit.onclick=()=>epop.classList.toggle("open");
+  edit.onclick=()=>{const open=epop.classList.toggle("open");open?taskEditOpen.add(t.id):taskEditOpen.delete(t.id);};
   // roadmap pop -> searchable, area-grouped single-select picker (replaces the old flat title dropdown).
-  const rpop=document.createElement("div");rpop.className="pop";
+  const rpop=document.createElement("div");rpop.className="pop"+(taskRoadmapOpen.has(t.id)?" open":"");
   const rctrl=document.createElement("div");rctrl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;";
   const rsearch=document.createElement("input");rsearch.className="ctrl";rsearch.type="search";rsearch.placeholder="Search roadmap…";rsearch.style.cssText="flex:1;min-width:120px;";
   // areas that actually have targets (named areas first, then any stray area found on a target)
@@ -1726,7 +1731,7 @@ function taskCard(t){
     // "None" row clears the link (sets roadmapId to null), matching by id — not by title — so duplicates are safe.
     const none=document.createElement("div");none.className="opt";none.style.cursor="pointer";
     none.innerHTML='<span class="cmeta"'+(!t.roadmapId?' style="font-weight:700;"':'')+'>— No roadmap link —</span>';
-    none.onclick=()=>{setTask(t.id,{roadmapId:null});rpop.classList.remove("open");};
+    none.onclick=()=>{setTask(t.id,{roadmapId:null});taskRoadmapOpen.delete(t.id);rpop.classList.remove("open");};
     rlist.appendChild(none);
     rAreas.filter(an=>af==="All areas"||af===an).forEach(an=>{
       const color=rAreaColor(an);
@@ -1744,7 +1749,7 @@ function taskCard(t){
         tl.innerHTML=(sel?'<span style="color:#4646c8;">▸ </span>':'')+'<span'+(sel?' style="font-weight:700;color:#4646c8;"':'')+'>'+esc(r.title)+'</span>';
         l.appendChild(tl);
         if(r.detail){const dl=document.createElement("div");dl.className="cmeta";dl.style.cssText="width:100%;font-size:11.5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;";dl.textContent=r.detail;dl.title=r.detail;l.appendChild(dl);}
-        l.onclick=()=>{setTask(t.id,{roadmapId:r.id});rpop.classList.remove("open");};
+        l.onclick=()=>{setTask(t.id,{roadmapId:r.id});taskRoadmapOpen.delete(t.id);rpop.classList.remove("open");};
         rlist.appendChild(l);
       });
     });
@@ -1752,9 +1757,9 @@ function taskCard(t){
   }
   rsearch.addEventListener("input",renderRoadList);
   renderRoadList();
-  link.onclick=()=>{rpop.classList.toggle("open");if(rpop.classList.contains("open"))rsearch.focus();};
+  link.onclick=()=>{const open=rpop.classList.toggle("open");open?taskRoadmapOpen.add(t.id):taskRoadmapOpen.delete(t.id);if(open)rsearch.focus();};
   // notes pop -> per-user tagged notes on the task (each note records who wrote it)
-  const npop=document.createElement("div");npop.className="pop";
+  const npop=document.createElement("div");npop.className="pop"+(taskNotesOpen.has(t.id)?" open":"");
   const nlist=document.createElement("div");nlist.style.cssText="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto;";
   if(taskNotes.length){
     taskNotes.forEach(nt=>{
@@ -1772,12 +1777,12 @@ function taskCard(t){
   const nAdd=document.createElement("button");nAdd.className="btn primary sm";nAdd.style.alignSelf="flex-start";nAdd.textContent="Add note as "+identity;
   nAdd.onclick=()=>{const v=nta.value.trim();if(!v){banner("Note can’t be empty.","err");return;}addTaskNote(t.id,v);nta.value="";banner("Note added by "+identity+".","ok");};
   npop.append(nlist,nta,nAdd);d.appendChild(npop);
-  notesBtn.onclick=()=>{npop.classList.toggle("open");if(npop.classList.contains("open"))nta.focus();};
+  notesBtn.onclick=()=>{const open=npop.classList.toggle("open");open?taskNotesOpen.add(t.id):taskNotesOpen.delete(t.id);if(open)nta.focus();};
   // files pop -> attach files to the task (stored in Firebase Storage; metadata on the task doc)
-  const fpop=document.createElement("div");fpop.className="pop";fpop.appendChild(attachmentsBox("tasks",t.id,taskFiles));d.appendChild(fpop);
-  filesBtn.onclick=()=>fpop.classList.toggle("open");
+  const fpop=document.createElement("div");fpop.className="pop"+(taskFilesOpen.has(t.id)?" open":"");fpop.appendChild(attachmentsBox("tasks",t.id,taskFiles));d.appendChild(fpop);
+  filesBtn.onclick=()=>{const open=fpop.classList.toggle("open");open?taskFilesOpen.add(t.id):taskFilesOpen.delete(t.id);};
   // ask pop -> builds a prompt to paste into claude.ai
-  const qpop=document.createElement("div");qpop.className="pop";
+  const qpop=document.createElement("div");qpop.className="pop"+(taskAskOpen.has(t.id)?" open":"");
   const qt=document.createElement("textarea");qt.className="ctrl";qt.placeholder="What do you want to ask about this task? (optional — leave blank for a general approach)";
   const qBtn=document.createElement("button");qBtn.className="btn primary sm";qBtn.style.alignSelf="flex-start";qBtn.textContent="Build Claude prompt";
   const pbox=document.createElement("textarea");pbox.className="promptbox";pbox.style.display="none";pbox.readOnly=true;
@@ -1787,8 +1792,8 @@ function taskCard(t){
   prow.append(copyB,openB);
   qBtn.onclick=()=>{pbox.value=buildTaskPrompt(t,qt.value);pbox.style.display="block";prow.style.display="flex";pbox.scrollIntoView({block:"nearest"});};
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
-  qpop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>qpop.classList.remove("open")));d.appendChild(qpop);
-  ask.onclick=()=>{qpop.classList.toggle("open");if(qpop.classList.contains("open"))qt.focus();};
+  qpop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>{taskAskOpen.delete(t.id);qpop.classList.remove("open");}));d.appendChild(qpop);
+  ask.onclick=()=>{const open=qpop.classList.toggle("open");open?taskAskOpen.add(t.id):taskAskOpen.delete(t.id);if(open)qt.focus();};
   // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
   rmv.title="Move to Trash";rmv.onclick=()=>deleteTask(t.id);
   return d;
