@@ -1598,18 +1598,31 @@ function renderCapture(m){m=m||document.getElementById("main");
   agBtn.append(agLbl,agCar);if(captureAgentIds&&captureAgentIds.size)agBtn.style.fontWeight="600";
   const openAgentDropdown=anchor=>{
     const{pop,place}=floatTaskPop(anchor);
-    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="280px";pop.style.overflowY="auto";
-    const agents=filteredAgents();
-    if(!agents.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=(captureRepos&&captureRepos.size)?"No agents linked to selected repos — check Agents tab":"No agents configured yet — visit Agents tab";pop.appendChild(nm);}
-    agents.forEach(a=>{
-      const row=document.createElement("label");row.className="opt";
-      const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureAgentIds&&captureAgentIds.has(a.id));
-      const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";if(a.repoUrl)sub.textContent=repoLabel(a.repoUrl);
-      cb.onchange=()=>{if(!captureAgentIds)captureAgentIds=new Set();if(cb.checked)captureAgentIds.add(a.id);else captureAgentIds.delete(a.id);
-        if(!captureAgentIds.size)captureAgentIds=null;saveCapturePrefs();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight=(captureAgentIds&&captureAgentIds.size)?"600":"";};
-      row.append(cb,document.createTextNode(" "+(a.name||a.id)),sub);pop.appendChild(row);
-    });
-    const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="8px";clr.textContent="Clear";clr.title="Clear agent selection";
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="340px";
+    // Search input at the top of the dropdown.
+    const srch=document.createElement("input");srch.type="search";srch.className="ctrl";srch.placeholder="Search agents…";srch.style.cssText="margin-bottom:4px;flex:none;";
+    pop.appendChild(srch);
+    const list=document.createElement("div");list.style.cssText="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px;";
+    pop.appendChild(list);
+    const buildList=()=>{
+      list.innerHTML="";
+      const q=srch.value.trim().toLowerCase();
+      const agents=filteredAgents().filter(a=>!q||(a.name||"").toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));
+      if(!agents.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=q?"No agents match":(captureRepos&&captureRepos.size)?"No agents linked to selected repos — check Agents tab":"No agents configured yet — visit Agents tab";list.appendChild(nm);}
+      agents.forEach(a=>{
+        const row=document.createElement("label");row.className="opt";
+        const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureAgentIds&&captureAgentIds.has(a.id));
+        const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";if(a.repoUrl)sub.textContent=repoLabel(a.repoUrl);
+        cb.onchange=()=>{if(!captureAgentIds)captureAgentIds=new Set();if(cb.checked)captureAgentIds.add(a.id);else captureAgentIds.delete(a.id);
+          if(!captureAgentIds.size)captureAgentIds=null;saveCapturePrefs();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight=(captureAgentIds&&captureAgentIds.size)?"600":"";};
+        row.append(cb,document.createTextNode(" "+(a.name||a.id)),sub);
+        if(a.summary){const desc=document.createElement("div");desc.className="cmeta";desc.style.cssText="margin-left:20px;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;";desc.textContent=a.summary;row.appendChild(desc);}
+        list.appendChild(row);
+      });
+    };
+    srch.addEventListener("input",buildList);
+    buildList();
+    const clr=document.createElement("button");clr.className="btn sm";clr.style.cssText="margin-top:8px;flex:none;";clr.textContent="Clear";clr.title="Clear agent selection";
     clr.onclick=()=>{captureAgentIds=null;saveCapturePrefs();pop.remove();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight="";};
     pop.appendChild(clr);place();
   };
@@ -4793,6 +4806,7 @@ const agentDiagramCollapsed=new Set(); // collapsed nodes in the Agents director
 // refresh). The Agents header's "Commit moves" button writes them all to git; re-staging an agent back to its
 // committed folder clears its entry (no delta). Kept separate from a.repoPath, which stays at the committed path.
 const agentPendingMoves={};
+let agentSearch=""; // free-text filter on the Agents page diagram; "" = off (matches name/type/summary)
 // The path an agent should appear at in the tree: its staged destination if a move is pending, else its
 // committed repoPath. Drives the directory tree and the move modal's prefill/collision checks.
 function agentEffectivePath(a){const p=agentPendingMoves[a.id];return p?p.newPath:(a.repoPath||"");}
@@ -4858,6 +4872,8 @@ async function syncRepoAgents(repoUrl){
   const localForRepo=DB.agents.filter(a=>normRepo(a.repoUrl)===norm&&a.repoPath);
   const handled=new Set(); // local agent ids reconciled below — kept out of the trailing "push missing" pass
   const specFields=s=>({name:s.name,type:s.type,status:s.status,model:s.model,summary:s.summary,systemPrompt:s.systemPrompt,tools:s.tools||[],inputs:s.inputs,outputs:s.outputs,notes:s.notes});
+  // Auto-derive a 1-liner summary from the first non-empty line of the system prompt when the spec has none.
+  const derivedSummary=s=>{if(s.summary)return s.summary;const p=String(s.systemPrompt||"").trim();if(!p)return "";return p.split(/\n+/).map(l=>l.replace(/^[#\s>*\-]+/,"").trim()).find(l=>l.length>4)||"";};
   for(const f of (files||[])){
     try{
       const res=await githubSync({op:"read",repoUrl,path:f.path});
@@ -4867,7 +4883,7 @@ async function syncRepoAgents(repoUrl){
       // legacy spec files written before agentId existed.
       const local=(res.spec.agentId&&localForRepo.find(a=>a.agentId===res.spec.agentId))||localForRepo.find(a=>a.repoPath===f.path);
       if(!local){
-        await fbAdd("agents",Object.assign(specFields(res.spec),{repoUrl,repoPath:f.path,agentId:res.spec.agentId||agentUid(),lastCommitSha:res.sha||"",lastSyncedAt:today(),
+        await fbAdd("agents",Object.assign(specFields(res.spec),{summary:derivedSummary(res.spec),repoUrl,repoPath:f.path,agentId:res.spec.agentId||agentUid(),lastCommitSha:res.sha||"",lastSyncedAt:today(),
           createdBy:res.spec.createdBy||identity,createdAt:res.spec.createdAt||today(),updatedAt:repoTime||nowTs()}));
         r.imported++;
       }else{
@@ -5315,7 +5331,9 @@ function agentRepoLabel(url){const m=String(url||"").replace(/\.git$/,"").match(
 // dir); agents with no repoUrl land under a synthetic "Unfiled" repo.
 function buildAgentHierarchy(){
   const root={label:"agents",children:new Map(),agents:[]};
-  agentsSorted().forEach(a=>{
+  const q=agentSearch.trim().toLowerCase();
+  const list=q?DB.agents.filter(a=>(a.name||"").toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q)):null;
+  (list||agentsSorted()).forEach(a=>{
     const repoKey=a.repoUrl?normRepo(a.repoUrl):"__unfiled__";
     if(!root.children.has(repoKey))root.children.set(repoKey,{label:a.repoUrl?agentRepoLabel(a.repoUrl):"Unfiled",children:new Map(),agents:[],repoUrl:a.repoUrl||""});
     let node=root.children.get(repoKey);
@@ -5334,6 +5352,8 @@ function tmLeafCount(node){if(node.agent)return 1;let n=node.agents?node.agents.
 const AGENT_TYPE_COLORS={connector:"#4646c8",etl:"#1d6b45",analysis:"#b4690e",automation:"#9333ea",other:"#646b78"};
 // A small colored dot indicating an agent's type — just a scan aid in the diagram.
 function agentTypeDot(type){const c=AGENT_TYPE_COLORS[type]||AGENT_TYPE_COLORS.other;return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+c+';flex:none;"></span>';}
+// Colored icon badge for a repo node: uses the repo's Settings color + first char of its friendly name (or 📦 if no color set).
+function repoNodeIconHtml(repoUrl,fallbackLabel){const c=repoColor(repoUrl);const fn=repoFriendly(repoUrl);const ch=fn?fn[0].toUpperCase():(fallbackLabel?fallbackLabel[0].toUpperCase():"R");if(!c)return '📦';return '<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;background:'+c+';color:#fff;font-size:10px;font-weight:700;flex:none;vertical-align:middle;line-height:1;">'+esc(ch)+'</span>';}
 // Directory diagram: an indented node tree of the repo → folder → agent hierarchy with vertical guide lines.
 // Repo/folder nodes are collapsible (state in agentDiagramCollapsed); clicking an agent node opens its menu.
 function renderAgentsDiagram(m){
@@ -5349,11 +5369,14 @@ function renderAgentsDiagram(m){
     if(node.agent){
       const ag=node.agent;const pend=agentPendingMoves[ag.id];
       const row=document.createElement("div");row.className="trow tagent";
+      const tc=AGENT_TYPE_COLORS[ag.type]||AGENT_TYPE_COLORS.other;
       row.innerHTML='<span class="tchev">•</span>'+agentTypeDot(ag.type)+'<span>'+esc(node.label)+'</span>'+
-        (ag.type?'<span class="chip" style="margin-left:2px;">'+esc(ag.type)+'</span>':'')+
+        (ag.type?'<span class="chip" style="margin-left:2px;background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'44;">'+esc(ag.type)+'</span>':'')+
         (pend?'<span class="chip" style="margin-left:4px;background:var(--accent-soft,#e8e8fb);color:var(--accent,#4646c8);">moved · pending</span>':'')+
         '<span class="tspacer"></span>';
-      row.title=(ag.name||"Untitled")+(ag.repoPath?" — "+ag.repoPath:"")+(pend?"  (staged move — not yet committed)":(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":""));
+      // Description icon: DOM element so .title is set safely (esc() doesn't escape double-quotes in attributes).
+      if(ag.summary){const info=document.createElement("span");info.style.cssText="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--soft,#f0f0ee);color:var(--muted,#888);font-size:10px;flex:none;cursor:default;margin-left:3px;font-style:italic;font-weight:700;";info.textContent="i";info.title=ag.summary;const ref=row.querySelector(".chip")||row.querySelector(".tspacer");if(ref)row.insertBefore(info,ref);else row.appendChild(info);}
+      row.title=(ag.name||"Untitled")+(ag.summary?" — "+ag.summary:"")+(ag.repoPath?"\n"+ag.repoPath:"")+(pend?"  (staged move — not yet committed)":(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":""));
       row.onclick=()=>agentMenuModal(ag);
       // Inline display button: render the formatted agent file directly, skipping the action menu.
       const viewBtn=document.createElement("button");viewBtn.type="button";viewBtn.className="tview";
@@ -5371,7 +5394,12 @@ function renderAgentsDiagram(m){
     const collapsed=agentDiagramCollapsed.has(key);
     const row=document.createElement("div");row.className="trow tcont";
     row.title=collapsed?"Click to expand":"Click to collapse";
-    row.innerHTML='<span class="tchev">'+(collapsed?"▸":"▾")+'</span><span>'+icon+'</span><span class="nm" style="font-size:13px;">'+esc(node.label)+'</span><span class="tcount">'+tmLeafCount(node)+'</span>';
+    // Top-level repo nodes (no fullPath) get a color-coded icon and subtle border from Settings.
+    const isRepo=!node.fullPath&&node.repoUrl&&node.repoUrl!=="";
+    const dispIcon=isRepo?repoNodeIconHtml(node.repoUrl,node.label):icon;
+    const rColor=isRepo?repoColor(node.repoUrl):"";
+    if(rColor)row.style.cssText="border-left:3px solid "+rColor+";padding-left:6px;";
+    row.innerHTML='<span class="tchev">'+(collapsed?"▸":"▾")+'</span><span>'+dispIcon+'</span><span class="nm" style="font-size:13px;">'+esc(node.label)+'</span><span class="tcount">'+tmLeafCount(node)+'</span>';
     row.onclick=()=>{collapsed?agentDiagramCollapsed.delete(key):agentDiagramCollapsed.add(key);renderAgents();};
     // Folder nodes (those with a concrete repo path) are drop targets — dropping an agent moves its file here.
     if(node.fullPath!==undefined){
@@ -5424,7 +5452,14 @@ function renderAgents(m){
     resync.style.marginLeft="auto";head.append(resync,add);
   }
   m.appendChild(head);
-  if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
+  // Search bar — preserves focus + caret across per-keystroke re-renders.
+  const _agSe=document.getElementById(“agentPageSearch”);const _agRefocus=!!(_agSe&&document.activeElement===_agSe);const _agCaret=_agRefocus?(_agSe.selectionStart??_agSe.value.length):0;
+  const agbar=document.createElement(“div”);agbar.style.cssText=”display:flex;gap:8px;align-items:center;margin:8px 0 4px;”;
+  const agS=document.createElement(“input”);agS.type=”search”;agS.className=”ctrl”;agS.id=”agentPageSearch”;agS.placeholder=”Search agents…”;agS.value=agentSearch;agS.style.cssText=”flex:1;min-width:160px;max-width:320px;”;
+  agS.oninput=()=>{agentSearch=agS.value;renderAgents();};
+  agbar.appendChild(agS);m.appendChild(agbar);
+  if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}
+  if(!DB.agents.length){m.insertAdjacentHTML(“beforeend”,'<div class=”empty”><div class=”big”>No agents yet</div>Click “+ New agent” to draft one with Claude.</div>');return;}
   renderAgentsDiagram(m);
 }
 function renderSignIn(msg){
