@@ -205,7 +205,7 @@
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
   /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers, context, and run logs. */
-  .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .er-row,.card.collapsed .pop,.card.collapsed .cmeta,.card.collapsed .runprog{display:none;}
+  .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .er-row,.card.collapsed .nf-row,.card.collapsed .pop,.card.collapsed .cmeta,.card.collapsed .runprog{display:none;}
   /* Don't let a lone collapsed card stretch to its grid row's height (set by taller expanded neighbors). */
   .card.collapsed{align-self:start;}
   .ccollapse{position:absolute;top:8px;left:8px;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;z-index:1;}
@@ -270,6 +270,9 @@
   .er-row button{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 6px;border-radius:5px;}
   .er-row .er-edit{color:var(--muted);} .er-row .er-edit:hover{color:var(--ink);background:var(--hover,#f0f0f8);}
   .er-row .runbtn{color:#D97757;font-weight:600;} .er-row .runbtn:hover{color:#c25f3f;background:#D9775710;} .er-row .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
+  .nf-row{display:flex;gap:10px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);flex-wrap:wrap;}
+  .nf-row button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;} .nf-row button:hover{color:var(--ink);}
+  .nf-row select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
   .runprog{margin-top:8px;border:1px solid #D9775744;border-radius:8px;background:#D9775710;overflow:hidden;}
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}
   .runprog-h:hover{background:#D9775705;}
@@ -1733,7 +1736,7 @@ function taskCard(t){
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
   const rmv=document.createElement("button");rmv.className="rm";rmv.textContent="Delete";
-  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(notesBtn,filesBtn,ask,lvl,run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
+  acts.append(edit,link);if(unlink)acts.append(unlink);acts.append(run);if(reset)acts.append(reset);acts.append(rmv);d.appendChild(acts);
   // Run panel — streams runProgress (written by .local/runner.mjs as claude works) while a run is in flight, and
   // persists the last run's logs once it finishes so execution history stays visible in the task view. While a run
   // is live the runner writes runProgress repeatedly; rather than re-rendering the whole card on each (which would
@@ -1832,6 +1835,9 @@ function taskCard(t){
   ask.onclick=()=>{const open=qpop.classList.toggle("open");open?taskAskOpen.add(t.id):taskAskOpen.delete(t.id);if(open)qt.focus();};
   // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
   rmv.title="Move to Trash";rmv.onclick=()=>deleteTask(t.id);
+  // Notes / Files / Claude prompt / Model selector row — isolated from the main action toolbar.
+  const nfRow=document.createElement("div");nfRow.className="nf-row";
+  nfRow.append(notesBtn,filesBtn,ask,lvl);d.appendChild(nfRow);
   // Dedicated Edit / Run row — Edit left-aligned, Run right-aligned, isolated from the acts toolbar.
   const erRow=document.createElement("div");erRow.className="er-row";
   const erEdit=document.createElement("button");erEdit.className="er-edit";erEdit.textContent="Edit";
