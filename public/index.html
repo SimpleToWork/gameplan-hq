@@ -1928,31 +1928,49 @@ function openTaskAskPop(anchor,t){
   copyB.onclick=()=>{pbox.select();try{navigator.clipboard.writeText(pbox.value);}catch(e){}banner("Prompt copied — paste it into Claude.","ok");};
   pop.append(qt,qBtn,pbox,prow,askDoneUI(t,()=>pop.remove()));place();qt.focus();
 }
-// Logs — floats this task's runtime logs (the runProgress lines the runner streams) so execution history is visible
-// from the table without opening the card. Shows a status/duration summary, the full log lines (monospace, scrollable),
-// and any run error. Persists after the run finishes; live data flows through onSnapshot, so a reopen reflects the latest.
+// Logs — floating draggable+resizable panel with this task's runtime logs. Drag the header bar to move;
+// drag the bottom-right corner (browser resize handle) to resize. Closes via ✕ button only (no outside-click
+// dismiss, so dragging outside the panel doesn't accidentally close it).
 function openTaskLogsPop(anchor,t){
-  const {pop,place}=floatTaskPop(anchor);
-  pop.style.cssText+=";min-width:300px;max-width:480px;";
+  document.querySelectorAll(".tt-logspop").forEach(p=>p.remove());
+  const pop=document.createElement("div");pop.className="pop tt-logspop open";
+  const r=anchor.getBoundingClientRect(),initW=480,initH=420;
+  const initL=Math.max(8,Math.min(r.left,window.innerWidth-initW-8));
+  const initT=Math.max(8,Math.min(r.bottom+4,window.innerHeight-initH-8));
+  pop.style.cssText="position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:0;width:"+initW+"px;height:"+initH+"px;min-width:280px;min-height:160px;resize:both;overflow:hidden;top:"+initT+"px;left:"+initL+"px;display:flex;flex-direction:column;";
+  document.body.appendChild(pop);
+  // Header drag bar
   const live=t.runStatus==="running"||t.runStatus==="queued";
-  const head=document.createElement("div");head.style.cssText="font-size:11px;font-weight:600;color:#D97757;margin-bottom:6px;";
+  const bar=document.createElement("div");bar.style.cssText="padding:8px 10px 7px;display:flex;align-items:center;justify-content:space-between;cursor:move;border-bottom:1px solid var(--line);flex-shrink:0;user-select:none;background:var(--surface);border-radius:10px 10px 0 0;";
+  const head=document.createElement("div");head.style.cssText="font-size:11px;font-weight:600;color:#D97757;";
   head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run failed":t.runEndedAt?"✓ Last run":"Runtime logs";
-  pop.appendChild(head);
-  // Summary: who/when started + duration, mirroring runDurationCell's data.
+  const closeBtn=document.createElement("button");closeBtn.style.cssText="border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted);padding:0 2px;line-height:1;flex-shrink:0;margin-left:8px;";closeBtn.textContent="✕";closeBtn.title="Close";closeBtn.onclick=()=>pop.remove();
+  bar.append(head,closeBtn);pop.appendChild(bar);
+  // Dragging
+  let dragX=0,dragY=0,dragging=false;
+  bar.addEventListener("mousedown",e=>{if(e.button!==0)return;dragging=true;dragX=e.clientX-pop.getBoundingClientRect().left;dragY=e.clientY-pop.getBoundingClientRect().top;e.preventDefault();});
+  const onMove=e=>{if(!dragging)return;pop.style.left=Math.max(0,Math.min(e.clientX-dragX,window.innerWidth-pop.offsetWidth))+"px";pop.style.top=Math.max(0,Math.min(e.clientY-dragY,window.innerHeight-pop.offsetHeight))+"px";};
+  const onUp=()=>{dragging=false;};
+  document.addEventListener("mousemove",onMove);document.addEventListener("mouseup",onUp);
+  const obs=new MutationObserver(()=>{if(!document.contains(pop)){document.removeEventListener("mousemove",onMove);document.removeEventListener("mouseup",onUp);obs.disconnect();}});
+  obs.observe(document.body,{childList:true,subtree:true});
+  // Content area (scrollable, grows with resize)
+  const content=document.createElement("div");content.style.cssText="padding:10px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px;min-height:0;";
+  pop.appendChild(content);
+  // Summary: who/when started + duration
   const meta=[];const start=Date.parse(t.runRequestedAt||"");
   if(start)meta.push("Started "+new Date(start).toLocaleString()+(t.runRequestedBy?(" by "+t.runRequestedBy):""));
   if(live&&start)meta.push("Elapsed "+fmtDur(Date.now()-start));
   else if(t.runDurationMs>0)meta.push("Took "+fmtDur(t.runDurationMs));
-  if(meta.length){const m=document.createElement("div");m.className="cmeta";m.style.cssText="margin-bottom:6px;line-height:1.5;";m.textContent=meta.join(" · ");pop.appendChild(m);}
+  if(meta.length){const m=document.createElement("div");m.className="cmeta";m.style.cssText="line-height:1.5;flex-shrink:0;";m.textContent=meta.join(" · ");content.appendChild(m);}
   const lines=Array.isArray(t.runProgress)?t.runProgress:[];
   if(lines.length){
-    const body=document.createElement("div");body.style.cssText="max-height:500px;min-width:0;overflow-y:auto;scroll-behavior:smooth;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
+    const body=document.createElement("div");body.style.cssText="flex:1;min-height:0;overflow-y:auto;scroll-behavior:smooth;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
     lines.forEach(l=>{const ln=document.createElement("div");ln.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;word-break:break-word;";ln.textContent=l;body.appendChild(ln);});
-    pop.appendChild(body);
-    setTimeout(()=>{body.scrollTop=body.scrollHeight;},0);   // jump to the latest line
-  }else{const e=document.createElement("div");e.className="cmeta";e.textContent=live?"No log lines yet — the runner will stream progress here.":"No log lines were captured for this run.";pop.appendChild(e);}
-  if(t.runError){const err=document.createElement("div");err.style.cssText="margin-top:6px;font-size:11.5px;color:var(--danger);white-space:pre-wrap;word-break:break-word;";err.textContent="Error: "+t.runError;pop.appendChild(err);}
-  place();
+    content.appendChild(body);
+    setTimeout(()=>{body.scrollTop=body.scrollHeight;},0);
+  }else{const e=document.createElement("div");e.className="cmeta";e.textContent=live?"No log lines yet — the runner will stream progress here.":"No log lines were captured for this run.";content.appendChild(e);}
+  if(t.runError){const err=document.createElement("div");err.style.cssText="font-size:11.5px;color:var(--danger);white-space:pre-wrap;word-break:break-word;flex-shrink:0;";err.textContent="Error: "+t.runError;content.appendChild(err);}
 }
 // Grouped roadmap <select> for a table cell: "No link" + one optgroup per area. Writes roadmapId via setTask.
 function taskRoadmapSelect(t){
