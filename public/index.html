@@ -1614,6 +1614,12 @@ function taskCard(t){
   (t.assignees&&t.assignees.length?t.assignees:[]).forEach(n=>{const mm=member(n);const b=document.createElement("span");b.className="asgbub";b.style.background=mm?mm.color:"#9aa0a8";b.textContent=initials(n);b.title=n;asgb.appendChild(b);});
   if(!t.assignees||!t.assignees.length){const b=document.createElement("span");b.className="asgbub empty";b.textContent="—";b.title="Unassigned";asgb.appendChild(b);}
   d.appendChild(asgb);
+  // assign pop — circular acronym selector; clicking a member's round button toggles them live. Open state lives in
+  // taskAssignOpen so it survives the snapshot re-render each toggle triggers (the card is rebuilt from scratch).
+  const apop=document.createElement("div");apop.className="pop"+(taskAssignOpen.has(t.id)?" open":"");
+  const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);apop.appendChild(awheel);
+  d.appendChild(apop);
+  asg.onclick=()=>{const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
   // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
   // Done, completion time. A subtle meta line; hidden entirely when neither is known.
   const tsIns=t.insertedAt||t.createdAt||"";
@@ -1689,12 +1695,6 @@ function taskCard(t){
   // is live the runner writes runProgress repeatedly; rather than re-rendering the whole card on each (which would
   // wipe any open editor), the snapshot handler swaps just this panel in place via updateRunPanel.
   const rp=buildRunPanel(t);if(rp)d.appendChild(rp);
-  // assign pop — circular acronym selector; clicking a member's round button toggles them live. Open state lives in
-  // taskAssignOpen so it survives the snapshot re-render each toggle triggers (the card is rebuilt from scratch).
-  const apop=document.createElement("div");apop.className="pop"+(taskAssignOpen.has(t.id)?" open":"");
-  const awheel=document.createElement("div");awheel.className="asgwheel";buildAssignWheel(awheel,t);apop.appendChild(awheel);
-  d.appendChild(apop);
-  asg.onclick=()=>{const open=apop.classList.toggle("open");open?taskAssignOpen.add(t.id):taskAssignOpen.delete(t.id);};
   // edit pop
   const epop=document.createElement("div");epop.className="pop";
   const ti=document.createElement("input");ti.className="ctrl";ti.value=t.title;ti.style.width="100%";
