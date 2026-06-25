@@ -726,12 +726,22 @@ const normRepo=u=>String(u||"").replace(/\.git$/,"").replace(/\/+$/,"").toLowerC
 // `repoNames` collection, keyed by a sanitized repo URL so writes are idempotent (no dupes on repeated saves).
 const repoNameKey=u=>normRepo(u).replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"_"; // Firestore doc id (no slashes)
 const repoFriendly=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.name?e.name:"";};
-// Save/clear a repo's friendly name. Empty/blank clears it (deletes the doc); otherwise upserts {repoUrl,name}.
+const repoColor=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.color?e.color:"";};
+// Save/clear a repo's friendly name. Preserves color if set; deletes doc only when both name and color are absent.
 async function setRepoName(url,name){
   const id=repoNameKey(url),v=String(name||"").trim();
-  if(!v){ if(DB.repoNames.some(x=>x.id===id))await fbDelete("repoNames",id); banner("Friendly name cleared.","ok"); return; }
+  if(!v){
+    if(repoColor(url)){await fbSet("repoNames",id,{repoUrl:normRepo(url),name:"",updatedAt:nowTs(),updatedBy:identity},true);}
+    else if(DB.repoNames.some(x=>x.id===id)){await fbDelete("repoNames",id);}
+    banner("Friendly name cleared.","ok"); return;
+  }
   await fbSet("repoNames",id,{repoUrl:normRepo(url),name:v,updatedAt:nowTs(),updatedBy:identity},true);
   banner("Friendly name saved.","ok");
+}
+// Save a repo colour; upserts with merge so it doesn't overwrite the friendly name.
+async function setRepoColor(url,color){
+  const id=repoNameKey(url);
+  await fbSet("repoNames",id,{repoUrl:normRepo(url),color,updatedAt:nowTs(),updatedBy:identity},true);
 }
 // Parse a "YYYY-MM-DD" string to a local midnight Date (null if blank/invalid).
 function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
@@ -4537,19 +4547,21 @@ function renderTeam(m){
     if(ghReposErr)rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(ghReposErr)+' — see the Agents setup in the README.</div>');
     else if(!ghRepos.length)rlist.insertAdjacentHTML("beforeend",'<div class="cmeta">No connected repos yet — install the GitHub App on a repo, then Refresh.</div>');
     ghRepos.forEach(r=>{
-      const fr=repoFriendly(r.url); // team-assigned friendly name (blank if none); shown as the title, GitHub name as subtitle
+      const fr=repoFriendly(r.url);const rc=repoColor(r.url); // friendly name and colour (both blank if not set)
       const card=document.createElement("div");card.className="card";card.style.cssText="padding:14px 16px;gap:10px;";
-      // Info row: repo icon + title/subtitle + visibility chip
+      // Info row: colour swatch + repo icon + title (GitHub name always) / subtitle (friendly name if set) + visibility chip
       const infoRow=document.createElement("div");infoRow.style.cssText="display:flex;align-items:flex-start;gap:10px;";
-      const ico=document.createElement("div");ico.style.cssText="flex:none;width:34px;height:34px;border-radius:8px;background:#f0f0ee;display:flex;align-items:center;justify-content:center;font-size:18px;margin-top:1px;";ico.textContent="⎇";
+      const sw=document.createElement("input");sw.type="color";sw.value=rc||"#888888";sw.title="Repo colour";sw.className="cswatch";sw.style.cssText="width:22px;height:22px;border:none;background:none;cursor:pointer;flex:none;padding:0;margin-top:6px;";
+      sw.onchange=()=>setRepoColor(r.url,sw.value);
+      const ico=document.createElement("div");ico.style.cssText="flex:none;width:34px;height:34px;border-radius:8px;background:"+(rc?rc+"22":"#f0f0ee")+";display:flex;align-items:center;justify-content:center;font-size:18px;margin-top:1px;";ico.textContent="⎇";
       const tw=document.createElement("div");tw.style.cssText="flex:1;min-width:0;";
-      const t=document.createElement("div");t.className="ctitle";t.style.cssText="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";t.textContent=fr||r.fullName;tw.appendChild(t);
+      const t=document.createElement("div");t.className="ctitle";t.style.cssText="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";t.textContent=r.fullName;tw.appendChild(t);
       const subLine=document.createElement("div");subLine.style.cssText="display:flex;align-items:center;gap:7px;margin-top:3px;flex-wrap:wrap;";
-      if(fr){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;";sub.textContent=r.fullName;subLine.appendChild(sub);}
+      if(fr){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;";sub.textContent=fr;subLine.appendChild(sub);}
       const chip=document.createElement("span");chip.className="chip";chip.style.cssText=r.private?"background:#fff4e6;color:#c47a1a;border:1px solid #f0c070;":"background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;";chip.textContent=r.private?"⊙ private":"◎ public";subLine.appendChild(chip);
-      tw.appendChild(subLine);infoRow.append(ico,tw);card.appendChild(infoRow);
-      // Actions row: rename, sync, open — right-aligned
-      const actRow=document.createElement("div");actRow.style.cssText="display:flex;align-items:center;gap:7px;justify-content:flex-end;";
+      tw.appendChild(subLine);infoRow.append(sw,ico,tw);card.appendChild(infoRow);
+      // Actions row: rename, sync, open — left-aligned
+      const actRow=document.createElement("div");actRow.style.cssText="display:flex;align-items:center;gap:7px;justify-content:flex-start;";
       const ren=document.createElement("button");ren.className="btn sm";ren.textContent="✎ Name";ren.title="Set a friendly name for this repo";
       // Two-way sync: auto-import every spec under the sync dir (.claude/agents/) + push/pull each by last-write-wins.
       const sync=document.createElement("button");sync.className="btn sm";sync.textContent="⇄ Sync agents";sync.title="Import new specs from "+SYNC_DIR+"/ and push/pull existing ones (newest wins)";
