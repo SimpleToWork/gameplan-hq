@@ -1900,16 +1900,23 @@ function makeColumnsResizable(table,key){
   let cg=table.querySelector("colgroup");
   if(!cg){cg=document.createElement("colgroup");for(let i=0;i<n;i++)cg.appendChild(document.createElement("col"));table.insertBefore(cg,table.firstChild);}
   const cols=Array.from(cg.children);
-  const saved=loadColW(key,n);
-  if(saved){table.style.tableLayout="fixed";cols.forEach((c,i)=>{if(saved[i]!=null)c.style.width=saved[i]+"px";});}
   const MIN=48;
-  // Grip on every header but the last — the rightmost column flexes to absorb leftover width.
+  // Floor for the trailing column. It carries no resize grip, so under table-layout:fixed it has no stored width and
+  // collapses toward zero once its neighbours are widened — its nowrap content (e.g. the Tasks "ID" cell) then spills
+  // past the table's right edge with no header background, looking like it sits outside the table. The floor keeps it
+  // a proper, content-sized column. (Legacy saved widths always left this entry null, so apply it there too.)
+  const TRAIL_MIN=100;
+  const saved=loadColW(key,n);
+  if(saved){table.style.tableLayout="fixed";cols.forEach((c,i)=>{if(saved[i]!=null)c.style.width=saved[i]+"px";});
+    if(saved[n-1]==null)cols[n-1].style.width=TRAIL_MIN+"px";}
+  // Grip on every header but the last — the trailing column isn't directly draggable but is pinned (above / on first
+  // drag) so it never flexes to zero.
   ths.forEach((th,i)=>{
     if(i===n-1)return;
     const grip=document.createElement("div");grip.className="col-resizer";grip.title="Drag to resize · double-click to reset";
     grip.addEventListener("pointerdown",e=>{
       e.preventDefault();e.stopPropagation();
-      if(table.style.tableLayout!=="fixed"){ths.forEach((h,j)=>{if(j<n-1)cols[j].style.width=h.offsetWidth+"px";});table.style.tableLayout="fixed";}
+      if(table.style.tableLayout!=="fixed"){ths.forEach((h,j)=>{cols[j].style.width=Math.max(j===n-1?TRAIL_MIN:MIN,h.offsetWidth)+"px";});table.style.tableLayout="fixed";}
       const startX=e.clientX,startW=ths[i].offsetWidth;
       grip.classList.add("dragging");document.body.classList.add("col-resizing");
       try{grip.setPointerCapture(e.pointerId);}catch(_){}
