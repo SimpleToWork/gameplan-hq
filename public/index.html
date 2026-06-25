@@ -259,7 +259,9 @@
      the remaining width (they can shrink) while the date input keeps a readable fixed-ish width. */
   .crow{display:flex;gap:7px;align-items:center;flex-wrap:nowrap;}
   .crow .mini{flex:1 1 0;min-width:0;max-width:none;}
-  .crow input[type=date].mini{flex:0 0 auto;min-width:130px;max-width:150px;}
+  .crow input[type=date].mini{flex:1 1 0;min-width:90px;max-width:none;}
+  .crow button.mini{text-align:left;}
+  .crow .mini.crow-sm{flex:0 0 auto;font-size:10px;padding:2px 5px;}
   .mini{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:var(--surface);color:var(--ink);cursor:pointer;max-width:150px;}
   .acts{display:flex;gap:11px;align-items:center;font-size:11.5px;}
   .acts button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;}
@@ -1679,7 +1681,7 @@ function taskCard(t){
   // Timestamps — inserted-at (full-precision insertedAt, falling back to legacy date-only createdAt) and, once
   // Done, completion time. Shown on the right side of the Created by row.
   const tsIns=t.insertedAt||t.createdAt||"";
-  if(tsIns||t.completedAt){const tsSpan=document.createElement("span");tsSpan.className="cmeta";tsSpan.style.cssText="white-space:nowrap;margin-left:auto;";const parts=[];if(tsIns)parts.push("Inserted "+fmtTs(tsIns));if(t.completedAt)parts.push("Completed "+fmtTs(t.completedAt));tsSpan.textContent=parts.join(" · ");ar.appendChild(tsSpan);}
+  if(tsIns||t.completedAt){const tsSpan=document.createElement("span");tsSpan.className="cmeta";tsSpan.style.cssText="white-space:nowrap;margin-left:auto;";const parts=[];if(tsIns)parts.push('<span style="color:#4646c8;font-weight:600;">Added On</span> '+fmtTs(tsIns));if(t.completedAt)parts.push("Completed "+fmtTs(t.completedAt));tsSpan.innerHTML=parts.join(" · ");ar.appendChild(tsSpan);}
   d.appendChild(ar);
   // Assignee avatars row — left side has avatar bubbles; right side holds the roadmap button.
   const asgb=document.createElement("div");asgb.style.cssText="display:flex;flex-wrap:wrap;gap:5px;flex:1;align-items:center;";
@@ -1701,13 +1703,15 @@ function taskCard(t){
   ar.insertBefore(idLine, ar.children[1]||null);
   const crow=document.createElement("div");crow.className="crow";
   // Discipline select is tinted with its discipline colour so the category reads at a glance.
-  const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));
+  const catSel=mkSelect(CATS,t.category,v=>setTask(t.id,{category:v}));catSel.classList.add("crow-sm");
   const catCol=CAT_COLOR[t.category]||"#888";
   catSel.style.cssText+=";background:"+catCol+"22;color:"+catCol+";border-color:"+catCol+"55;font-weight:600;";
   // Inline target-date editor — adjust the due date right on the card (no edit modal). The chip above stays as the overdue flag.
   const dueIn=document.createElement("input");dueIn.type="date";dueIn.className="mini";dueIn.value=t.due||"";dueIn.title="Target date";
   dueIn.onchange=()=>setTask(t.id,{due:dueIn.value||""});
-  crow.append(catSel,mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v})),mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v})));
+  const stSel=mkSelect(STATUSES,t.status,v=>setTask(t.id,{status:v}));stSel.classList.add("crow-sm");
+  const priSel=mkSelect(PRIORITIES,t.priority,v=>setTask(t.id,{priority:v}));priSel.classList.add("crow-sm");
+  crow.append(catSel,stSel,priSel);
   d.appendChild(crow);
   const taskNotes=Array.isArray(t.notes)?t.notes:[];
   const acts=document.createElement("div");acts.className="acts";
@@ -1716,9 +1720,9 @@ function taskCard(t){
   // One-click unlink, shown only when a target is linked (no need to open the picker to clear it).
   const unlink=rm?document.createElement("button"):null;
   if(unlink){unlink.className="rm";unlink.textContent="✕";unlink.title="Unlink roadmap target";unlink.onclick=()=>setTask(t.id,{roadmapId:null});}
-  const _rmbtnStyle="border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0;";link.style.cssText=_rmbtnStyle;link.onmouseover=()=>{link.style.color="var(--ink)";};link.onmouseout=()=>{link.style.color="var(--muted)";};if(unlink){unlink.style.cssText=_rmbtnStyle;unlink.onmouseover=()=>{unlink.style.color="var(--danger)";};unlink.onmouseout=()=>{unlink.style.color="var(--muted)";};}
-  crow.append(link);if(unlink)crow.append(unlink);
-  rmright.append(dueIn);
+  link.className="mini";if(rm){link.style.cssText="background:#ecebfb;color:#4646c8;border-color:#4646c855;font-weight:600;";}else{link.style.cssText="color:var(--muted);";}
+  if(unlink){unlink.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0 2px;flex-shrink:0;";unlink.onmouseover=()=>{unlink.style.color="var(--danger)";};unlink.onmouseout=()=>{unlink.style.color="var(--muted)";};}
+  crow.append(link);if(unlink)crow.append(unlink);crow.append(dueIn);
   const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
   const taskFiles=Array.isArray(t.attachments)?t.attachments:[];
   const filesBtn=document.createElement("button");filesBtn.innerHTML='<span style="font-size:16px;vertical-align:middle;line-height:1;">📎</span>'+(taskFiles.length?" Files ("+taskFiles.length+")":"  Files");filesBtn.title="Attach / view files";
@@ -1788,7 +1792,7 @@ function taskCard(t){
   rctrl.append(rsearch,rAreaSel);
   const rAreaColor=an=>{const ar=DB.areas.find(x=>x.name===an);return ar&&ar.color?ar.color:"#9aa0a8";};
   const rlist=document.createElement("div");rlist.style.cssText="max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:3px;";
-  rpop.append(rctrl,rlist);d.insertBefore(rpop,crow);
+  rpop.append(rctrl,rlist);crow.after(rpop);
   function renderRoadList(){
     rlist.innerHTML="";
     const q=rsearch.value.trim().toLowerCase(),af=rAreaSel.value;let shown=0;
