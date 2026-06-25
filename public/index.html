@@ -205,7 +205,7 @@
   .chip{font-size:11px;font-weight:500;padding:2px 8px;border-radius:7px;}
   .ctitle{font-size:14px;font-weight:500;}
   /* Collapsed task card: show only chips + title, hide avatars, selects, actions, popovers, context, and run logs. */
-  .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .pop,.card.collapsed .cmeta,.card.collapsed .runprog{display:none;}
+  .card.collapsed .avas,.card.collapsed .asgbubs,.card.collapsed .crow,.card.collapsed .acts,.card.collapsed .er-row,.card.collapsed .pop,.card.collapsed .cmeta,.card.collapsed .runprog{display:none;}
   /* Don't let a lone collapsed card stretch to its grid row's height (set by taller expanded neighbors). */
   .card.collapsed{align-self:start;}
   .ccollapse{position:absolute;top:8px;left:8px;background:none;border:none;color:var(--muted,#7a7f88);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;z-index:1;}
@@ -265,6 +265,10 @@
   .acts button:hover{color:var(--ink);} .acts .rm:hover{color:var(--danger);}
   .acts .runbtn{color:#D97757;font-weight:600;} .acts .runbtn:hover{color:#c25f3f;} .acts .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
   .acts select.lvlsel{font-size:10.5px;padding:1px 3px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;}
+  .er-row{display:flex;justify-content:space-between;align-items:center;margin-top:10px;border-top:1px solid var(--line);padding-top:8px;}
+  .er-row button{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 6px;border-radius:5px;}
+  .er-row .er-edit{color:var(--muted);} .er-row .er-edit:hover{color:var(--ink);background:var(--hover,#f0f0f8);}
+  .er-row .runbtn{color:#D97757;font-weight:600;} .er-row .runbtn:hover{color:#c25f3f;background:#D9775710;} .er-row .runbtn:disabled{color:var(--muted);cursor:default;font-weight:500;}
   .runprog{margin-top:8px;border:1px solid #D9775744;border-radius:8px;background:#D9775710;overflow:hidden;}
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}
   .runprog-h:hover{background:#D9775705;}
@@ -1827,6 +1831,14 @@ function taskCard(t){
   ask.onclick=()=>{const open=qpop.classList.toggle("open");open?taskAskOpen.add(t.id):taskAskOpen.delete(t.id);if(open)qt.focus();};
   // Delete moves the task to Trash (reversible), so it's a single click — no confirm needed.
   rmv.title="Move to Trash";rmv.onclick=()=>deleteTask(t.id);
+  // Dedicated Edit / Run row — Edit left-aligned, Run right-aligned, isolated from the acts toolbar.
+  const erRow=document.createElement("div");erRow.className="er-row";
+  const erEdit=document.createElement("button");erEdit.className="er-edit";erEdit.textContent="Edit";
+  erEdit.onclick=()=>{const open=epop.classList.toggle("open");open?taskEditOpen.add(t.id):taskEditOpen.delete(t.id);};
+  const erRun=document.createElement("button");erRun.className="runbtn";
+  erRun.textContent=run.textContent;erRun.title=run.title;if(runLive)erRun.disabled=true;
+  erRun.onclick=run.onclick;
+  erRow.append(erEdit,erRun);d.appendChild(erRow);
   return d;
 }
 // User-resizable task popout — floats the full task editor (taskCard) in a modal the user can drag larger from
