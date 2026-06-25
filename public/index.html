@@ -517,6 +517,7 @@ let speechRec=null;          // active Web Speech recognition while dictating in
 let captureCats=null;        // Capture: Set of disciplines the AI may pick from when drafting tasks; null/empty = all disciplines
 let captureCatsDefaulted=false; // once true, the signed-in member's profile disciplines won't re-seed captureCats (also set when the user edits the picker)
 let captureRoadmapId=null;   // Capture: roadmap target id pre-selected in the capture area; every drafted task inherits it (null = no link). Read only in captureTasks.
+let captureCatMQ=null;       // Capture: the (matchMedia, handler) pair wiring the mobile category dropdown to viewport changes; tracked so each renderCapture detaches the prior one (no listener leak across tab switches).
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
 let taskDateField="due";     // which date the timeframe filter + grouping use: due | entry (entry = createdAt)
@@ -1199,8 +1200,37 @@ function renderCapture(m){m=m||document.getElementById("main");
   const ctgl=(label,color,on,onClick)=>{const b=document.createElement("button");b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";b.onclick=onClick;return b;};
   // Re-seed the picker from the signed-in member's profile disciplines (can't reuse the guarded applyCaptureCatsDefault mid-session).
   const profileCats=()=>{const mm=member(identity);const dc=(mm&&Array.isArray(mm.disciplines))?mm.disciplines.filter(c=>CATS.includes(c)):[];return dc.length?new Set(dc):null;};
+  // Mobile: the 9-discipline toggle row wraps into several lines on a phone, so below this breakpoint we collapse it
+  // into a single dropdown button that opens a checkbox popover. Desktop keeps the inline colour-toggle row.
+  const narrowMQ=window.matchMedia("(max-width:560px)");
+  const catSummary=()=>{const sel=captureCats?CATS.filter(c=>captureCats.has(c)):[];if(!sel.length)return "All categories";if(sel.length<=2)return sel.join(", ");return sel.slice(0,2).join(", ")+" +"+(sel.length-2);};
+  // Mobile dropdown: a body-mounted checkbox popover (reuses floatTaskPop's positioning + outside-click close).
+  const openCatDropdown=(anchor)=>{
+    const {pop,place}=floatTaskPop(anchor);
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";
+    CATS.forEach(c=>{
+      const color=CAT_COLOR[c]||"#888";
+      const row=document.createElement("label");row.className="opt";
+      const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(captureCats&&captureCats.has(c));
+      const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+color+";";
+      cb.onchange=()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();cb.checked?captureCats.add(c):captureCats.delete(c);if(!captureCats.size)captureCats=null;anchor.firstChild.textContent=catSummary();};
+      row.append(cb,sw,document.createTextNode(c));pop.appendChild(row);
+    });
+    const acts=document.createElement("div");acts.style.cssText="display:flex;gap:6px;margin-top:8px;";
+    const reset=document.createElement("button");reset.className="btn sm";reset.textContent="Reset";reset.title="Reset to your profile categories";reset.onclick=()=>{captureCatsDefaulted=true;captureCats=profileCats();pop.remove();rebuildD();};
+    const clr=document.createElement("button");clr.className="btn sm";clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;pop.remove();rebuildD();};
+    acts.append(reset,clr);pop.appendChild(acts);place();
+  };
   const rebuildD=()=>{
     while(dRow.children.length>1)dRow.removeChild(dRow.lastChild);
+    if(narrowMQ.matches){
+      const dd=document.createElement("button");dd.type="button";dd.title="Choose which categories the AI may assign to drafted tasks (none = any category)";
+      const lbl=document.createTextNode(catSummary());const car=document.createElement("span");car.textContent=" ▾";car.style.opacity=".55";
+      dd.append(lbl,car);if(captureCats&&captureCats.size)dd.style.fontWeight="600";
+      dd.onclick=()=>openCatDropdown(dd);
+      dRow.appendChild(dd);
+      return;
+    }
     // Multi-select: each discipline toggles independently; the AI picks one per task ONLY from the selected set.
     // No selection = the AI may use any discipline. Reset returns to the member's profile default; Clear empties the selection.
     CATS.forEach(c=>dRow.appendChild(ctgl(c,CAT_COLOR[c]||"#888",!!(captureCats&&captureCats.has(c)),()=>{captureCatsDefaulted=true;if(!captureCats)captureCats=new Set();captureCats.has(c)?captureCats.delete(c):captureCats.add(c);if(!captureCats.size)captureCats=null;rebuildD();})));
@@ -1208,6 +1238,12 @@ function renderCapture(m){m=m||document.getElementById("main");
     dRow.appendChild(reset);
     if(captureCats&&captureCats.size){const clr=document.createElement("button");clr.textContent="Clear";clr.title="Clear selected categories (AI may use any)";clr.onclick=()=>{captureCatsDefaulted=true;captureCats=null;rebuildD();};dRow.appendChild(clr);}
   };
+  // Re-render the picker if the viewport crosses the breakpoint (e.g. phone rotation) so it swaps between row/dropdown.
+  // Detach the listener from the previous renderCapture first so they don't pile up (each render rebuilds this DOM).
+  if(narrowMQ.addEventListener){
+    if(captureCatMQ&&captureCatMQ.mq.removeEventListener)captureCatMQ.mq.removeEventListener("change",captureCatMQ.fn);
+    narrowMQ.addEventListener("change",rebuildD);captureCatMQ={mq:narrowMQ,fn:rebuildD};
+  }
   rebuildD();
   const cr=document.getElementById("capResult");cr.parentNode.insertBefore(dRow,cr);
   // Roadmap pre-select — every drafted task inherits this target (each proposal row can still override it before approving).
