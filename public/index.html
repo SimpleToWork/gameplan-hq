@@ -1532,6 +1532,23 @@ function floatTaskPop(anchor){
   setTimeout(()=>document.addEventListener("mousedown",close),0);
   return {pop,place};
 }
+// Mobile Tasks banner: a compact single-select dropdown for one control (Status view / Group by / Layout). The trigger
+// shows "Label: current ▾"; clicking floats a popover (reusing floatTaskPop) listing the options with the active one
+// highlighted. Picking one runs onPick (which sets the var + re-renders); the popover closes on pick or outside-click.
+function taskMenuBtn(label,opts,curKey,onPick){
+  const cur=opts.find(o=>o[0]===curKey);
+  const b=document.createElement("button");b.type="button";b.className="rmtgl";b.title=label;
+  b.innerHTML='<span style="opacity:.6;font-weight:600;">'+esc(label)+':</span>&nbsp;'+esc(cur?cur[1]:curKey)+' <span style="opacity:.5;margin-left:2px;">▾</span>';
+  b.onclick=()=>{
+    const {pop,place}=floatTaskPop(b);
+    pop.style.cssText+=";display:flex;flex-direction:column;gap:2px;min-width:160px;padding:6px;";
+    opts.forEach(([k,lbl])=>{const o=document.createElement("button");o.type="button";o.className="btn sm"+(k===curKey?" primary":"");
+      o.style.cssText="justify-content:flex-start;width:100%;";o.textContent=lbl;
+      o.onclick=()=>{pop.remove();onPick(k);};pop.appendChild(o);});
+    place();
+  };
+  return b;
+}
 function openTaskAssignPop(anchor,t){
   const {pop,place}=floatTaskPop(anchor);
   roster().forEach(mem=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";if((t.assignees||[]).some(n=>n.toLowerCase()===mem.name.toLowerCase()))cb.checked=true;cb.dataset.name=mem.name;const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:10px;height:10px;border-radius:50%;background:"+(mem.color||"#9aa0a8")+";";l.append(cb,sw,document.createTextNode(mem.name));pop.appendChild(l);});
@@ -2057,10 +2074,24 @@ function renderTasks(m){
   titleI.addEventListener("keydown",e=>{if(e.key==="Escape")closeForm();});
   addBtn.onclick=()=>{const isOpen=form.style.display!=="none";form.style.display=isOpen?"none":"block";addBtn.textContent=isOpen?"+ Add task":"Close";if(!isOpen)titleI.focus();};
   m.append(form);
+  // Mobile: below this width the status-view buttons + Group/Sort/View rows wrap into many cluttered lines, so each
+  // control collapses into a compact dropdown laid out in a single banner row. Matches the Capture/Filter breakpoint.
+  // Re-render Tasks when the viewport crosses it (e.g. phone rotation) so controls swap between inline rows and
+  // dropdowns; detach the previous render's listener first so they don't accumulate. Desktop keeps the inline rows.
+  const narrowMQ=window.matchMedia("(max-width:560px)");const isMobileFilters=narrowMQ.matches;
+  if(narrowMQ.addEventListener){
+    if(taskFilterMQ&&taskFilterMQ.mq.removeEventListener)taskFilterMQ.mq.removeEventListener("change",taskFilterMQ.fn);
+    const fn=()=>{if(page==="tasks")renderTasks();};narrowMQ.addEventListener("change",fn);taskFilterMQ={mq:narrowMQ,fn};
+  }
   // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
   // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
   const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
-  [["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
+  const VIEW_OPTS=[["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]];
+  if(isMobileFilters){
+    vb.appendChild(taskMenuBtn("Status",VIEW_OPTS,taskView,k=>{taskView=k;renderTasks();}));
+  }else{
+    VIEW_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskView===k)b.classList.add("on");b.onclick=()=>{taskView=k;renderTasks();};vb.appendChild(b);});
+  }
   m.appendChild(vb);
   if(taskView==="trash"){
     const trashed=DB.tasks.filter(t=>t.trashed).slice().sort((a,b)=>(b.trashedAt||"").localeCompare(a.trashedAt||""));
@@ -2094,16 +2125,9 @@ function renderTasks(m){
     b.onclick=onClick;return b;};
   // A collapsible group: a toolbar toggle (chevron + label + active marker) paired with its row of controls.
   // The toggle flips only its own row's visibility — no full re-render; the controls inside re-render on change.
-  // Mobile: below this width the inline option rows wrap into many cluttered lines, so each filter group collapses
-  // into a dropdown — the toggle floats its options in a popover (assembled after the toolbar) instead of expanding
-  // an inline row. Matches the Capture category-dropdown breakpoint. Desktop keeps the inline expand/collapse rows.
-  const narrowMQ=window.matchMedia("(max-width:560px)");const isMobileFilters=narrowMQ.matches;
-  // Re-render Tasks when the viewport crosses the breakpoint (e.g. phone rotation) so the filter groups swap between
-  // inline rows and dropdowns. Detach the previous render's listener first so they don't accumulate across renders.
-  if(narrowMQ.addEventListener){
-    if(taskFilterMQ&&taskFilterMQ.mq.removeEventListener)taskFilterMQ.mq.removeEventListener("change",taskFilterMQ.fn);
-    const fn=()=>{if(page==="tasks")renderTasks();};narrowMQ.addEventListener("change",fn);taskFilterMQ={mq:narrowMQ,fn};
-  }
+  // Mobile (isMobileFilters computed above): below the breakpoint each filter group collapses into a dropdown — the
+  // toggle floats its options in a popover (assembled after the toolbar) instead of expanding an inline row.
+  // Desktop keeps the inline expand/collapse rows.
   const filterGroups=[];   // mobile: {toggle,row,getOpen,setOpen} for each group, so the open one can be floated below
   const mkGroup=(label,getOpen,setOpen,activeSuffix,row)=>{
     const tgl=document.createElement("button");tgl.type="button";tgl.className="btn sm rmtgl"+(getOpen()?" on":"");
@@ -2170,17 +2194,26 @@ function renderTasks(m){
   }
   if(taskRoadmap){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskRoadmap=null;renderTasks();};rf.appendChild(clr);}
   // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
-  const gb=document.createElement("div");gb.className="views";gb.style.cssText="margin:0;margin-left:auto;";
-  const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
-  GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;taskSecSortFilter={};renderTasks();};gb.appendChild(b);});
+  // Mobile: collapses to a single dropdown so it sits inline in the compact banner (no margin-left:auto to pack left).
+  const gb=document.createElement("div");gb.className="views";gb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:auto;";
+  if(isMobileFilters){
+    gb.appendChild(taskMenuBtn("Group",GROUP_OPTS,taskGroup,k=>{taskGroup=k;taskSecSortFilter={};renderTasks();}));
+  }else{
+    const glab=document.createElement("span");glab.className="cmeta";glab.style.cssText="align-self:center;margin-right:4px;";glab.textContent="Group by:";gb.appendChild(glab);
+    GROUP_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskGroup===k)b.classList.add("on");b.onclick=()=>{taskGroup=k;taskSecSortFilter={};renderTasks();};gb.appendChild(b);});
+  }
   vb.appendChild(gb);
   // Sort-by — orders cards within each section (also a display option, not a filter). Sits beside Group-by.
   const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["roadmap","Roadmap"]];
-  const sb=document.createElement("div");sb.className="views";sb.style.cssText="margin:0;margin-left:10px;";
-  const sortLab=document.createElement("span");sortLab.className="cmeta";sortLab.style.cssText="align-self:center;margin-right:4px;";sortLab.textContent="Sort by:";sb.appendChild(sortLab);
-  const sortSel=document.createElement("select");sortSel.className="mini";  // dropdown (mirrors the roadmap-target select) — cleaner than a button row
-  SORT_OPTS.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(taskSort===k)o.selected=true;sortSel.appendChild(o);});
-  sortSel.onchange=()=>{taskSort=sortSel.value;taskSecSortFilter={};renderTasks();};sb.appendChild(sortSel);
+  const sb=document.createElement("div");sb.className="views";sb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:10px;";
+  if(isMobileFilters){
+    sb.appendChild(taskMenuBtn("Sort",SORT_OPTS,taskSort,k=>{taskSort=k;taskSecSortFilter={};renderTasks();}));
+  }else{
+    const sortLab=document.createElement("span");sortLab.className="cmeta";sortLab.style.cssText="align-self:center;margin-right:4px;";sortLab.textContent="Sort by:";sb.appendChild(sortLab);
+    const sortSel=document.createElement("select");sortSel.className="mini";  // dropdown (mirrors the roadmap-target select) — cleaner than a button row
+    SORT_OPTS.forEach(([k,lbl])=>{const o=document.createElement("option");o.value=k;o.textContent=lbl;if(taskSort===k)o.selected=true;sortSel.appendChild(o);});
+    sortSel.onchange=()=>{taskSort=sortSel.value;taskSecSortFilter={};renderTasks();};sb.appendChild(sortSel);
+  }
   // Direction toggle — flips ascending/descending for whichever Sort-by is active (applies to both Card and Table layouts).
   const dirBtn=document.createElement("button");dirBtn.className="btn sm";dirBtn.style.marginLeft="6px";
   const desc=taskSortDir==="desc";dirBtn.textContent=desc?"↓ Desc":"↑ Asc";dirBtn.title=desc?"Descending order — click for ascending":"Ascending order — click for descending";
@@ -2188,9 +2221,16 @@ function renderTasks(m){
   vb.appendChild(sb);
   // Layout — Cards (full editable cards) vs Table (dense read-only overview; row click jumps to the card). Mirrors the
   // Agenda/Roadmap layout toggles; the choice persists across reloads in gp_taskLayout. Sits beside Group-by / Sort-by.
-  const lb=document.createElement("div");lb.className="views";lb.style.cssText="margin:0;margin-left:10px;";
-  const layLab=document.createElement("span");layLab.className="cmeta";layLab.style.cssText="align-self:center;margin-right:4px;";layLab.textContent="View:";lb.appendChild(layLab);
-  [["card","Cards"],["table","Table"],["chart","Chart"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskLayout===k)b.classList.add("on");b.onclick=()=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};lb.appendChild(b);});
+  // Mobile: collapses to a single "View:" dropdown to keep the banner on one row.
+  const LAYOUT_OPTS=[["card","Cards"],["table","Table"],["chart","Chart"]];
+  const lb=document.createElement("div");lb.className="views";lb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:10px;";
+  const pickLayout=k=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};
+  if(isMobileFilters){
+    lb.appendChild(taskMenuBtn("View",LAYOUT_OPTS,taskLayout,pickLayout));
+  }else{
+    const layLab=document.createElement("span");layLab.className="cmeta";layLab.style.cssText="align-self:center;margin-right:4px;";layLab.textContent="View:";lb.appendChild(layLab);
+    LAYOUT_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskLayout===k)b.classList.add("on");b.onclick=()=>pickLayout(k);lb.appendChild(b);});
+  }
   vb.appendChild(lb);
   // Table layout: compute per-column filter options up front. taskColOpts is read by taskTable's per-section headers AND
   // by the always-visible column-filter bar built below. Each column's options are scoped by the OTHER active column
