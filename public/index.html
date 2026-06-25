@@ -1935,7 +1935,7 @@ function openTaskLogsPop(anchor,t){
   if(meta.length){const m=document.createElement("div");m.className="cmeta";m.style.cssText="margin-bottom:6px;line-height:1.5;";m.textContent=meta.join(" · ");pop.appendChild(m);}
   const lines=Array.isArray(t.runProgress)?t.runProgress:[];
   if(lines.length){
-    const body=document.createElement("div");body.style.cssText="max-height:300px;overflow:auto;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
+    const body=document.createElement("div");body.style.cssText="max-height:400px;min-width:0;overflow-y:auto;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
     lines.forEach(l=>{const ln=document.createElement("div");ln.style.cssText="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;word-break:break-word;";ln.textContent=l;body.appendChild(ln);});
     pop.appendChild(body);
     setTimeout(()=>{body.scrollTop=body.scrollHeight;},0);   // jump to the latest line
