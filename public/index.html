@@ -539,6 +539,8 @@ let taskCatOpen=false;
 let taskStageOpen=false;
 let taskRmOpen=false;
 let taskGroupOpen=false;
+let taskFilterPopCloser=null;// mobile: the tracked outside-mousedown handler that closes the open filter dropdown; removed before re-wiring so the listeners don't pile up across live re-renders
+let taskFilterMQ=null;       // mobile: the (matchMedia,handler) pair re-rendering Tasks when the viewport crosses the filter-dropdown breakpoint; detached each renderTasks so listeners don't leak
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
 let agendaPlanOpen=false;      // is the "Plan a meeting" section expanded? collapsed by default each session
@@ -2092,11 +2094,30 @@ function renderTasks(m){
     b.onclick=onClick;return b;};
   // A collapsible group: a toolbar toggle (chevron + label + active marker) paired with its row of controls.
   // The toggle flips only its own row's visibility — no full re-render; the controls inside re-render on change.
+  // Mobile: below this width the inline option rows wrap into many cluttered lines, so each filter group collapses
+  // into a dropdown — the toggle floats its options in a popover (assembled after the toolbar) instead of expanding
+  // an inline row. Matches the Capture category-dropdown breakpoint. Desktop keeps the inline expand/collapse rows.
+  const narrowMQ=window.matchMedia("(max-width:560px)");const isMobileFilters=narrowMQ.matches;
+  // Re-render Tasks when the viewport crosses the breakpoint (e.g. phone rotation) so the filter groups swap between
+  // inline rows and dropdowns. Detach the previous render's listener first so they don't accumulate across renders.
+  if(narrowMQ.addEventListener){
+    if(taskFilterMQ&&taskFilterMQ.mq.removeEventListener)taskFilterMQ.mq.removeEventListener("change",taskFilterMQ.fn);
+    const fn=()=>{if(page==="tasks")renderTasks();};narrowMQ.addEventListener("change",fn);taskFilterMQ={mq:narrowMQ,fn};
+  }
+  const filterGroups=[];   // mobile: {toggle,row,getOpen,setOpen} for each group, so the open one can be floated below
   const mkGroup=(label,getOpen,setOpen,activeSuffix,row)=>{
     const tgl=document.createElement("button");tgl.type="button";tgl.className="btn sm rmtgl"+(getOpen()?" on":"");
     tgl.innerHTML='<span class="tgchev">▾</span>'+label+(activeSuffix||"");
-    row.style.display=getOpen()?"":"none";
-    tgl.onclick=()=>{const n=row.style.display==="none";row.style.display=n?"":"none";tgl.classList.toggle("on",n);setOpen(n);};
+    if(isMobileFilters){
+      // Dropdown trigger: only one filter dropdown opens at a time, so opening one closes the others. The option
+      // row stays hidden in the inline panel; the float block below relocates the open group's row into a popover.
+      row.style.display="none";
+      filterGroups.push({toggle:tgl,row,getOpen,setOpen});
+      tgl.onclick=()=>{const n=!getOpen();filterGroups.forEach(g=>g.setOpen(g.row===row?n:false));renderTasks();};
+    }else{
+      row.style.display=getOpen()?"":"none";
+      tgl.onclick=()=>{const n=row.style.display==="none";row.style.display=n?"":"none";tgl.classList.toggle("on",n);setOpen(n);};
+    }
     return tgl;
   };
   // Timeframe group = Date-type toggle + Timeframe controls, laid out on a single wrapping row (divider between the two sub-groups).
@@ -2249,6 +2270,22 @@ function renderTasks(m){
   panelWrap.style.cssText="position:sticky;z-index:4;background:var(--canvas);box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   m.append(trow,panelWrap);
   panelWrap.style.top=(hh+vb.offsetHeight+trow.offsetHeight-1)+"px"; // stacked below trow, now that trow's height is known
+  // Mobile: float the open filter group's options in a dropdown popover anchored under its toggle (the inline panel
+  // rows are hidden in this mode — see mkGroup). This runs every render, so toggling an option (which re-renders)
+  // keeps the dropdown open and re-anchored to the freshly-built toggle. An outside-click clears the group's open
+  // flag and re-renders so the toggle marker updates. The prior render's outside-click listener is detached first.
+  if(isMobileFilters){
+    if(taskFilterPopCloser){document.removeEventListener("mousedown",taskFilterPopCloser,true);taskFilterPopCloser=null;}
+    const openG=filterGroups.find(g=>g.getOpen());
+    if(openG){
+      const {pop,place}=floatTaskPop(openG.toggle);
+      openG.row.style.display="";openG.row.style.margin="0";   // it was hidden in the panel; show it inside the popover
+      pop.appendChild(openG.row);                              // relocate the real option row (no duplicated controls)
+      place();
+      const onOut=e=>{if(pop.contains(e.target)||openG.toggle.contains(e.target))return;document.removeEventListener("mousedown",onOut,true);taskFilterPopCloser=null;openG.setOpen(false);renderTasks();};
+      taskFilterPopCloser=onOut;setTimeout(()=>document.addEventListener("mousedown",onOut,true),0);
+    }
+  }
   if(_refocusSearch){searchInp.focus();try{searchInp.setSelectionRange(_searchCaret,_searchCaret);}catch(_){}}
   // taskColOpts + _base/_tableMode were computed above the toolbar. Narrow to the active column filters for table mode.
   const sections=taskSections(_tableMode?_base.filter(t=>colFiltersMatch(t,tableColFilters.tasks,TASK_COL_ACC)):_base);
