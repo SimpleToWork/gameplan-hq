@@ -50,7 +50,7 @@
   body{margin:0;min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
   button,select,textarea,input{font-family:inherit;}
   .app{max-width:1680px;margin:0 auto;padding:0 32px 70px;}
-  @media(max-width:560px){.app{padding:0 16px 60px;}}  /* tighter gutters on phones so content uses the full width and doesn't get squeezed when zoomed */
+  @media(max-width:560px){.app{padding:0 16px 60px;min-width:472px;}}  /* tighter gutters on phones; min-width:472px keeps content area ≥440px (task card min-width) so cards never look squished */
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
   .brand{display:flex;align-items:center;gap:11px;}
@@ -620,6 +620,7 @@ let taskCategory=null;       // Set of disciplines (categories) to filter tasks 
 let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskFromRoadmap=null;    // Roadmap item {id,title,area} we navigated from via "Go to tasks"; null = not a roadmap-driven nav. Cleared on manual filter change.
+let taskBranchFilter=null;   // feature branch id to filter tasks by; null = off. Set by goToBranchTasks().
 let taskCaptureId=null;      // captureId shared across tasks from one Capture session; null = no capture filter. Set by goToCaptureTasks().
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskSearchTimer=null;    // debounce handle for search oninput → renderTasks
@@ -658,6 +659,9 @@ let taskSecExpanded=new Set();  // labels of task sections the user has expanded
 // reloads (and survives live re-renders of the Settings page) via localStorage.
 let settingsCollapsed=(()=>{try{const a=JSON.parse(localStorage.getItem("gp_settingsCollapsed"));return new Set(Array.isArray(a)?a:[]);}catch(e){return new Set();}})();
 function saveSettingsCollapsed(){try{localStorage.setItem("gp_settingsCollapsed",JSON.stringify([...settingsCollapsed]));}catch(e){}}
+// Notification preferences (browser bell, audio, ntfy.sh push) — persisted per-user in localStorage.
+let notifyPrefs=(()=>{try{const o=JSON.parse(localStorage.getItem("gp_notifyPrefs"));return (o&&typeof o==="object")?o:{};}catch(e){return {};}})();
+function saveNotifyPrefs(){try{localStorage.setItem("gp_notifyPrefs",JSON.stringify(notifyPrefs));}catch(e){}}
 let focusTaskId=null;        // id of a task to scroll to + flash once on the next Tasks render (e.g. "Go to task" from Capture); cleared after it fires
 let activeTaskId=null;       // id of the task the user navigated to and is "working in"; gets a persistent border until they Go-to-Task elsewhere
 let focusRoadmapId=null;     // id of a roadmap target to scroll to + highlight on the next Roadmap (list) render ("Go to roadmap item")
@@ -824,6 +828,11 @@ function taskRoadmapMatch(t){
   if(targetId)return t.roadmapId===targetId;
   if(area){const r=t.roadmapId?DB.roadmap.find(x=>x.id===t.roadmapId):null;return !!r&&r.area===area;}
   return true;
+}
+// Branch filter: a task matches if its feature_branch_id equals the selected branch; null = off.
+function taskBranchMatch(t){
+  if(!taskBranchFilter)return true;
+  return t.feature_branch_id===taskBranchFilter;
 }
 // Timeframe grouping: place a task in exactly one due-date bucket. Order = most urgent first.
 const TIME_BUCKETS=[
@@ -1108,7 +1117,16 @@ function recordRunDurations(prev,next){
     if(!start)return;
     const dur=now-start;if(dur<=0)return;
     setTask(t.id,{runEndedAt:new Date(now).toISOString(),runDurationMs:dur,runDurationRunId:t.runId});
+    notifyRunComplete(t.title||"Task");
   });
+}
+// Short synthesised bell via Web Audio API — no external file, no autoplay restriction (fires on task completion, not page load).
+function playBell(){try{const c=new (window.AudioContext||window.webkitAudioContext)();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(880,c.currentTime);o.frequency.exponentialRampToValueAtTime(440,c.currentTime+0.5);g.gain.setValueAtTime(0.4,c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+1.5);o.start();o.stop(c.currentTime+1.5);}catch(e){}}
+// Fire all enabled alerts when a runner task finishes: audio bell, browser notification, ntfy.sh push.
+function notifyRunComplete(title){
+  if(notifyPrefs.audio)playBell();
+  if(notifyPrefs.browser&&typeof Notification!=="undefined"&&Notification.permission==="granted"){try{new Notification("Runner complete",{body:title+" finished.",icon:"/favicon.ico"});}catch(e){}}
+  if(notifyPrefs.ntfyTopic){fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:notifyPrefs.ntfyTopic,title:"Runner complete — "+title,message:title+" finished on Gameplan HQ."})}).catch(()=>{});}
 }
 // Compact human duration: "8s", "2m 5s", "1h 3m". Drops the trailing unit once it's zero. Empty for non-positive input.
 function fmtDur(ms){
@@ -2857,7 +2875,7 @@ function taskSearchMatch(t){return taskTextMatch(t,taskSearch);}
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
   if(taskCaptureId&&t.captureId!==taskCaptureId)return false;
-  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t)&&taskSearchMatch(t);
+  return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t)&&taskBranchMatch(t)&&taskSearchMatch(t);
 }
 // Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
 // mark it for scroll+highlight, then navigate. renderTasks honours focusTaskId once the card renders.
@@ -2867,7 +2885,7 @@ function goToTask(id){
   // Pick a taskView that includes the target task's status — "all" only shows open tasks (not Done/Archived).
   const tgt=DB.tasks.find(t=>t.id===id);
   const v=tgt&&tgt.status==="Archived"?"archived":tgt&&tgt.status==="Done"?"viewall":"all";
-  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCollapsed.delete(id);
+  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskBranchFilter=null;taskSearch="";tableColFilters.tasks={};taskCollapsed.delete(id);
   setPage("tasks");
 }
 // Active-task selection: clicking a task card/row makes it the "working in" task; clicking anywhere else on the
@@ -2894,14 +2912,21 @@ function goToRoadmapTasks(r){
   taskCatDefaulted=true;
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
-  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;
+  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;taskBranchFilter=null;
   setPage("tasks");
 }
 function goToCaptureTasks(captureId){
   taskCatDefaulted=true;
   taskView="viewall";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};
-  taskCaptureId=captureId;
+  taskCaptureId=captureId;taskBranchFilter=null;
+  setPage("tasks");
+}
+function goToBranchTasks(branchId){
+  taskCatDefaulted=true;
+  taskView="viewall";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
+  taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;
+  taskBranchFilter=branchId;
   setPage("tasks");
 }
 // Jump to a target on the main Roadmap (List) view: flip to list, clear area/people filters and expand its
@@ -3216,9 +3241,9 @@ function renderTasks(m){
   trow.style.top=(hh+vb.offsetHeight-1)+"px";     // second sticky bar: stacked below the (now-measured) Group/Sort row
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
-  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskBranchFilter||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;taskBranchFilter=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -3259,6 +3284,12 @@ function renderTasks(m){
   if(backCap){backCap.className="btn sm";backCap.style.cssText="flex-shrink:0;background:#e8f5f0;border-color:#2a9d6055;color:#2a9d60;font-weight:600;";
     backCap.textContent="\u2190 Capture batch";backCap.title="Viewing tasks from one Capture session \u2014 click to go back to Capture";
     backCap.onclick=()=>{taskCaptureId=null;setPage("capture");};}
+  // "\u2190 Branch: name" \u2014 shown when viewing tasks filtered to a feature branch; click returns to Branches.
+  const activeBranchObj=taskBranchFilter?DB.featureBranches.find(b=>b.id===taskBranchFilter):null;
+  const backBranch=activeBranchObj?document.createElement("button"):null;
+  if(backBranch){backBranch.className="btn sm";backBranch.style.cssText="flex-shrink:0;background:#eef4fb;border-color:#2c6cb055;color:#2c6cb0;font-weight:600;";
+    backBranch.textContent="\u2190 \u23b7 "+(activeBranchObj.name||activeBranchObj.branch_name);backBranch.title="Viewing tasks for this branch \u2014 click to go back to Branches";
+    backBranch.onclick=()=>{taskBranchFilter=null;setPage("branches");};}
   if(isMobileFilters){
     // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
     // horizontally-scrollable strip (a chip bar) so they stay aligned instead of the full-width search
@@ -3270,6 +3301,7 @@ function renderTasks(m){
     filterBar.append(searchInp,timeT,whoT,catT,stageT,rmT);
     if(backRm)trow.append(backRm);
     if(backCap)trow.append(backCap);
+    if(backBranch)trow.append(backBranch);
     trow.append(filterBar,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group below the strip
     if(runnerReset)trow.append(runnerReset);
     if(anyFilter)trow.append(clearAll);
@@ -3277,6 +3309,7 @@ function renderTasks(m){
   }else{
     if(backRm)trow.append(backRm);
     if(backCap)trow.append(backCap);
+    if(backBranch)trow.append(backBranch);
     trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
     if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
     if(anyFilter)trow.append(clearAll);
@@ -5047,6 +5080,32 @@ function renderTeam(m){
   };
   paintRepos();loadGhRepos().then(paintRepos).catch(paintRepos);
   refresh.onclick=e=>{e.stopPropagation();ghRepos=null;ghReposErr=null;paintRepos();loadGhRepos(true).then(paintRepos).catch(paintRepos);};
+  // Notifications — audio bell + browser notification + ntfy.sh phone push (each opt-in, stored in localStorage).
+  const ntBody=sectionHead("Notifications","",null,null,"Get alerted when a runner task finishes. Audio and browser notifications work while this tab is open; ntfy.sh pushes to your phone even if the tab is in the background.");
+  // Audio bell
+  const audioRow=document.createElement("div");audioRow.style.cssText="display:flex;align-items:center;gap:9px;margin-bottom:10px;";
+  const audioCb=document.createElement("input");audioCb.type="checkbox";audioCb.id="nt_audio";audioCb.checked=!!notifyPrefs.audio;
+  audioCb.onchange=()=>{notifyPrefs.audio=audioCb.checked;saveNotifyPrefs();if(audioCb.checked)playBell();};
+  const audioLbl=document.createElement("label");audioLbl.htmlFor="nt_audio";audioLbl.style.cssText="font-size:13px;cursor:pointer;";audioLbl.textContent="Play an audio bell when a run finishes";
+  audioRow.append(audioCb,audioLbl);ntBody.appendChild(audioRow);
+  // Browser notification
+  const bnRow=document.createElement("div");bnRow.style.cssText="display:flex;align-items:center;gap:9px;margin-bottom:14px;";
+  const bnCb=document.createElement("input");bnCb.type="checkbox";bnCb.id="nt_browser";
+  const bnLbl=document.createElement("label");bnLbl.htmlFor="nt_browser";bnLbl.style.cssText="font-size:13px;cursor:pointer;";
+  if(typeof Notification==="undefined"){bnCb.disabled=true;bnLbl.textContent="Browser notifications not supported in this browser";}
+  else if(Notification.permission==="denied"){bnCb.disabled=true;bnLbl.textContent="Browser notifications blocked — allow them in site settings and reload";}
+  else{bnCb.checked=!!notifyPrefs.browser;bnLbl.textContent="Show a browser notification when a run finishes";bnCb.onchange=async()=>{if(bnCb.checked&&Notification.permission!=="granted"){const p=await Notification.requestPermission();if(p!=="granted"){bnCb.checked=false;banner("Notification permission denied.","err");return;}}notifyPrefs.browser=bnCb.checked;saveNotifyPrefs();};}
+  bnRow.append(bnCb,bnLbl);ntBody.appendChild(bnRow);
+  // ntfy.sh phone push
+  ntBody.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;"><b>Phone push via ntfy.sh</b> — install the free <a href="https://ntfy.sh" target="_blank" rel="noopener" style="color:var(--accent);">ntfy app</a> on your phone, subscribe to a topic name of your choosing, then enter it below. The board will POST to ntfy.sh each time a run finishes — you\'ll get a push notification on your phone.</div>');
+  const ntfyRow=document.createElement("div");ntfyRow.style.cssText="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap;";
+  const ntfyIn=document.createElement("input");ntfyIn.className="ctrl";ntfyIn.style.cssText="flex:1;max-width:280px;";ntfyIn.placeholder="your-topic-name";ntfyIn.value=notifyPrefs.ntfyTopic||"";
+  const ntfySave=document.createElement("button");ntfySave.className="btn sm primary";ntfySave.textContent="Save topic";
+  ntfySave.onclick=()=>{const v=ntfyIn.value.trim();if(v&&!/^[\w-]{1,64}$/.test(v)){banner("Topic must be 1–64 letters, numbers, or hyphens (no spaces).","err");return;}notifyPrefs.ntfyTopic=v||null;saveNotifyPrefs();banner(v?"ntfy.sh topic saved.":"ntfy.sh topic cleared.","ok");};
+  const ntfyTest=document.createElement("button");ntfyTest.className="btn sm";ntfyTest.textContent="Send test";
+  ntfyTest.onclick=async()=>{const v=ntfyIn.value.trim();if(!v){banner("Enter a topic first.","err");return;}ntfyTest.disabled=true;ntfyTest.textContent="Sending…";try{const r=await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:v,title:"Gameplan HQ test",message:"If you see this, phone push notifications are working! 🎉"})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||"HTTP "+r.status);banner("Test sent — check the ntfy app on your phone!","ok");}catch(e){banner("Test failed: "+e.message,"err");}ntfyTest.disabled=false;ntfyTest.textContent="Send test";};
+  ntfyRow.append(ntfyIn,ntfySave,ntfyTest);ntBody.appendChild(ntfyRow);
+  ntBody.insertAdjacentHTML("beforeend",'<div class="cmeta">Topic names are public on ntfy.sh — use something unguessable, e.g. <em>gameplan-ricky-7f3k</em>. Or self-host ntfy for privacy.</div>');
   refreshCollapseAllLabel();
 }
 
@@ -5844,7 +5903,7 @@ function branchModal(branchId){
       if(!tasks.length)body.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:8px;">No tasks assigned yet.</div>');
       tasks.forEach(t=>{
         const row=document.createElement("div");row.style.cssText="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);";
-        const ttl=document.createElement("span");ttl.style.cssText="flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";ttl.textContent=t.title;ttl.title=t.title;
+        const ttl=document.createElement("button");ttl.style.cssText="flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:none;padding:0;text-align:left;cursor:pointer;color:inherit;";ttl.textContent=t.title;ttl.title="Open task: "+t.title;ttl.onclick=e=>{e.stopPropagation();openTaskPopout(t);};
         const bs=taskBuildState(t);row.append(ttl,chipEl(bs,BUILD_COLOR[bs]||BUILD_COLOR.idle));
         if(!readOnly){const x=document.createElement("button");x.className="rm";x.textContent="remove";x.setAttribute("aria-label","Unassign task "+t.title);x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;";x.onclick=async()=>{try{await setTask(t.id,{feature_branch_id:null,task_branch_name:null});paint();}catch(e){banner(e.message,"err");}};row.appendChild(x);}
         body.appendChild(row);
@@ -5975,6 +6034,7 @@ function renderBranches(m){
     chips.append(chipEl(b.status||"ready",FB_STATUS_COLOR[b.status]||FB_STATUS_COLOR.ready),chipEl(tasks.length+" task"+(tasks.length!==1?"s":""),["#eef4fb","#2c6cb0"]));
     if(b.checks_status&&b.checks_status!=="unknown")chips.appendChild(chipEl("checks: "+b.checks_status,FB_CHECKS_COLOR[b.checks_status]||FB_CHECKS_COLOR.unknown));
     if(b.status==="merged"){const rb=document.createElement("button");rb.className="btn sm";rb.textContent="↩ Reuse";rb.title="Create a fresh branch with the same name for new tasks";rb.style.flexShrink="0";rb.onclick=e=>{e.stopPropagation();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};chips.appendChild(rb);}
+    if(tasks.length>0){const vt=document.createElement("button");vt.className="btn sm";vt.textContent="View tasks";vt.title="Show all tasks linked to this branch";vt.style.flexShrink="0";vt.onclick=e=>{e.stopPropagation();goToBranchTasks(b.id);};chips.appendChild(vt);}
     row.append(left,chips);
     const go=()=>branchModal(b.id);row.onclick=go;row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
     return row;
