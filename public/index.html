@@ -43,9 +43,14 @@
     --surface:#ffffff; --canvas:#eef0f2; --accent:#4646c8; --accent-soft:#ecebfb; --danger:#c23b3b; --ok:#1d6b45; --r:12px;
   }
   *{box-sizing:border-box;}
-  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
+  /* html carries the canvas color too: when a phone pinch-zooms OUT the visual viewport grows past the body,
+     so without this the surround shows the browser's default white band against our gray canvas. body min-height
+     keeps short pages filled to the bottom (no white gap below the content when zoomed out). */
+  html{background:var(--canvas);}
+  body{margin:0;min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
   button,select,textarea,input{font-family:inherit;}
   .app{max-width:1680px;margin:0 auto;padding:0 32px 70px;}
+  @media(max-width:560px){.app{padding:0 16px 60px;}}  /* tighter gutters on phones so content uses the full width and doesn't get squeezed when zoomed */
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
   .brand{display:flex;align-items:center;gap:11px;}
@@ -997,6 +1002,27 @@ function liveStreamOnly(prev,next){
   }
   return changed;
 }
+// Wraps render() with (1) mobile-safe scroll restoration via rAF so DOM rebuilds don't snap
+// the page to top, and (2) preservation of any open edit-pop / notes-pop draft text so live
+// re-renders (e.g. runner status transitions writing non-stream fields) won't wipe unsaved input.
+function renderWithEditGuard(){
+  const drafts=[];
+  const snapPop=(id,kind,pop)=>{const ae=document.activeElement;const ti=pop.querySelector('input.ctrl'),cx=pop.querySelector('textarea.ctrl');if(!ti&&!cx)return;drafts.push({id,kind,tit:ti?ti.value:null,ctx:cx?cx.value:null,focTi:ae===ti,focCx:ae===cx,ss:ae?(ae.selectionStart||0):0,se:ae?(ae.selectionEnd||0):0});};
+  taskEditOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const pop=card.querySelector('.pop.open');if(pop)snapPop(id,'edit',pop);});
+  taskNotesOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;card.querySelectorAll('.pop.open').forEach(pop=>{if(!pop.querySelector('input.ctrl')&&pop.querySelector('textarea.ctrl'))snapPop(id,'note',pop);});});
+  const y=window.scrollY;render();
+  requestAnimationFrame(()=>{
+    window.scrollTo(0,y);
+    drafts.forEach(d=>{
+      const card=document.querySelector('.card[data-task-id="'+CSS.escape(d.id)+'"]');if(!card)return;
+      const pop=d.kind==='edit'?card.querySelector('.pop.open'):Array.from(card.querySelectorAll('.pop.open')).find(p=>!p.querySelector('input.ctrl')&&p.querySelector('textarea.ctrl'));if(!pop)return;
+      const ti=pop.querySelector('input.ctrl'),cx=pop.querySelector('textarea.ctrl');
+      if(ti&&d.tit!=null)ti.value=d.tit;if(cx&&d.ctx!=null)cx.value=d.ctx;
+      if(d.focTi&&ti){try{ti.focus();ti.setSelectionRange(d.ss,d.se);}catch(_){}}
+      else if(d.focCx&&cx){try{cx.focus();cx.setSelectionRange(d.ss,d.se);}catch(_){}}
+    });
+  });
+}
 let subUnsubs=[];
 let _capRmSig="";   // signature of the roadmap set last painted into the Capture picker; lets us re-render Capture only when targets actually change
 function subscribeAll(){
@@ -1047,7 +1073,7 @@ function subscribeAll(){
       // Capture is normally skipped, but its category picker is built from CATS — when disciplines sync and rebuild CATS
       // (fallback literals → the real team disciplines) we must repaint it, else a persisted selection whose category
       // isn't in the fallback list won't render as selected (it'd look like the choice was lost on refresh).
-      if(page!=="capture"||seededDefault||capRmChanged||catsRebuilt){ const y=window.scrollY; render(); window.scrollTo(0,y); }
+      if(page!=="capture"||seededDefault||capRmChanged||catsRebuilt){ renderWithEditGuard(); }
     },err=>banner("Sync error: "+err.message,"err")));
   });
 }
@@ -1786,16 +1812,32 @@ function buildRunPanel(t){
 function updateRunPanel(t){
   const main=document.getElementById("main");if(!main)return;
   const card=main.querySelector('.card[data-task-id="'+CSS.escape(t.id)+'"]');if(!card)return;
-  const old=card.querySelector(":scope > .runprog"),fresh=buildRunPanel(t);
-  if(old&&fresh)old.replaceWith(fresh);
-  else if(old)old.remove();
-  else if(fresh){const acts=card.querySelector(":scope > .acts");acts?acts.after(fresh):card.appendChild(fresh);}
+  const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
+  const runLive=t.runStatus==="running"||t.runStatus==="queued";
+  const old=card.querySelector(":scope > .runprog");
+  if(!runLive&&!runLines.length&&!t.runError){if(old)old.remove();}
+  else if(!old){
+    // No panel yet — build fresh (run just started or first render after page load)
+    const fresh=buildRunPanel(t);if(fresh){const acts=card.querySelector(":scope > .acts");acts?acts.after(fresh):card.appendChild(fresh);}
+  } else {
+    // Panel exists — patch in-place to avoid layout thrash from replaceWith on every log line
+    const headText=old.querySelector(".runprog-h > span:first-child");
+    if(headText){const newTxt=runLive&&t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":runLive?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";if(headText.textContent!==newTxt)headText.textContent=newTxt;}
+    // Only append new log lines (or trim+rebuild if the 20-line window shifted)
+    const toShow=runLines.slice(-20);
+    let body=old.querySelector(".runprog-body");
+    if(!body&&toShow.length){body=document.createElement("div");body.className="runprog-body";if(runPanelHeight.has(t.id))body.style.height=runPanelHeight.get(t.id);body.addEventListener("mouseup",()=>{const h=body.style.height;if(h)runPanelHeight.set(t.id,h);});old.appendChild(body);}
+    if(body){
+      const existCount=body.childElementCount;
+      if(toShow.length<existCount){body.innerHTML="";toShow.forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});}
+      else if(toShow.length>existCount){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;toShow.slice(existCount).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;}
+    }
+  }
   // Update git badge in title row (runGit is a stream field so this won't trigger a full re-render)
   const titleRow=card.querySelector(".ctitle-row");
   if(titleRow){const ob=titleRow.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):titleRow.appendChild(nb);}else if(ob)ob.remove();}
   // Patch the run button and reset button in the acts bar so run-start fields (runRequested, runStatus, etc.)
   // no longer need a full re-render to update the button state.
-  const runLive=t.runStatus==="running"||t.runStatus==="queued";
   const runBtn=card.querySelector(".runbtn");
   if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";runBtn.disabled=runLive;runBtn.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}
   const acts=card.querySelector(":scope > .acts");
@@ -2820,7 +2862,7 @@ function goToTask(id){
   // Pick a taskView that includes the target task's status — "all" only shows open tasks (not Done/Archived).
   const tgt=DB.tasks.find(t=>t.id===id);
   const v=tgt&&tgt.status==="Archived"?"archived":tgt&&tgt.status==="Done"?"viewall":"all";
-  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
+  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCollapsed.delete(id);
   setPage("tasks");
 }
 // Active-task selection: clicking a task card/row makes it the "working in" task; clicking anywhere else on the
@@ -2982,7 +3024,7 @@ function renderTasks(m){
   }
   // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
   // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
-  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
+  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);"+(isMobileFilters?"flex-wrap:nowrap;overflow-x:auto;":"");
   const VIEW_OPTS=[["viewall","View All"],["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]];
   if(isMobileFilters){
     vb.appendChild(taskMenuBtn("Status",VIEW_OPTS,taskView,k=>{taskView=k;renderTasks();}));
