@@ -602,7 +602,8 @@ let captureRoadmapId=(typeof _capPrefs.roadmapId==="string")?_capPrefs.roadmapId
 let captureRepos=Array.isArray(_capPrefs.repos)?new Set(_capPrefs.repos):null;         // Capture: Set of selected repo URLs (normalized); null = no repo filter
 let captureWriteRepo=(typeof _capPrefs.writeRepo==="string")?_capPrefs.writeRepo:null; // Capture: repo URL to write tasks to when >1 repos selected; null = first/only
 let captureAgentIds=Array.isArray(_capPrefs.agentIds)?new Set(_capPrefs.agentIds):null; // Capture: Set of selected agent doc IDs; null = none selected
-function saveCapturePrefs(){try{localStorage.setItem("gp_capturePrefs",JSON.stringify({cats:captureCats?[...captureCats]:null,defaulted:captureCatsDefaulted,roadmapId:captureRoadmapId||null,repos:captureRepos?[...captureRepos]:null,writeRepo:captureWriteRepo||null,agentIds:captureAgentIds?[...captureAgentIds]:null}));}catch(e){}}
+let captureBranchId=(typeof _capPrefs.branchId==="string")?_capPrefs.branchId:null;   // Capture: feature branch doc ID to associate with drafted tasks; null = none
+function saveCapturePrefs(){try{localStorage.setItem("gp_capturePrefs",JSON.stringify({cats:captureCats?[...captureCats]:null,defaulted:captureCatsDefaulted,roadmapId:captureRoadmapId||null,repos:captureRepos?[...captureRepos]:null,writeRepo:captureWriteRepo||null,agentIds:captureAgentIds?[...captureAgentIds]:null,branchId:captureBranchId||null}));}catch(e){}}
 let captureCatMQ=null;       // Capture: the (matchMedia, handler) pair wiring the mobile category dropdown to viewport changes; tracked so each renderCapture detaches the prior one (no listener leak across tab switches).
 let taskView="mine";         // on load, default to the signed-in user's tasks (off-roster falls back to "all" in resolveIdentity)
 let taskTime="today";        // timeframe filter: all | today | week | month | past | next | future — defaults to today on load
@@ -1175,7 +1176,7 @@ async function captureTasks(){
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
       assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:captureRoadmapId||null,
-      repoUrl:taskRepoUrl,agentIds:taskAgentIds,_include:true}));
+      repoUrl:taskRepoUrl,agentIds:taskAgentIds,feature_branch_id:captureBranchId||null,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
@@ -1590,11 +1591,11 @@ function renderCapture(m){m=m||document.getElementById("main");
         if(!captureRepos.size)captureRepos=null;
         if(captureRepos&&captureWriteRepo&&!captureRepos.has(captureWriteRepo))captureWriteRepo=null;
         saveCapturePrefs();rpBtn.firstChild.textContent=repoSummary();rpBtn.style.fontWeight=(captureRepos&&captureRepos.size)?"600":"";
-        rebuildWriteSel();rebuildAgentPicker();};
+        rebuildWriteSel();rebuildAgentPicker();rebuildBranchPicker();};
       row.append(cb,sw,document.createTextNode(lbl));pop.appendChild(row);
     });
     const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="8px";clr.textContent="Clear";clr.title="Clear repo filter";
-    clr.onclick=()=>{captureRepos=null;captureWriteRepo=null;saveCapturePrefs();pop.remove();rpBtn.firstChild.textContent=repoSummary();rpBtn.style.fontWeight="";rebuildWriteSel();rebuildAgentPicker();};
+    clr.onclick=()=>{captureRepos=null;captureWriteRepo=null;saveCapturePrefs();pop.remove();rpBtn.firstChild.textContent=repoSummary();rpBtn.style.fontWeight="";rebuildWriteSel();rebuildAgentPicker();rebuildBranchPicker();};
     pop.appendChild(clr);place();
   };
   const rpBtn=document.createElement("button");rpBtn.type="button";const rpLbl=document.createTextNode(repoSummary());const rpCar=document.createElement("span");rpCar.textContent=" ▾";rpCar.style.opacity=".55";
@@ -1602,6 +1603,45 @@ function renderCapture(m){m=m||document.getElementById("main");
   rpBtn.onclick=()=>openRepoDropdown(rpBtn);
   rpRow.appendChild(rpBtn);rpRow.appendChild(rpWriteSel);rebuildWriteSel();
   cr.parentNode.insertBefore(rpRow,cr);
+  // Branch dropdown — filtered to feature branches in the selected repos; associates drafted tasks with a branch.
+  const filteredBranches=()=>{const bs=DB.featureBranches.filter(b=>b.status!=="creating");if(!captureRepos||!captureRepos.size)return bs;return bs.filter(b=>captureRepos.has(normRepo(b.repo_id||b.repoUrl||"")));};
+  const branchLabel=b=>b.name||(b.branch_name||"");
+  const brSummary=()=>{if(!captureBranchId)return "None";const b=DB.featureBranches.find(x=>x.id===captureBranchId);return b?branchLabel(b):"None";};
+  const brRow=document.createElement("div");brRow.className="views";brRow.style.margin="8px 0 0";
+  const brLab=document.createElement("span");brLab.className="cmeta";brLab.style.cssText="align-self:center;margin-right:4px;";brLab.title="Associate all drafted tasks with this feature branch";brLab.textContent="Branch:";brRow.appendChild(brLab);
+  const brBtn=document.createElement("button");brBtn.type="button";const brLbl=document.createTextNode(brSummary());const brCar=document.createElement("span");brCar.textContent=" ▾";brCar.style.opacity=".55";
+  brBtn.append(brLbl,brCar);if(captureBranchId)brBtn.style.fontWeight="600";
+  const openBranchDropdown=anchor=>{
+    const{pop,place}=floatTaskPop(anchor);
+    pop.style.display="flex";pop.style.flexDirection="column";pop.style.gap="3px";pop.style.maxHeight="280px";pop.style.overflowY="auto";pop.style.maxWidth="none";pop.style.width="max-content";
+    const branches=filteredBranches();
+    // "None" option
+    const noneRow=document.createElement("label");noneRow.className="opt";
+    const noneCb=document.createElement("input");noneCb.type="radio";noneCb.name="capBranch";noneCb.checked=!captureBranchId;
+    noneCb.onchange=()=>{captureBranchId=null;saveCapturePrefs();brBtn.firstChild.textContent=brSummary();brBtn.style.fontWeight="";pop.remove();};
+    noneRow.append(noneCb,document.createTextNode(" None"));pop.appendChild(noneRow);
+    if(!branches.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=(captureRepos&&captureRepos.size)?"No branches in selected repos — create one in the Branches tab":"No branches yet — create one in the Branches tab";pop.appendChild(nm);}
+    branches.forEach(b=>{
+      const row=document.createElement("label");row.className="opt";row.style.whiteSpace="nowrap";
+      const rb=document.createElement("input");rb.type="radio";rb.name="capBranch";rb.checked=(captureBranchId===b.id);
+      const merged=b.status==="merged";const ready=b.status==="ready";
+      const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+(merged?"#1d9e75":ready?"#4a9eff":"#888")+";margin:0 5px 0 3px;flex-shrink:0;";
+      const name=document.createTextNode(branchLabel(b)+(merged?" (merged)":""));
+      rb.onchange=()=>{if(rb.checked){captureBranchId=b.id;saveCapturePrefs();brBtn.firstChild.textContent=brSummary();brBtn.style.fontWeight="600";pop.remove();}};
+      if(merged)rb.disabled=true;
+      row.append(rb,dot,name);
+      if(b.repo_id||b.repoUrl){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";sub.textContent=repoLabel(b.repo_id||b.repoUrl||"");row.appendChild(sub);}
+      pop.appendChild(row);
+    });
+    place();
+  };
+  brBtn.onclick=()=>openBranchDropdown(brBtn);brRow.appendChild(brBtn);
+  const rebuildBranchPicker=()=>{
+    // Drop branch selection if it no longer belongs to selected repos
+    if(captureBranchId){const valid=filteredBranches().map(b=>b.id);if(!valid.includes(captureBranchId)){captureBranchId=null;saveCapturePrefs();}}
+    brBtn.firstChild.textContent=brSummary();brBtn.style.fontWeight=captureBranchId?"600":"";
+  };
+  cr.parentNode.insertBefore(brRow,cr);
   // Agents dropdown — filtered to agents linked to the selected repos (or all agents if no repos selected).
   const filteredAgents=()=>{const all=agentsSorted();if(!captureRepos||!captureRepos.size)return all;return all.filter(a=>a.repoUrl&&captureRepos.has(normRepo(a.repoUrl)));};
   const agSummary=()=>{if(!captureAgentIds||!captureAgentIds.size)return "None selected";const matched=filteredAgents().filter(a=>captureAgentIds.has(a.id));if(!matched.length)return "None selected";return matched.length<=2?matched.map(a=>a.name||a.id).join(", "):matched.slice(0,2).map(a=>a.name||a.id).join(", ")+" +"+(matched.length-2);};
