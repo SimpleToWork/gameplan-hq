@@ -110,7 +110,7 @@
   .review-skip{font-size:12px;color:var(--faint);margin-top:11px;}
   .skiplink{color:var(--accent);text-decoration:underline;cursor:pointer;}
   .views{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap;}
-  .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;}
+  .views button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
   .views button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
   /* Capture screen — mobile polish. The hero (prompt box + Draft/Dictate row) and its two control
      rows (Categories, Roadmap) have no responsive styling otherwise, so on a phone they waste width,
@@ -3061,7 +3061,7 @@ function renderTasks(m){
   }
   // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
   // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
-  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);"+(isMobileFilters?"flex-wrap:nowrap;overflow-x:auto;":"");
+  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;";
   const VIEW_OPTS=[["viewall","View All"],["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]];
   if(isMobileFilters){
     vb.appendChild(taskMenuBtn("Status",VIEW_OPTS,taskView,k=>{taskView=k;renderTasks();}));
