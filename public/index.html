@@ -368,7 +368,7 @@
   /* Sticky horizontal scrollbar — sits fixed at viewport bottom when table view is active and has overflow */
   #tt-sticky-bar{position:fixed;bottom:0;height:14px;overflow-x:auto;overflow-y:hidden;z-index:250;background:var(--surface);border-top:1px solid var(--line);display:none;}
   #tt-sticky-bar>div{height:1px;}
-  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:1080px;}
+  .tasktable{border-collapse:collapse;width:100%;font-size:13px;min-width:1500px;}
   .tasktable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:#c7ccd6;text-transform:uppercase;padding:9px 12px;border-bottom:1px solid #14171f;background:#1f2330;white-space:nowrap;}
   /* in-header filter buttons re-tinted for the dark header (scoped so the Agents table keeps the light styling) */
   .tasktable th .colfilter{color:#c7ccd6;border-color:rgba(255,255,255,.20);}
@@ -391,7 +391,7 @@
   .tasktable tbody tr.flash{animation:taskflash 1.6s ease-out;}
   .tasktable td .mini{max-width:100%;}
   .tasktable td input[type=date].mini{max-width:150px;}
-  .tasktable .tt-who{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .tasktable .tt-who{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;}
   .tasktable .tt-asgbtn{font-size:12px;line-height:1;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--muted);cursor:pointer;padding:3px 5px;}
   .tasktable .tt-asgbtn:hover{color:var(--accent,#4646c8);border-color:var(--accent,#4646c8);}
   /* Run button in the table (mirrors the card's clay ▶ Run; shares .tt-asgbtn sizing) */
@@ -620,6 +620,7 @@ let taskCategory=null;       // Set of disciplines (categories) to filter tasks 
 let taskStage=null;          // Set of active stages (statuses) to filter tasks by; null = no stage filter
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskFromRoadmap=null;    // Roadmap item {id,title,area} we navigated from via "Go to tasks"; null = not a roadmap-driven nav. Cleared on manual filter change.
+let taskCaptureId=null;      // captureId shared across tasks from one Capture session; null = no capture filter. Set by goToCaptureTasks().
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskSearchTimer=null;    // debounce handle for search oninput → renderTasks
 let taskSecSortFilter={};        // per Group-by section, narrow its tasks to one value of the active Sort-by field: { "<sectionLabel>": "<sortKey>" }; cleared when Sort-by/Group-by change
@@ -738,7 +739,7 @@ function applyCaptureCatsDefault(){
 function resetTaskFiltersToDefault(){
   taskView=identityUnknown?"all":"mine";
   taskTime="today";taskDateField="due";
-  taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";
+  taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";taskCaptureId=null;
   taskCategory=null;taskCatDefaulted=true; // clear disciplines and keep them cleared — no domain re-seed on reset
   tableColFilters.tasks={};                 // also drop any table column-header filters
   renderTasks();
@@ -1204,10 +1205,11 @@ async function captureTasks(){
     const text=await callClaude(p);const res=extractJSON(text,"object");
     const taskRepoUrl=captureWriteRepo||(captureRepos&&captureRepos.size?[...captureRepos][0]:null)||null;
     const taskAgentIds=captureAgentIds&&captureAgentIds.size?[...captureAgentIds]:null;
+    const captureId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
     const added=(res.added||[]).map(t=>({title:t.title||"Task",category:cats.includes(t.category)?t.category:catFallback,
       priority:PRIORITIES.includes(t.priority)?t.priority:"Medium",status:"Not started",
       assignees:[t.assignee&&member(t.assignee)?member(t.assignee).name:identity],context:t.context||"",due:today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:captureRoadmapId||null,
-      repoUrl:taskRepoUrl,agentIds:taskAgentIds,feature_branch_id:captureBranchId||null,_include:true}));
+      repoUrl:taskRepoUrl,agentIds:taskAgentIds,feature_branch_id:captureBranchId||null,captureId,_include:true}));
     const skipped=res.skipped||[];
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
@@ -1217,7 +1219,7 @@ async function captureTasks(){
     // Review step — nothing is saved until the user approves. Shared panel (also used by the Roadmap breakdown).
     buildReviewPanel(added,skipped,out,{afterApprove:(chosen,c)=>{
       ta.value="";captureText="";
-      const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="See the board";go.onclick=()=>setPage("tasks");c.appendChild(go);
+      const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="Go to generated tasks →";go.onclick=()=>goToCaptureTasks(captureId);c.appendChild(go);
     }});
   }catch(e){out.innerHTML='<div class="banner err show" style="margin:0;">Could not turn that into tasks ('+esc(e.message||"error")+'). Check AI_ENDPOINT, or retry.</div>';console.error(e);}
   finally{btn.disabled=false;btn.textContent="Draft tasks";hint.textContent="";}
@@ -2854,6 +2856,7 @@ function taskTextMatch(t,q){
 function taskSearchMatch(t){return taskTextMatch(t,taskSearch);}
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
+  if(taskCaptureId&&t.captureId!==taskCaptureId)return false;
   return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t)&&taskSearchMatch(t);
 }
 // Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
@@ -2891,7 +2894,14 @@ function goToRoadmapTasks(r){
   taskCatDefaulted=true;
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
-  taskFromRoadmap={id:r.id,title:r.title,area:r.area};
+  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;
+  setPage("tasks");
+}
+function goToCaptureTasks(captureId){
+  taskCatDefaulted=true;
+  taskView="viewall";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
+  taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};
+  taskCaptureId=captureId;
   setPage("tasks");
 }
 // Jump to a target on the main Roadmap (List) view: flip to list, clear area/people filters and expand its
@@ -3206,9 +3216,9 @@ function renderTasks(m){
   trow.style.top=(hh+vb.offsetHeight-1)+"px";     // second sticky bar: stacked below the (now-measured) Group/Sort row
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
-  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim()||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks();};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -3244,6 +3254,11 @@ function renderTasks(m){
   if(backRm){backRm.className="btn sm";backRm.style.cssText="flex-shrink:0;background:#ecebfb;border-color:#4646c855;color:#4646c8;font-weight:600;";
     backRm.textContent="\u2190 "+(taskFromRoadmap.title||"Roadmap");backRm.title="Go back to this item on the Roadmap";
     backRm.onclick=()=>{const r=taskFromRoadmap;taskFromRoadmap=null;goToRoadmapItem(r);};}
+  // "\u2190 Capture batch" \u2014 shown when viewing tasks filtered to a single Capture session; click returns to Capture.
+  const backCap=taskCaptureId?document.createElement("button"):null;
+  if(backCap){backCap.className="btn sm";backCap.style.cssText="flex-shrink:0;background:#e8f5f0;border-color:#2a9d6055;color:#2a9d60;font-weight:600;";
+    backCap.textContent="\u2190 Capture batch";backCap.title="Viewing tasks from one Capture session \u2014 click to go back to Capture";
+    backCap.onclick=()=>{taskCaptureId=null;setPage("capture");};}
   if(isMobileFilters){
     // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
     // horizontally-scrollable strip (a chip bar) so they stay aligned instead of the full-width search
@@ -3254,12 +3269,14 @@ function renderTasks(m){
     filterBar.style.cssText="flex:1 1 100%;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;";
     filterBar.append(searchInp,timeT,whoT,catT,stageT,rmT);
     if(backRm)trow.append(backRm);
+    if(backCap)trow.append(backCap);
     trow.append(filterBar,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group below the strip
     if(runnerReset)trow.append(runnerReset);
     if(anyFilter)trow.append(clearAll);
     if(taskLayout==="card")trow.append(collExp);
   }else{
     if(backRm)trow.append(backRm);
+    if(backCap)trow.append(backCap);
     trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
     if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
     if(anyFilter)trow.append(clearAll);
@@ -5705,7 +5722,7 @@ const MERGE_STEP_LABEL={merging:"Merging",rebasing:"Rebasing",resolving:"Resolvi
 // ── Pure logic (mirrored in tests/branch-logic.test.mjs) ──
 function slugifyBranch(s){return String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60);}
 function featureBranchName(s){const slug=slugifyBranch(s);return slug?"feature/"+slug:"";}
-function branchNameExists(branches,branchName,repoId){const bn=String(branchName||"").toLowerCase();return (branches||[]).some(b=>normRepo(b.repo_id||b.repoUrl||"")===repoId&&String(b.branch_name||"").toLowerCase()===bn);}
+function branchNameExists(branches,branchName,repoId){const bn=String(branchName||"").toLowerCase();return (branches||[]).some(b=>b.status!=="merged"&&normRepo(b.repo_id||b.repoUrl||"")===repoId&&String(b.branch_name||"").toLowerCase()===bn);}
 // Returns null when `task` may be assigned to `branch`, else a short reason string. Enforces: same-repo only,
 // one-branch-per-task is handled by the caller (assignment overwrites), merged branches are read-only.
 function assignBranchError(task,branch){
@@ -5767,13 +5784,14 @@ async function createFeatureBranch({name,repoUrl}){
   return id;
 }
 
-function createBranchModal(presetRepo,onCreated){
+function createBranchModal(presetRepo,onCreated,presetName){
   openModal("New feature branch",(card,close)=>{
     const repos=knownRepos();
     const live=document.createElement("div");live.setAttribute("role","status");live.setAttribute("aria-live","polite");live.className="cmeta";live.style.cssText="min-height:16px;color:var(--danger);";
     // Name
     card.insertAdjacentHTML("beforeend",'<label class="cmeta" style="font-weight:600;display:block;margin-bottom:4px;">Branch name</label>');
     const nameIn=document.createElement("input");nameIn.className="ctrl";nameIn.style.width="100%";nameIn.placeholder="e.g. Checkout redesign";nameIn.setAttribute("aria-label","Branch name");
+    if(presetName)nameIn.value=presetName;
     card.appendChild(nameIn);
     // Derived branch_name preview
     const prev=document.createElement("div");prev.className="cmeta";prev.style.cssText="margin:6px 0 12px;font-family:ui-monospace,Menlo,monospace;";
@@ -5807,7 +5825,7 @@ function branchModal(branchId){
   openModal("Feature branch",(card,close)=>{
     const head=card.firstChild;             // the title row openModal inserted — keep it, repaint everything after
     const body=document.createElement("div");card.appendChild(body);
-    let confirmingMerge=false;              // inline confirm state (avoids stacking a second modal)
+    let confirmingMerge=false,confirmingDelete=false; // inline confirm states (avoids stacking a second modal)
     const paint=()=>{
       const b=DB.featureBranches.find(x=>x.id===branchId);
       body.innerHTML="";
@@ -5847,6 +5865,9 @@ function branchModal(branchId){
       const live=document.createElement("div");live.setAttribute("role","status");live.setAttribute("aria-live","polite");
       if(merged){
         body.insertAdjacentHTML("beforeend",'<div class="cmeta" style="font-weight:600;color:#1d6b45;">✓ Merged into master'+(b.merged_at?" · "+esc(fmtTs(b.merged_at)):"")+(b.merge_sha?' · <span style="font-family:ui-monospace,Menlo,monospace;">'+esc(String(b.merge_sha).slice(0,8))+'</span>':"")+'</div>');
+        const reuse=document.createElement("button");reuse.className="btn sm";reuse.style.marginTop="8px";reuse.textContent="↩ Reuse this branch name";reuse.title="Create a fresh branch with the same name for new tasks";
+        reuse.onclick=()=>{close();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};
+        body.appendChild(reuse);
       }else if(b.status==="merging"||b.merge_state){
         // Stepper reflecting runner-written merge_state.
         const st=b.merge_state||"merging",failed=st==="failed",conflict=st==="conflict";
@@ -5878,6 +5899,25 @@ function branchModal(branchId){
         }
       }
       body.appendChild(live);
+      // ── Delete zone — merged branches or empty branches with no tasks ──
+      const canDelete=merged||(tasks.length===0&&b.status!=="merging");
+      if(canDelete){
+        body.insertAdjacentHTML("beforeend",'<hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">');
+        if(confirmingDelete){
+          const note=merged?'This will remove the merged branch record from the board.':'This will remove the empty branch record from the board. The git branch may still exist in the repo — delete it manually if needed.';
+          body.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:8px;">'+esc(note)+'</div>');
+          const cf=document.createElement("div");cf.style.cssText="display:flex;gap:8px;";
+          const yb=document.createElement("button");yb.className="btn sm";yb.style.cssText="background:var(--danger);color:#fff;border-color:var(--danger);";yb.textContent="Confirm delete";
+          yb.onclick=async()=>{yb.disabled=true;try{await fbDelete("featureBranches",b.id);banner("Branch deleted.","ok");close();}catch(e){banner(e.message,"err");yb.disabled=false;}};
+          const nb=document.createElement("button");nb.className="btn sm";nb.textContent="Cancel";nb.onclick=()=>{confirmingDelete=false;paint();};
+          cf.append(yb,nb);body.appendChild(cf);
+        }else{
+          const delBtn=document.createElement("button");delBtn.className="btn sm";delBtn.style.cssText="color:var(--danger);border-color:var(--danger);";
+          delBtn.textContent=merged?"Delete branch record":"Delete empty branch";
+          delBtn.onclick=()=>{confirmingDelete=true;confirmingMerge=false;paint();};
+          body.appendChild(delBtn);
+        }
+      }
     };
     _branchModalRepaint=paint;
     // openModal's close fires on ×, backdrop, Esc — wrap it to clear the live-repaint hook.
@@ -5934,6 +5974,7 @@ function renderBranches(m){
     const chips=document.createElement("div");chips.className="chips";chips.style.flexShrink="0";
     chips.append(chipEl(b.status||"ready",FB_STATUS_COLOR[b.status]||FB_STATUS_COLOR.ready),chipEl(tasks.length+" task"+(tasks.length!==1?"s":""),["#eef4fb","#2c6cb0"]));
     if(b.checks_status&&b.checks_status!=="unknown")chips.appendChild(chipEl("checks: "+b.checks_status,FB_CHECKS_COLOR[b.checks_status]||FB_CHECKS_COLOR.unknown));
+    if(b.status==="merged"){const rb=document.createElement("button");rb.className="btn sm";rb.textContent="↩ Reuse";rb.title="Create a fresh branch with the same name for new tasks";rb.style.flexShrink="0";rb.onclick=e=>{e.stopPropagation();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};chips.appendChild(rb);}
     row.append(left,chips);
     const go=()=>branchModal(b.id);row.onclick=go;row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
     return row;
