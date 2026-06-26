@@ -196,6 +196,8 @@
      task board grid only — the other .grid users (settings, trash, mini cards) keep the narrower default. */
   .grid.taskgrid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr));}
   @media(max-width:480px){.grid.taskgrid{grid-template-columns:1fr;}}
+  /* On mobile, header tabs fill the same width as a task card (full content area with app padding). */
+  @media(max-width:480px){.tabs{width:100%;box-sizing:border-box;}.tabs button{flex:1;text-align:center;padding:7px 8px;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;position:relative;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
@@ -3144,7 +3146,7 @@ function renderTasks(m){
   vb.appendChild(gb);
   // Sort-by — orders cards within each section (also a display option, not a filter). Sits beside Group-by.
   const SORT_OPTS=[["priority","Priority"],["status","Status"],["person","Person"],["entry","Entry date"],["target","Target date"],["timestamp","Timestamp"],["roadmap","Roadmap"]];
-  const sb=document.createElement("div");sb.className="views";sb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:10px;";
+  const sb=document.createElement("div");sb.className="views";sb.style.cssText=(isMobileFilters?"margin:0;":"margin:0;margin-left:10px;")+"flex-wrap:nowrap;align-items:center;";
   if(isMobileFilters){
     sb.appendChild(taskMenuBtn("Sort",SORT_OPTS,taskSort,k=>{taskSort=k;taskSecSortFilter={};renderTasks();}));
   }else{
