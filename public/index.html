@@ -1655,7 +1655,7 @@ function renderCapture(m){m=m||document.getElementById("main");
   rpRow.appendChild(rpBtn);rpRow.appendChild(rpWriteSel);rebuildWriteSel();
   cr.parentNode.insertBefore(rpRow,cr);
   // Branch dropdown — filtered to feature branches in the selected repos; associates drafted tasks with a branch.
-  const filteredBranches=()=>{const bs=DB.featureBranches.filter(b=>b.status!=="creating");if(!captureRepos||!captureRepos.size)return bs;return bs.filter(b=>captureRepos.has(normRepo(b.repo_id||b.repoUrl||"")));};
+  const filteredBranches=()=>{const bs=DB.featureBranches.filter(b=>b.status!=="creating"&&b.status!=="merged");if(!captureRepos||!captureRepos.size)return bs;return bs.filter(b=>captureRepos.has(normRepo(b.repo_id||b.repoUrl||"")));};
   const branchLabel=b=>b.name||(b.branch_name||"");
   const brSummary=()=>{if(!captureBranchId)return "None";const b=DB.featureBranches.find(x=>x.id===captureBranchId);return b?branchLabel(b):"None";};
   const brRow=document.createElement("div");brRow.className="views";brRow.style.margin="8px 0 0";
@@ -1675,11 +1675,10 @@ function renderCapture(m){m=m||document.getElementById("main");
     branches.forEach(b=>{
       const row=document.createElement("label");row.className="opt";row.style.whiteSpace="nowrap";
       const rb=document.createElement("input");rb.type="radio";rb.name="capBranch";rb.checked=(captureBranchId===b.id);
-      const merged=b.status==="merged";const ready=b.status==="ready";
-      const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+(merged?"#1d9e75":ready?"#4a9eff":"#888")+";margin:0 5px 0 3px;flex-shrink:0;";
-      const name=document.createTextNode(branchLabel(b)+(merged?" (merged)":""));
+      const ready=b.status==="ready";
+      const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+(ready?"#4a9eff":"#888")+";margin:0 5px 0 3px;flex-shrink:0;";
+      const name=document.createTextNode(branchLabel(b));
       rb.onchange=()=>{if(rb.checked){captureBranchId=b.id;saveCapturePrefs();brBtn.firstChild.textContent=brSummary();brBtn.style.fontWeight="600";pop.remove();}};
-      if(merged)rb.disabled=true;
       row.append(rb,dot,name);
       if(b.repo_id||b.repoUrl){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";sub.textContent=repoLabel(b.repo_id||b.repoUrl||"");row.appendChild(sub);}
       pop.appendChild(row);
