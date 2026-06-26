@@ -614,6 +614,7 @@ let taskStage=null;          // Set of active stages (statuses) to filter tasks 
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskFromRoadmap=null;    // Roadmap item {id,title,area} we navigated from via "Go to tasks"; null = not a roadmap-driven nav. Cleared on manual filter change.
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
+let taskSearchTimer=null;    // debounce handle for search oninput → renderTasks
 let taskSecSortFilter={};        // per Group-by section, narrow its tasks to one value of the active Sort-by field: { "<sectionLabel>": "<sortKey>" }; cleared when Sort-by/Group-by change
 let taskGroup="category";    // how task cards are grouped into sections: category | timeframe | person
 let taskSort="priority";     // order of cards within each section: priority | status | person | entry | target | timestamp | roadmap
@@ -641,6 +642,7 @@ let taskAskOpen=new Set();    // ids of task cards with ask-Claude pop open; sur
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
 let agendaPlanOpen=false;      // is the "Plan a meeting" section expanded? collapsed by default each session
 let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
+let agendaSearchTimer=null;    // debounce handle for search oninput → renderAgendas
 let agendaLayout=(localStorage.getItem("gp_agendaLayout")==="table")?"table":"cards"; // "cards" (full editable cards) | "table" (read-only overview; row click → that card)
 let agendaScrollTo=null;       // id of an agenda to scroll+flash to after the next render (set when jumping table → cards)
 let taskSecExpanded=new Set();  // labels of task sections the user has expanded; sections render collapsed (header-only) by default each session
@@ -660,6 +662,7 @@ let taskTableColSort={col:null,dir:"asc"}; // active column-level sort for the t
 let rmTableColSort={col:"area",dir:"asc"}; // active column-level sort for the roadmap table; defaults to A–Z by area
 let agTableColSort={col:null,dir:"asc"};   // active column-level sort for the agendas table
 let rmSearch="";             // free-text search over roadmap title/detail; "" = off
+let rmSearchTimer=null;      // debounce handle for search oninput → renderRoadmap
 let rmCapOpen=false;         // is the AI-capture prompt box on the roadmap expanded? (collapsed by default)
 let rmFilterOpen=true;       // is the area Filter row expanded?
 let rmPeopleOpen=false;      // is the People filter row expanded? (collapsed by default)
@@ -2927,6 +2930,7 @@ function setupStickyHScroll(){
 }
 function renderTasks(m){
   m=m||document.getElementById("main");
+  clearTimeout(taskSearchTimer);taskSearchTimer=null; // cancel any pending debounced search render
   saveTaskState();   // persist current filter/view/sort/column-filter state (every filter change re-renders)
   if(!m.__taskBoardClickBound){m.__taskBoardClickBound=true;m.addEventListener("click",onTaskBoardClick,true);} // delegated select/clear, capture phase, bound once (#main persists)
   // Was the search box focused before we tear down the DOM? Capture it (and the caret) so we can restore after.
@@ -3185,9 +3189,9 @@ function renderTasks(m){
   const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft="0";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
-  // Free-text search box (leftmost). Re-renders on each keystroke; focus is restored after render (see below).
+  // Free-text search box (leftmost). Debounced 150ms — value updates on every keystroke, render fires after typing pauses.
   const searchInp=document.createElement("input");searchInp.type="search";searchInp.className="ctrl";searchInp.id="taskSearch";searchInp.placeholder="Search tasks\u2026";searchInp.value=taskSearch;searchInp.style.cssText="flex:1;min-width:140px;max-width:280px;";
-  searchInp.oninput=()=>{taskSearch=searchInp.value;renderTasks();};
+  searchInp.oninput=()=>{taskSearch=searchInp.value;clearTimeout(taskSearchTimer);taskSearchTimer=setTimeout(renderTasks,150);};
   // "\u2190 Back to Roadmap" \u2014 only shown when the user arrived via goToRoadmapTasks(); cleared on manual filter change.
   const backRm=taskFromRoadmap?document.createElement("button"):null;
   if(backRm){backRm.className="btn sm";backRm.style.cssText="flex-shrink:0;background:#ecebfb;border-color:#4646c855;color:#4646c8;font-weight:600;";
@@ -3714,6 +3718,7 @@ function rmScrollRow(labelClass,labelText){
 }
 function renderRoadmap(m){
   m=m||document.getElementById("main");
+  clearTimeout(rmSearchTimer);rmSearchTimer=null; // cancel any pending debounced search render
   // Preserve search-box focus + caret across the per-keystroke re-render (capture before innerHTML teardown).
   const _rmSe=document.getElementById("rmSearch");const _rmRefocus=!!(_rmSe&&document.activeElement===_rmSe);const _rmCaret=_rmRefocus?(_rmSe.selectionStart??_rmSe.value.length):0;
   m.innerHTML="";
@@ -3748,7 +3753,7 @@ function renderRoadmap(m){
   const bar=document.createElement("div");bar.className="views";bar.style.margin="10px 0 4px";
   [["list","List"],["timeline","Timeline"],["kanban","Kanban"],["plot","Plot"],["table","Table"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(roadmapView===k)b.classList.add("on");b.onclick=()=>{roadmapView=k;renderRoadmap();};bar.appendChild(b);});
   const rmS=document.createElement("input");rmS.type="search";rmS.className="ctrl";rmS.id="rmSearch";rmS.placeholder="Search roadmap\u2026";rmS.value=rmSearch;rmS.style.cssText="min-width:150px;max-width:240px;margin-left:8px;";
-  rmS.oninput=()=>{rmSearch=rmS.value;renderRoadmap();};
+  rmS.oninput=()=>{rmSearch=rmS.value;clearTimeout(rmSearchTimer);rmSearchTimer=setTimeout(renderRoadmap,150);};
   bar.appendChild(rmS);
   if(roadmapView==="list"||roadmapView==="kanban"){
     const sw=document.createElement("div");sw.style.cssText="display:flex;align-items:center;gap:7px;margin-left:auto;";
@@ -4185,6 +4190,7 @@ function agendaSearchMatch(a){
 }
 function renderAgendas(m){
   m=m||document.getElementById("main");
+  clearTimeout(agendaSearchTimer);agendaSearchTimer=null; // cancel any pending debounced search render
   // Preserve search-box focus + caret across the per-keystroke re-render (capture before innerHTML teardown).
   const _agSe=document.getElementById("agendaSearch");const _agRefocus=!!(_agSe&&document.activeElement===_agSe);const _agCaret=_agRefocus?(_agSe.selectionStart??_agSe.value.length):0;
   m.innerHTML="";
@@ -4207,7 +4213,7 @@ function renderAgendas(m){
   // Search box + collapse toggle on one row.
   const agbar=document.createElement("div");agbar.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:20px 0 10px;";
   const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agendaSearch";agS.placeholder="Search agendas\u2026";agS.value=agendaSearch;agS.style.cssText="flex:1;min-width:160px;max-width:280px;";
-  agS.oninput=()=>{agendaSearch=agS.value;renderAgendas();};
+  agS.oninput=()=>{agendaSearch=agS.value;clearTimeout(agendaSearchTimer);agendaSearchTimer=setTimeout(renderAgendas,150);};
   agbar.appendChild(agS);
   // Layout toggle: full editable cards vs. a compact read-only table overview. Choice persists in localStorage.
   const layoutBox=document.createElement("div");layoutBox.className="views";layoutBox.style.margin="0";
@@ -5011,6 +5017,7 @@ const agentDiagramCollapsed=new Set(); // collapsed nodes in the Agents director
 // committed folder clears its entry (no delta). Kept separate from a.repoPath, which stays at the committed path.
 const agentPendingMoves={};
 let agentSearch=""; // free-text filter on the Agents page diagram; "" = off (matches name/type/summary)
+let agentSearchTimer=null; // debounce handle for search oninput → renderAgents
 // The path an agent should appear at in the tree: its staged destination if a move is pending, else its
 // committed repoPath. Drives the directory tree and the move modal's prefill/collision checks.
 function agentEffectivePath(a){const p=agentPendingMoves[a.id];return p?p.newPath:(a.repoPath||"");}
@@ -5639,6 +5646,7 @@ function renderAgentsDiagram(m){
    taskBuildState) are also unit-tested in tests/branch-logic.test.mjs — keep the two in sync.
 ============================================================================ */
 let branchSearch="";            // free-text filter on the Branches page
+let branchSearchTimer=null;     // debounce handle for search oninput → renderBranches
 let _branchModalRepaint=null;   // set while a branch detail modal is open; lets live snapshots repaint it (see subscribeAll)
 
 const FB_STATUS_COLOR={creating:["#fdeecf","#a86a08"],ready:["#e9f7ee","#1d6b45"],merging:["#fdeecf","#a86a08"],merged:["#eceef1","#6a7280"],failed:["#fcecec","#a32d2d"],conflict:["#fcecec","#a32d2d"]};
@@ -5852,7 +5860,7 @@ function openTaskBranchPicker(anchor,t){
 }
 
 function renderBranches(m){
-  m=m||document.getElementById("main");m.innerHTML="";
+  m=m||document.getElementById("main");clearTimeout(branchSearchTimer);branchSearchTimer=null;m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Branches</div><p class="pagesub">Feature-branch orchestration. Create a branch off <b>master</b>, assign board tasks to it, and squash-merge to master when every task is done and checks are green. Git operations run on the local runner.</p>');
   const head=document.createElement("div");head.className="areahead";
   head.innerHTML='<span class="nm">Feature branches</span><span class="cat-count">'+DB.featureBranches.length+'</span>';
@@ -5863,7 +5871,7 @@ function renderBranches(m){
   const bar=document.createElement("div");bar.style.cssText="display:flex;gap:8px;align-items:center;margin:8px 0 4px;";
   const se=document.getElementById("branchPageSearch");const refocus=!!(se&&document.activeElement===se);const caret=refocus?(se.selectionStart??se.value.length):0;
   const s=document.createElement("input");s.type="search";s.className="ctrl";s.id="branchPageSearch";s.placeholder="Search branches…";s.value=branchSearch;s.style.cssText="flex:1;min-width:160px;max-width:320px;";
-  s.oninput=()=>{branchSearch=s.value;renderBranches();};bar.appendChild(s);m.appendChild(bar);
+  s.oninput=()=>{branchSearch=s.value;clearTimeout(branchSearchTimer);branchSearchTimer=setTimeout(renderBranches,150);};bar.appendChild(s);m.appendChild(bar);
   if(refocus){s.focus();try{s.setSelectionRange(caret,caret);}catch(_){}}
   if(!DB.featureBranches.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No feature branches yet</div>Click "+ New branch" to create one off master, then assign tasks to it.</div>');return;}
   const q=branchSearch.trim().toLowerCase();
@@ -5889,7 +5897,7 @@ function renderBranches(m){
 }
 
 function renderAgents(m){
-  m=m||document.getElementById("main");m.innerHTML="";
+  m=m||document.getElementById("main");clearTimeout(agentSearchTimer);agentSearchTimer=null;m.innerHTML="";
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agents</div><p class="pagesub">AI agents authored with Claude and saved to the board. Organized into folders mirroring each repo’s layout — an agent’s folder follows its repo path, so changes sync back to the repo.</p>');
   const head=document.createElement("div");head.className="areahead";
   head.innerHTML='<span class="nm">Your agents</span><span class="cat-count">'+DB.agents.length+'</span>';
@@ -5920,7 +5928,7 @@ function renderAgents(m){
   const _agSe=document.getElementById("agentPageSearch");const _agRefocus=!!(_agSe&&document.activeElement===_agSe);const _agCaret=_agRefocus?(_agSe.selectionStart??_agSe.value.length):0;
   const agbar=document.createElement("div");agbar.style.cssText="display:flex;gap:8px;align-items:center;margin:8px 0 4px;";
   const agS=document.createElement("input");agS.type="search";agS.className="ctrl";agS.id="agentPageSearch";agS.placeholder="Search agents…";agS.value=agentSearch;agS.style.cssText="flex:1;min-width:160px;max-width:320px;";
-  agS.oninput=()=>{agentSearch=agS.value;renderAgents();};
+  agS.oninput=()=>{agentSearch=agS.value;clearTimeout(agentSearchTimer);agentSearchTimer=setTimeout(renderAgents,150);};
   agbar.appendChild(agS);m.appendChild(agbar);
   if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}
   if(!DB.agents.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agents yet</div>Click "+ New agent" to draft one with Claude.</div>');return;}
