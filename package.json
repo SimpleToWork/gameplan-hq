@@ -4,6 +4,6 @@
   "private": true,
   "scripts": {
     "deploy:rules": "node scripts/deploy-rules.mjs",
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.mjs"
   }
 }

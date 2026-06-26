@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 // ── mirrored from public/index.html ──
-const normRepo = u => String(u || "").replace(/\.git$/, "").replace(/\/+$/, "").toLowerCase();
+const normRepo = u => String(u || "").toLowerCase().replace(/\/+$/, "").replace(/\.git$/, "").replace(/\/+$/, "");
 const slugifyBranch = s => String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 const featureBranchName = s => { const slug = slugifyBranch(s); return slug ? "feature/" + slug : ""; };
 const branchNameExists = (branches, branchName, repoId) => {

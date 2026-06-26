@@ -740,7 +740,7 @@ const phaseOf=r=>r.phase||r.horizon||"";
 
 const today=()=>new Date().toISOString().slice(0,10);
 const nowTs=()=>new Date().toISOString(); // full-precision timestamp; used as agent updatedAt for last-write-wins repo sync
-const normRepo=u=>String(u||"").replace(/\.git$/,"").replace(/\/+$/,"").toLowerCase(); // compare repo URLs ignoring .git/trailing-slash/case
+const normRepo=u=>String(u||"").toLowerCase().replace(/\/+$/,"").replace(/\.git$/,"").replace(/\/+$/,""); // compare repo URLs ignoring .git/trailing-slash/case (strip slashes before .git so "x.git/" matches "x")
 // Team-shared friendly names for connected repos (Settings → Connected repos). Stored one doc per repo in the
 // `repoNames` collection, keyed by a sanitized repo URL so writes are idempotent (no dupes on repeated saves).
 const repoNameKey=u=>normRepo(u).replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"_"; // Firestore doc id (no slashes)
@@ -5646,7 +5646,6 @@ function runnerStateDoc(){return (DB.runnerControl||[]).find(x=>x.id==="state")|
 // until that integration ships the indicator reads as offline (which correctly gates merges, the only git-dependent action).
 function runnerOnline(){const s=runnerStateDoc();if(!s.heartbeatAt)return false;const age=Date.now()-Date.parse(s.heartbeatAt);return age>=0&&age<90000;}
 function knownRepos(){return [...new Set([...DB.repoNames.map(r=>r.repoUrl),...DB.tasks.map(t=>t.repoUrl)].filter(Boolean))];}
-function repoLabel(u){const fn=repoFriendly(u);return fn||(String(u||"").replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;}
 function branchTasks(b){return DB.tasks.filter(t=>t.feature_branch_id===b.id);}
 function chipEl(text,colors){const c=colors||["#eeeeec","#646b78"];const s=document.createElement("span");s.className="chip";s.style.cssText="background:"+c[0]+";color:"+c[1]+";";s.textContent=text;return s;}
 function runnerStatusBadge(){
