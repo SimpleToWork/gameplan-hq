@@ -2923,7 +2923,7 @@ function goToCaptureTasks(captureId){
 }
 function goToBranchTasks(branchId){
   taskCatDefaulted=true;
-  taskView="viewall";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
+  taskView="done";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;
   taskBranchFilter=branchId;
   setPage("tasks");
@@ -3287,7 +3287,7 @@ function renderTasks(m){
   const activeBranchObj=taskBranchFilter?DB.featureBranches.find(b=>b.id===taskBranchFilter):null;
   const backBranch=activeBranchObj?document.createElement("button"):null;
   if(backBranch){backBranch.className="btn sm";backBranch.style.cssText="flex-shrink:0;background:#eef4fb;border-color:#2c6cb055;color:#2c6cb0;font-weight:600;";
-    backBranch.textContent="\u2190 \u23b7 "+(activeBranchObj.name||activeBranchObj.branch_name);backBranch.title="Viewing tasks for this branch \u2014 click to go back to Branches";
+    backBranch.textContent="\u2190 \u23b7 "+(activeBranchObj.name||activeBranchObj.branch_name);backBranch.title="Viewing completed tasks for this branch \u2014 click to go back to Branches";
     backBranch.onclick=()=>{taskBranchFilter=null;setPage("branches");};}
   if(isMobileFilters){
     // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
@@ -6033,7 +6033,7 @@ function renderBranches(m){
     chips.append(chipEl(b.status||"ready",FB_STATUS_COLOR[b.status]||FB_STATUS_COLOR.ready),chipEl(tasks.length+" task"+(tasks.length!==1?"s":""),["#eef4fb","#2c6cb0"]));
     if(b.checks_status&&b.checks_status!=="unknown")chips.appendChild(chipEl("checks: "+b.checks_status,FB_CHECKS_COLOR[b.checks_status]||FB_CHECKS_COLOR.unknown));
     if(b.status==="merged"){const rb=document.createElement("button");rb.className="btn sm";rb.textContent="↩ Reuse";rb.title="Create a fresh branch with the same name for new tasks";rb.style.flexShrink="0";rb.onclick=e=>{e.stopPropagation();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};chips.appendChild(rb);}
-    if(tasks.length>0){const vt=document.createElement("button");vt.className="btn sm";vt.textContent="View tasks";vt.title="Show all tasks linked to this branch";vt.style.flexShrink="0";vt.onclick=e=>{e.stopPropagation();goToBranchTasks(b.id);};chips.appendChild(vt);}
+    if(tasks.length>0){const vt=document.createElement("button");vt.className="btn sm";vt.textContent="Completed tasks";vt.title="Show completed tasks in this branch";vt.style.flexShrink="0";vt.onclick=e=>{e.stopPropagation();goToBranchTasks(b.id);};chips.appendChild(vt);}
     row.append(left,chips);
     const go=()=>branchModal(b.id);row.onclick=go;row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
     return row;
