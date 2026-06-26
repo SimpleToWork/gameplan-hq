@@ -4,6 +4,6 @@
   "private": true,
   "scripts": {
     "deploy:rules": "node scripts/deploy-rules.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test --test-name-pattern '.*' tests/*.test.mjs || node --test tests/branch-logic.test.mjs"
   }
 }

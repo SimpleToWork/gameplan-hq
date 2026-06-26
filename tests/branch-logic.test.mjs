@@ -126,3 +126,43 @@ test("mergePreconditions: single unfinished task is singular", () => {
   const r = mergePreconditions({ branch: okBranch, tasks: [{ status: "Working on it" }], runnerOnline: true, otherMerging: false });
   assert.ok(r.reasons.some(x => x === "1 task not yet finished"));
 });
+
+test("mergePreconditions: task with build_state passed counts as finished", () => {
+  const passedTask = { status: "Working on it", build_state: "passed" };
+  const r = mergePreconditions({ branch: okBranch, tasks: [passedTask], runnerOnline: true, otherMerging: false });
+  assert.equal(r.ok, true, "build_state=passed should satisfy the finished check");
+});
+
+test("mergePreconditions: null tasks treated as empty (no tasks)", () => {
+  const r = mergePreconditions({ branch: okBranch, tasks: null, runnerOnline: true, otherMerging: false });
+  assert.equal(r.ok, false);
+  assert.ok(r.reasons.includes("No tasks assigned to this branch"));
+});
+
+test("taskBuildState: explicit build_state other than passed/success is returned as-is", () => {
+  assert.equal(taskBuildState({ build_state: "failed" }), "failed");
+  assert.equal(taskBuildState({ build_state: "building" }), "building");
+});
+
+test("slugifyBranch handles numeric-only and mixed alphanumeric input", () => {
+  assert.equal(slugifyBranch("123"), "123");
+  assert.equal(slugifyBranch("fix 42 things"), "fix-42-things");
+  assert.equal(slugifyBranch("v2.0.1"), "v2-0-1");
+});
+
+test("mergePreconditions: task with explicit build_state success counts as finished", () => {
+  const successTask = { status: "Working on it", build_state: "success" };
+  const r = mergePreconditions({ branch: okBranch, tasks: [successTask], runnerOnline: true, otherMerging: false });
+  assert.equal(r.ok, true, "build_state=success should satisfy the finished check");
+});
+
+// ── normRepo ──
+test("normRepo lowercases, strips trailing slashes and .git suffix", () => {
+  assert.equal(normRepo("https://github.com/Acme/Web"), "https://github.com/acme/web");
+  assert.equal(normRepo("https://github.com/acme/web.git"), "https://github.com/acme/web");
+  assert.equal(normRepo("https://github.com/acme/web/"), "https://github.com/acme/web");
+  assert.equal(normRepo("https://github.com/acme/web.git/"), "https://github.com/acme/web");
+  assert.equal(normRepo(""), "");
+  assert.equal(normRepo(null), "");
+  assert.equal(normRepo(undefined), "");
+});

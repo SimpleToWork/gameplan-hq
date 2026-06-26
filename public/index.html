@@ -2817,7 +2817,10 @@ function taskFilter(t){
 function goToTask(id){
   const bd=document.getElementById("bdReview");if(bd)bd.remove(); // close the breakdown overlay if a jump fired from inside it
   focusTaskId=id;activeTaskId=id;
-  taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
+  // Pick a taskView that includes the target task's status — "all" only shows open tasks (not Done/Archived).
+  const tgt=DB.tasks.find(t=>t.id===id);
+  const v=tgt&&tgt.status==="Archived"?"archived":tgt&&tgt.status==="Done"?"viewall":"all";
+  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskCollapsed.delete(id);
   setPage("tasks");
 }
 // Active-task selection: clicking a task card/row makes it the "working in" task; clicking anywhere else on the
