@@ -5848,6 +5848,7 @@ function renderAgentsDiagram(m){
 ============================================================================ */
 let branchSearch="";            // free-text filter on the Branches page
 let branchSearchTimer=null;     // debounce handle for search oninput → renderBranches
+let branchGroupCollapsed={open:false,merged:true}; // collapse state for Open/Merged branch groups
 let _branchModalRepaint=null;   // set while a branch detail modal is open; lets live snapshots repaint it (see subscribeAll)
 
 const FB_STATUS_COLOR={creating:["#fdeecf","#a86a08"],ready:["#e9f7ee","#1d6b45"],merging:["#fdeecf","#a86a08"],merged:["#eceef1","#6a7280"],failed:["#fcecec","#a32d2d"],conflict:["#fcecec","#a32d2d"]};
@@ -6118,8 +6119,22 @@ function renderBranches(m){
     const go=()=>branchModal(b.id);row.onclick=go;row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
     return row;
   };
-  if(open.length){m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm" style="font-size:13px;">Open</span><span class="cat-count">'+open.length+'</span></div>');open.forEach(b=>m.appendChild(branchRow(b)));}
-  if(merged.length){m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm" style="font-size:13px;">Merged</span><span class="cat-count">'+merged.length+'</span></div>');merged.forEach(b=>m.appendChild(branchRow(b)));}
+  if(open.length){
+    const oCol=branchGroupCollapsed.open;
+    const oh=document.createElement("div");oh.className="areahead";oh.style.cursor="pointer";oh.title=oCol?"Click to expand":"Click to collapse";
+    oh.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(oCol?"&#9658;":"&#9660;")+'</span><span class="nm" style="font-size:13px;">Open</span><span class="cat-count">'+open.length+'</span>';
+    oh.onclick=()=>{branchGroupCollapsed.open=!branchGroupCollapsed.open;renderBranches();};
+    m.appendChild(oh);
+    if(!oCol)open.forEach(b=>m.appendChild(branchRow(b)));
+  }
+  if(merged.length){
+    const mCol=branchGroupCollapsed.merged;
+    const mh=document.createElement("div");mh.className="areahead";mh.style.cursor="pointer";mh.title=mCol?"Click to expand":"Click to collapse";
+    mh.innerHTML='<span style="font-size:11px;color:var(--muted);width:12px;display:inline-block;">'+(mCol?"&#9658;":"&#9660;")+'</span><span class="nm" style="font-size:13px;">Merged</span><span class="cat-count">'+merged.length+'</span>';
+    mh.onclick=()=>{branchGroupCollapsed.merged=!branchGroupCollapsed.merged;renderBranches();};
+    m.appendChild(mh);
+    if(!mCol)merged.forEach(b=>m.appendChild(branchRow(b)));
+  }
   if(!open.length&&!merged.length)m.insertAdjacentHTML("beforeend",'<div class="cmeta">No branches match “'+esc(branchSearch)+'”.</div>');
 }
 
