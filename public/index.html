@@ -628,6 +628,7 @@ let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=p
 let taskFromRoadmap=null;    // Roadmap item {id,title,area} we navigated from via "Go to tasks"; null = not a roadmap-driven nav. Cleared on manual filter change.
 let taskBranchFilter=null;   // feature branch id to filter tasks by; null = off. Set by goToBranchTasks().
 let taskCaptureId=null;      // captureId shared across tasks from one Capture session; null = no capture filter. Set by goToCaptureTasks().
+let taskCaptureExtraIds=null; // Set of existing task IDs that were skipped (duplicates) in the same Capture session; shown alongside taskCaptureId tasks.
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
 let taskSearchTimer=null;    // debounce handle for search oninput → renderTasks
 let taskSecSortFilter={};        // per Group-by section, narrow its tasks to one value of the active Sort-by field: { "<sectionLabel>": "<sortKey>" }; cleared when Sort-by/Group-by change
@@ -752,7 +753,7 @@ function applyCaptureCatsDefault(){
 function resetTaskFiltersToDefault(){
   taskView=identityUnknown?"all":"mine";
   taskTime="today";taskDateField="due";
-  taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";taskCaptureId=null;
+  taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";taskCaptureId=null;taskCaptureExtraIds=null;
   taskCategory=null;taskCatDefaulted=true; // clear disciplines and keep them cleared — no domain re-seed on reset
   tableColFilters.tasks={};                 // also drop any table column-header filters
   renderTasks();
@@ -1139,7 +1140,7 @@ function recordRunDurations(prev,next){
   });
 }
 // Short synthesised ping via Web Audio API — no external file, no autoplay restriction (fires on task completion, not page load).
-function playBell(){try{const c=new (window.AudioContext||window.webkitAudioContext)();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(1400,c.currentTime);o.frequency.exponentialRampToValueAtTime(1200,c.currentTime+0.08);g.gain.setValueAtTime(0.35,c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.5);o.start();o.stop(c.currentTime+0.5);}catch(e){}}
+function playBell(){try{const c=new (window.AudioContext||window.webkitAudioContext)();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(1047,c.currentTime);g.gain.setValueAtTime(0,c.currentTime);g.gain.linearRampToValueAtTime(0.4,c.currentTime+0.005);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.6);o.start();o.stop(c.currentTime+0.6);}catch(e){}}
 // Fire all enabled alerts when a runner task finishes: audio bell, browser notification, ntfy.sh push.
 function notifyRunComplete(title){
   if(notifyPrefs.audio)playBell();
@@ -1255,7 +1256,7 @@ async function captureTasks(){
     // Review step — nothing is saved until the user approves. Shared panel (also used by the Roadmap breakdown).
     buildReviewPanel(added,skipped,out,{afterApprove:(chosen,c)=>{
       ta.value="";captureText="";
-      const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="Go to generated tasks →";go.onclick=()=>goToCaptureTasks(captureId);c.appendChild(go);
+      const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="Go to generated tasks →";go.onclick=()=>goToCaptureTasks(captureId,skipped.map(s=>s.id).filter(Boolean));c.appendChild(go);
     }});
   }catch(e){out.innerHTML='<div class="banner err show" style="margin:0;">Could not turn that into tasks ('+esc(e.message||"error")+'). Check AI_ENDPOINT, or retry.</div>';console.error(e);}
   finally{btn.disabled=false;btn.textContent="Draft tasks";hint.textContent="";}
@@ -1700,6 +1701,11 @@ function renderCapture(m){m=m||document.getElementById("main");
       if(b.repo_id||b.repoUrl){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";sub.textContent=repoLabel(b.repo_id||b.repoUrl||"");row.appendChild(sub);}
       pop.appendChild(row);
     });
+    // "Create new branch" at the bottom
+    const sep=document.createElement("hr");sep.style.cssText="border:none;border-top:1px solid var(--border);margin:4px 0;";pop.appendChild(sep);
+    const createRow=document.createElement("button");createRow.type="button";createRow.className="opt";createRow.style.cssText="cursor:pointer;color:var(--accent);text-align:left;border:none;background:none;padding:3px 4px;font-size:inherit;width:100%;";createRow.textContent="+ Create new branch…";
+    createRow.onclick=()=>{pop.remove();const presetRepo=(captureRepos&&captureRepos.size===1)?[...captureRepos][0]:null;createBranchModal(presetRepo,(id)=>{captureBranchId=id;saveCapturePrefs();brBtn.firstChild.textContent=brSummary();brBtn.style.fontWeight="600";});};
+    pop.appendChild(createRow);
     place();
   };
   brBtn.onclick=()=>openBranchDropdown(brBtn);brRow.appendChild(brBtn);
@@ -2899,7 +2905,7 @@ function taskTextMatch(t,q){
 function taskSearchMatch(t){return taskTextMatch(t,taskSearch);}
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
-  if(taskCaptureId&&t.captureId!==taskCaptureId)return false;
+  if(taskCaptureId&&t.captureId!==taskCaptureId&&!(taskCaptureExtraIds&&taskCaptureExtraIds.has(t.id)))return false;
   return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t)&&taskBranchMatch(t)&&taskSearchMatch(t);
 }
 // Jump to a specific task on the Tasks board: relax any filters/collapse that could hide it,
@@ -2937,20 +2943,21 @@ function goToRoadmapTasks(r){
   taskCatDefaulted=true;
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
-  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;taskBranchFilter=null;
+  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;taskCaptureExtraIds=null;taskBranchFilter=null;
   setPage("tasks");
 }
-function goToCaptureTasks(captureId){
+function goToCaptureTasks(captureId,extraIds){
   taskCatDefaulted=true;
   taskView="viewall";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};
   taskCaptureId=captureId;taskBranchFilter=null;
+  taskCaptureExtraIds=(extraIds&&extraIds.length)?new Set(extraIds):null;
   setPage("tasks");
 }
 function goToBranchTasks(branchId){
   taskCatDefaulted=true;
   taskView="done";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
-  taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;
+  taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;taskCaptureExtraIds=null;
   taskBranchFilter=branchId;
   setPage("tasks");
 }
@@ -3268,7 +3275,7 @@ function renderTasks(m){
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskBranchFilter||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;flex-shrink:0;background:#D4537E;border-color:#D4537E;color:#fff;white-space:nowrap;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;taskBranchFilter=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;taskCaptureExtraIds=null;taskBranchFilter=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.cssText="margin-left:auto;flex-shrink:0;white-space:nowrap;";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -3308,7 +3315,7 @@ function renderTasks(m){
   const backCap=taskCaptureId?document.createElement("button"):null;
   if(backCap){backCap.className="btn sm";backCap.style.cssText="flex-shrink:0;background:#e8f5f0;border-color:#2a9d6055;color:#2a9d60;font-weight:600;";
     backCap.textContent="\u2190 Capture batch";backCap.title="Viewing tasks from one Capture session \u2014 click to go back to Capture";
-    backCap.onclick=()=>{taskCaptureId=null;setPage("capture");};}
+    backCap.onclick=()=>{taskCaptureId=null;taskCaptureExtraIds=null;setPage("capture");};}
   // "\u2190 Branch: name" \u2014 shown when viewing tasks filtered to a feature branch; click returns to Branches.
   const activeBranchObj=taskBranchFilter?DB.featureBranches.find(b=>b.id===taskBranchFilter):null;
   const backBranch=activeBranchObj?document.createElement("button"):null;
@@ -6067,22 +6074,23 @@ function branchModal(branchId){
 
 // Task-card branch picker popover (anchored to the ⎇ chip). Open branches in the same repo + Create new + Unassign.
 function openTaskBranchPicker(anchor,t){
-  const existing=anchor.querySelector(".pop");if(existing){existing.remove();return;}
-  const pop=document.createElement("div");pop.className="pop open";pop.style.cssText="min-width:230px;top:unset;left:0;z-index:999;position:absolute;";
-  const add=(html,fn,danger)=>{const li=document.createElement("div");li.className="pm-item";li.innerHTML=html;if(danger)li.style.color="var(--danger)";li.onclick=ev=>{ev.stopPropagation();pop.remove();fn();};pop.appendChild(li);};
-  if(!t.repoUrl){pop.insertAdjacentHTML("beforeend",'<div class="pm-item" style="color:var(--muted);">Assign a repo to this task first.</div>');}
+  // Toggle: close if already open
+  if(document.querySelector(".tt-floatpop")){document.querySelectorAll(".tt-floatpop").forEach(p=>p.remove());return;}
+  const{pop,place}=floatTaskPop(anchor);
+  pop.style.cssText+=";display:flex;flex-direction:column;gap:2px;min-width:230px;padding:8px;";
+  const itemStyle="cursor:pointer;padding:6px 8px;border-radius:6px;";
+  const add=(html,fn,danger)=>{const li=document.createElement("div");li.style.cssText=itemStyle+(danger?"color:var(--danger);":"");li.innerHTML=html;li.onmouseenter=()=>{li.style.background="var(--hover,#f4f4f5)";};li.onmouseleave=()=>{li.style.background="";};li.onclick=()=>{pop.remove();fn();};pop.appendChild(li);};
+  if(!t.repoUrl){const m=document.createElement("div");m.style.cssText="color:var(--muted);padding:6px 8px;";m.textContent="Assign a repo to this task first.";pop.appendChild(m);}
   else{
     const cur=t.feature_branch_id?DB.featureBranches.find(x=>x.id===t.feature_branch_id):null;
-    if(cur&&cur.status==="merged")pop.insertAdjacentHTML("beforeend",'<div class="pm-item" style="color:var(--muted);">On merged branch '+esc(cur.branch_name)+' (read-only)</div>');
+    if(cur&&cur.status==="merged"){const m=document.createElement("div");m.style.cssText="color:var(--muted);padding:6px 8px;";m.textContent="On merged branch "+esc(cur.branch_name)+" (read-only)";pop.appendChild(m);}
     const open=DB.featureBranches.filter(b=>b.status!=="merged"&&normRepo(b.repo_id||b.repoUrl||"")===normRepo(t.repoUrl)).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
     if(t.feature_branch_id)add('✕ Unassign branch',async()=>{try{await setTask(t.id,{feature_branch_id:null,task_branch_name:null});}catch(e){banner(e.message,"err");}},true);
     open.forEach(b=>{const sel=b.id===t.feature_branch_id;add('<span style="display:inline-flex;align-items:center;gap:6px;'+(sel?"font-weight:600;":"")+'"><span style="color:#1d9e75;">⎇</span>'+esc(b.name)+'</span>',async()=>{const err=assignBranchError(t,b);if(err){banner(err,"err");return;}try{await setTask(t.id,{feature_branch_id:b.id});}catch(e){banner(e.message,"err");}});});
-    if(!open.length&&!t.feature_branch_id)pop.insertAdjacentHTML("beforeend",'<div class="pm-item" style="color:var(--muted);">No open branches in this repo.</div>');
+    if(!open.length&&!t.feature_branch_id){const m=document.createElement("div");m.style.cssText="color:var(--muted);padding:6px 8px;";m.textContent="No open branches in this repo.";pop.appendChild(m);}
     add('<span style="color:#1d9e75;">+ Create new branch…</span>',()=>createBranchModal(t.repoUrl,id=>{setTask(t.id,{feature_branch_id:id}).catch(e=>banner(e.message,"err"));}));
   }
-  anchor.style.position="relative";anchor.appendChild(pop);
-  const close=ev=>{if(!pop.contains(ev.target)){pop.remove();document.removeEventListener("click",close);}};
-  setTimeout(()=>document.addEventListener("click",close),0);
+  place();
 }
 
 function renderBranches(m){
