@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MerchantsBI · Data Workflow Course</title>
+<link rel="icon" type="image/png" href="/mbi-logo.png">
+<link rel="apple-touch-icon" href="/mbi-logo.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&display=swap');
+  :root{
+    --ink:#14171f; --muted:#646b78; --faint:#9aa0a8; --line:#e3e5ea;
+    --surface:#ffffff; --canvas:#eef0f2; --accent:#4646c8; --accent-soft:#ecebfb;
+    --accent-deep:#34349a; --danger:#c23b3b; --ok:#1d6b45; --ok-soft:#e6f3ec;
+    --warn:#9a6b00; --r:14px; --sidebar:266px;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  h1,h2,h3,h4{font-family:'Space Grotesk',sans-serif;letter-spacing:-.01em;color:var(--ink);}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;background:#f1f1f6;color:#33337a;padding:1.5px 6px;border-radius:5px;}
+
+  /* ---- top bar ---- */
+  .topbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;padding:11px 20px;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+  .topbar img{width:26px;height:26px;border-radius:6px;}
+  .topbar .bname{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;}
+  .topbar .badge{font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:3px 9px;border-radius:20px;letter-spacing:.02em;}
+  .topbar .sp{flex:1;}
+  .topbar .pbar{width:150px;height:7px;border-radius:5px;background:var(--line);overflow:hidden;}
+  .topbar .pbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),#6a6ae0);transition:width .4s ease;}
+  .topbar .ppct{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:34px;}
+  .topbar .home{font-size:13px;color:var(--muted);}
+
+  /* ---- layout ---- */
+  .wrap{display:grid;grid-template-columns:var(--sidebar) 1fr;align-items:start;max-width:1240px;margin:0 auto;}
+  .side{position:sticky;top:53px;height:calc(100vh - 53px);overflow-y:auto;padding:22px 14px 60px;border-right:1px solid var(--line);}
+  .side .stitle{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:0 10px 8px;}
+  .navitem{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer;color:var(--muted);font-size:13.5px;font-weight:500;border:none;background:none;width:100%;text-align:left;transition:background .12s,color .12s;}
+  .navitem:hover{background:var(--accent-soft);color:var(--ink);}
+  .navitem.active{background:var(--accent);color:#fff;}
+  .navitem .dot{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;font-family:'Space Grotesk',sans-serif;background:var(--line);color:var(--muted);}
+  .navitem.active .dot{background:rgba(255,255,255,.25);color:#fff;}
+  .navitem.done .dot{background:var(--ok);color:#fff;}
+  .navitem.active.done .dot{background:rgba(255,255,255,.3);}
+  .navitem .lbl{flex:1;line-height:1.25;}
+  .navitem .chk{font-size:11px;}
+
+  /* ---- main ---- */
+  .main{padding:34px 46px 90px;min-width:0;}
+  .module{display:none;animation:fade .35s ease;}
+  .module.show{display:block;}
+  @keyframes fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+  .eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;}
+  .module h1{font-size:30px;margin:0 0 8px;line-height:1.15;}
+  .lede{font-size:16.5px;color:var(--muted);max-width:64ch;margin:0 0 26px;}
+  .module h2{font-size:21px;margin:34px 0 10px;}
+  .module h3{font-size:16px;margin:22px 0 6px;}
+  .module p{max-width:70ch;margin:10px 0;}
+  .module ul,.module ol{max-width:68ch;padding-left:22px;}
+  .module li{margin:6px 0;}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin:18px 0;}
+  .objectives{background:var(--accent-soft);border:1px solid #d9d8f5;border-radius:var(--r);padding:16px 20px;margin:0 0 24px;}
+  .objectives h4{margin:0 0 8px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-deep);}
+  .objectives ul{margin:0;padding-left:20px;}
+  .objectives li{margin:4px 0;font-size:14.5px;}
+
+  .callout{display:flex;gap:13px;border-radius:12px;padding:14px 16px;margin:18px 0;font-size:14px;border:1px solid;}
+  .callout .ic{font-size:17px;flex-shrink:0;line-height:1.4;}
+  .callout.term{background:#fbfbfd;border-color:var(--line);}
+  .callout.tip{background:var(--ok-soft);border-color:#c4e3d1;}
+  .callout.warn{background:#fff6e6;border-color:#f0dca8;}
+  .callout b{font-weight:600;}
+
+  table.t{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
+  table.t th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line);padding:8px 10px;}
+  table.t td{border-bottom:1px solid var(--line);padding:9px 10px;vertical-align:top;}
+  table.t tr:last-child td{border-bottom:none;}
+  table.t code{white-space:nowrap;}
+
+  pre{background:#15171f;color:#e7e9f0;border-radius:12px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;margin:16px 0;}
+  pre .k{color:#a8c7ff;} pre .s{color:#9ce0b0;} pre .c{color:#7d8597;font-style:italic;} pre .n{color:#e6c07b;}
+
+  /* ---- pipeline diagram ---- */
+  .pipe{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:26px 0;}
+  .pstep{flex:1;min-width:104px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:13px 11px;cursor:pointer;transition:transform .12s,border-color .12s,box-shadow .12s;position:relative;}
+  .pstep:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 6px 18px rgba(70,70,200,.12);}
+  .pstep .pn{font-size:10px;font-weight:600;color:var(--faint);font-family:'Space Grotesk',sans-serif;}
+  .pstep .pt{font-size:13px;font-weight:600;font-family:'Space Grotesk',sans-serif;margin:3px 0 2px;line-height:1.2;}
+  .pstep .pd{font-size:11.5px;color:var(--muted);line-height:1.3;}
+  .pstep .ar{position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:14px;z-index:2;}
+  .pstep:last-child .ar{display:none;}
+
+  /* ---- quiz ---- */
+  .quiz{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px 24px;margin:30px 0 10px;}
+  .quiz h3{margin:0 0 4px;font-size:17px;}
+  .quiz .qsub{font-size:13px;color:var(--muted);margin:0 0 16px;}
+  .q{margin:0 0 18px;}
+  .q .qtext{font-weight:600;font-size:14.5px;margin-bottom:9px;}
+  .q .qtext .qn{color:var(--accent);margin-right:6px;}
+  .opt{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 13px;margin:7px 0;cursor:pointer;font-size:14px;font-family:inherit;color:var(--ink);transition:background .12s,border-color .12s;}
+  .opt:hover{border-color:var(--accent);background:var(--accent-soft);}
+  .opt.correct{border-color:var(--ok);background:var(--ok-soft);}
+  .opt.wrong{border-color:var(--danger);background:#fbeaea;}
+  .opt.disabled{cursor:default;pointer-events:none;opacity:.85;}
+  .opt .mk{float:right;font-weight:700;}
+  .expl{font-size:13px;color:var(--muted);margin:6px 2px 0;padding-left:13px;border-left:2px solid var(--line);display:none;}
+  .expl.show{display:block;}
+  .qresult{font-size:14px;font-weight:600;margin-top:6px;display:none;}
+  .qresult.show{display:block;}
+
+  /* ---- footer nav ---- */
+  .pgnav{display:flex;justify-content:space-between;gap:12px;margin-top:42px;padding-top:24px;border-top:1px solid var(--line);}
+  .btn{font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:14px;border-radius:10px;padding:11px 18px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--ink);transition:background .12s,border-color .12s,transform .08s;}
+  .btn:hover{border-color:var(--accent);}
+  .btn:active{transform:scale(.98);}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn.primary:hover{background:var(--accent-deep);}
+  .btn.ghost{background:none;border-color:transparent;color:var(--muted);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn .a{opacity:.6;font-weight:400;}
+
+  .markdone{display:inline-flex;align-items:center;gap:8px;}
+  .donechip{font-size:12.5px;color:var(--ok);font-weight:600;display:none;}
+  .donechip.show{display:inline;}
+
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:var(--accent-soft);color:var(--accent-deep);margin:0 6px 6px 0;}
+
+  /* completion banner */
+  .finish{text-align:center;padding:40px 20px;}
+  .finish .big{font-size:46px;}
+  .finish h2{font-size:24px;margin:10px 0 6px;}
+
+  @media(max-width:860px){
+    .wrap{grid-template-columns:1fr;}
+    .side{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);}
+    .main{padding:24px 20px 80px;}
+    .topbar .pbar{width:90px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <img src="/mbi-logo.png" alt="MerchantsBI">
+  <span class="bname">MerchantsBI</span>
+  <span class="badge">Data Workflow Course</span>
+  <span class="sp"></span>
+  <div class="pbar"><i id="topfill"></i></div>
+  <span class="ppct" id="toppct">0%</span>
+  <a class="home" href="/">← Board</a>
+</div>
+
+<div class="wrap">
+  <nav class="side">
+    <div class="stitle">Modules</div>
+    <div id="nav"></div>
+  </nav>
+
+  <main class="main" id="main"><!-- modules injected --></main>
+</div>
+
+<script>
+/* ============================================================
+   MerchantsBI Data Workflow — self-contained learning course.
+   Source → connect → sync → ETL → datalake → schedule → deliver.
+   Progress + quiz state persist in localStorage. No deps.
+   ============================================================ */
+
+const LS_KEY = "mbi_course_progress_v1";
+const state = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+/* ---- module content ----------------------------------------------------- */
+const MODULES = [
+{
+  id:"overview", nav:"Big picture", icon:"◎",
+  eyebrow:"Module 0 · Orientation",
+  title:"The MerchantsBI data journey, end to end",
+  lede:"Every customer engagement follows one path: their raw data sources become clean, governed, query-ready data that flows back to them as living dashboards and reports. This course walks that path one stage at a time.",
+  obj:[
+    "Name the seven stages of the MerchantsBI pipeline in order",
+    "Explain what moves between each stage (and in what shape)",
+    "Locate where you fit, whoever you are on the team"
+  ],
+  body:`
+    <p>MerchantsBI is a <b>business-intelligence service</b>: customers hand us their scattered operational data — the SaaS tools they bill through, the databases behind their apps, the spreadsheets and file drops — and we hand back a single, trustworthy view of their business. Between those two points sits a repeatable pipeline. Click any stage to jump to its module.</p>
+
+    <div class="pipe" id="pipe"></div>
+
+    <h2>What flows down the pipe</h2>
+    <p>The key idea: each stage takes a well-defined input and produces a well-defined output for the next stage. Nothing is improvised hand-off to hand-off.</p>
+    <table class="t">
+      <tr><th>Stage</th><th>Takes in</th><th>Hands off</th></tr>
+      <tr><td><b>Intake</b></td><td>A customer and a wishlist of questions</td><td>A list of described data sources + goals</td></tr>
+      <tr><td><b>Source connection</b></td><td>A described source (maybe a URL + credential)</td><td>A structured <i>connector spec</i></td></tr>
+      <tr><td><b>Data sync</b></td><td>A connector spec + a schedule</td><td>Raw records landed in the lake</td></tr>
+      <tr><td><b>ETL</b></td><td>Raw landed records</td><td>Clean, typed, modeled tables</td></tr>
+      <tr><td><b>Datalake</b></td><td>Raw + modeled data</td><td>A governed, queryable store</td></tr>
+      <tr><td><b>Scheduling</b></td><td>The jobs above</td><td>Reliable, on-time, monitored runs</td></tr>
+      <tr><td><b>Delivery</b></td><td>Modeled data</td><td>Dashboards & reports for the customer</td></tr>
+    </table>
+
+    <div class="callout tip"><span class="ic">💡</span><div><b>Why this matters for everyone.</b> Sales promises a deliverable, ETL builds the transforms, Dev-Ops keeps the schedule healthy, and AI agents (like the <i>Master Connector Identifier</i>) automate the connection step. Knowing the whole path means you know whose work yours depends on — and who depends on yours.</div></div>
+
+    <h2>A guiding example</h2>
+    <p>We'll carry one example through the whole course: a customer, <b>"Northwind Coffee"</b>, wants a daily dashboard of revenue, refunds, and active subscribers. Their data lives in <b>Stripe</b> (payments, REST API) and an internal <b>Postgres</b> orders database. By the last module you'll have followed both sources from a sentence in a sales call all the way to a number on their screen.</p>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"Three quick questions before you continue.",
+    qs:[
+      { t:"Which sequence correctly orders the pipeline?",
+        opts:["Intake → ETL → Source connection → Delivery","Intake → Source connection → Data sync → ETL → Datalake → Scheduling → Delivery","Source connection → Intake → Delivery → ETL","Datalake → Intake → Delivery"],
+        a:1, e:"Intake comes first (understand the need), then we connect, sync, transform, store, schedule, and finally deliver." },
+      { t:"What is the single artifact handed from the connection stage to data sync?",
+        opts:["A finished dashboard","A raw CSV","A structured connector spec","The customer's password"],
+        a:2, e:"The connection stage's whole job is to produce one structured connector spec the ETL/sync layer can consume directly." },
+      { t:"The big idea that keeps the pipeline reliable is…",
+        opts:["Every stage improvises its hand-off","Each stage has a defined input and a defined output","Customers do the ETL themselves","Nothing is ever scheduled"],
+        a:1, e:"Defined inputs and outputs at each boundary are what make the pipeline repeatable and debuggable." }
+    ]
+  }
+},
+{
+  id:"intake", nav:"Intake & onboarding", icon:"1",
+  eyebrow:"Module 1 · Stage one",
+  title:"Intake: turning a business question into a data plan",
+  lede:"Before a single byte moves, we figure out what the customer actually wants to know and which of their systems holds the answer. Skip this and you build a beautiful pipeline pointed at the wrong data.",
+  obj:[
+    "Translate vague business goals into concrete data questions",
+    "Inventory a customer's data sources and what each can answer",
+    "Capture the requirements the rest of the pipeline depends on"
+  ],
+  body:`
+    <h2>What intake produces</h2>
+    <p>Intake is a conversation that ends in a written plan. The deliverables a downstream engineer needs from it are:</p>
+    <ul>
+      <li><b>The questions</b> — e.g. "How much revenue did we make yesterday, net of refunds?" Each one becomes a metric on the eventual dashboard.</li>
+      <li><b>The source inventory</b> — every system that might hold the answer, described in plain language, with whoever owns access.</li>
+      <li><b>Grain &amp; freshness</b> — how detailed (per-order? per-day?) and how fresh (real-time? once a day?) the answer must be.</li>
+      <li><b>Constraints</b> — data that's sensitive, regulated, or off-limits; and any contractual SLAs.</li>
+    </ul>
+
+    <div class="callout term"><span class="ic">📖</span><div><b>Source description.</b> A short, natural-language statement of a data source — "Stripe charges and customers", or "our internal Postgres orders DB". This is exactly the input the connector stage expects, so getting it crisp at intake saves a round-trip later.</div></div>
+
+    <h2>Freshness drives everything downstream</h2>
+    <p>"How fresh?" is the most expensive question to get wrong, because it sets the <b>sync schedule</b>, the transform strategy, and the cost. A daily dashboard needs a nightly sync; a live ops board may need streaming. Pin it down now.</p>
+
+    <table class="t">
+      <tr><th>If the customer says…</th><th>They probably need…</th><th>Which sets…</th></tr>
+      <tr><td>"I check it each morning"</td><td>Daily refresh</td><td>A nightly scheduled sync</td></tr>
+      <tr><td>"During a sale I watch it live"</td><td>Near-real-time</td><td>Frequent incremental syncs / streaming</td></tr>
+      <tr><td>"Monthly board deck"</td><td>Monthly snapshot</td><td>A monthly batch + history retention</td></tr>
+    </table>
+
+    <h2>Northwind Coffee, intake edition</h2>
+    <div class="card">
+      <p style="margin-top:0"><b>Goal:</b> "A dashboard I open every morning showing yesterday's revenue, refunds, and how many active subscribers I have."</p>
+      <p><b>Questions →</b> net revenue (daily), refund total &amp; count (daily), active subscriber count (point-in-time).</p>
+      <p><b>Sources →</b> Stripe (payments &amp; subscriptions, REST API, has an API key); internal Postgres "orders" DB (for fulfillment context).</p>
+      <p style="margin-bottom:0"><b>Freshness →</b> daily, refreshed before 7am local. <b>Grain →</b> per-transaction kept; dashboard rolls up to per-day.</p>
+    </div>
+    <p>Notice we've now produced exactly what the next stage wants: two crisp source descriptions, each with a hint about how to connect. On to connecting them.</p>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"Why is 'how fresh does the data need to be?' the most important intake question?",
+        opts:["It decides the dashboard's color scheme","It sets the sync schedule, transform strategy, and cost","It's required by law","It has no real impact"],
+        a:1, e:"Freshness cascades into the schedule, how transforms run, and the overall cost — getting it wrong is expensive to fix later." },
+      { t:"A good intake 'source description' looks like…",
+        opts:["'Stripe charges and customers'","'their stuff'","a 40-page contract","the raw database password"],
+        a:0, e:"A crisp natural-language description is exactly what the connector stage consumes. Short and specific wins." },
+      { t:"Intake's main risk if skipped is…",
+        opts:["The logo is wrong","You build a working pipeline pointed at the wrong data","Too many dashboards","Nothing — it's optional"],
+        a:1, e:"Without intake you can build something technically perfect that answers a question the customer never asked." }
+    ]
+  }
+},
+{
+  id:"connect", nav:"Source connections", icon:"2",
+  eyebrow:"Module 2 · Stage two",
+  title:"Source connections: the connector spec",
+  lede:"Every source — a REST API, a database, a file drop, a webhook — is reduced to one structured connector spec the rest of the platform can consume. At MerchantsBI an AI agent, the Master Connector Identifier, does the heavy lifting.",
+  obj:[
+    "List the connection methods and pick the right one for a source",
+    "Recognize the common authentication and pagination patterns",
+    "Read and trust (or question) a connector spec"
+  ],
+  body:`
+    <h2>The job: figure out how to talk to a source</h2>
+    <p>A source could be almost anything. The connection stage classifies it, discovers how to authenticate, infers its schema, learns how it paginates and rate-limits, and emits <b>one structured connector spec</b>. That spec is the contract the sync + ETL layers build on.</p>
+
+    <h3>Connection methods</h3>
+    <table class="t">
+      <tr><th>Method</th><th>Looks like</th><th>Can we probe it live?</th></tr>
+      <tr><td><code>REST</code></td><td>HTTP+JSON SaaS APIs (Stripe, Shopify)</td><td>Yes — public HTTPS</td></tr>
+      <tr><td><code>GraphQL</code></td><td>A single <code>/graphql</code> endpoint</td><td>Yes — public HTTPS</td></tr>
+      <tr><td><code>JDBC</code></td><td>Relational DBs (Postgres, MySQL)</td><td>Usually no — private network</td></tr>
+      <tr><td><code>SDK</code></td><td>Vendor library, no plain HTTP</td><td>No — infer</td></tr>
+      <tr><td><code>file</code></td><td>CSV/Parquet in S3, an SFTP drop</td><td>No — infer from a sample</td></tr>
+      <tr><td><code>webhook</code></td><td>The source pushes events to us</td><td>No — inbound</td></tr>
+    </table>
+
+    <div class="callout warn"><span class="ic">⚠️</span><div><b>Probing has limits.</b> The platform can only live-probe <b>public</b> HTTP(S) endpoints — an SSRF guard blocks private/internal addresses. So REST/GraphQL specs are <b>high-confidence</b> (we saw the real responses); JDBC/file/SDK/webhook specs are <b>inferred</b> and must be verified against the real source before wiring the job.</div></div>
+
+    <h3>Authentication patterns to recognize</h3>
+    <p>None/public · API key (header <i>or</i> query param) · Bearer token · HTTP Basic · OAuth2 (client-credentials or authorization-code) · HMAC-signed requests · mTLS. The spec records the <i>type</i> plus the specifics (header name, token URL, scopes, signing algorithm).</p>
+
+    <h3>Pagination styles to recognize</h3>
+    <p><code>cursor</code> (next/next_cursor token) · <code>page</code> (page number + size) · <code>offset</code> (offset + limit) · <code>link-header</code> (RFC&nbsp;5988 <code>rel="next"</code>) · <code>keyset</code>/seek · <code>none</code>. Getting this right is what lets sync pull <i>all</i> the records, not just the first page.</p>
+
+    <h2>The connector spec (the output contract)</h2>
+    <p>Here's the shape of what this stage emits for Northwind's Stripe source:</p>
+    <pre><span class="c">// connector spec — consumed directly by the ETL layer</span>
+{
+  <span class="k">"connectionMethod"</span>: <span class="s">"REST"</span>,
+  <span class="k">"endpoint"</span>: <span class="s">"https://api.stripe.com/v1"</span>,
+  <span class="k">"authentication"</span>: { <span class="k">"type"</span>:<span class="s">"Bearer"</span>, <span class="k">"details"</span>:<span class="s">"secret key in Authorization header"</span> },
+  <span class="k">"schema"</span>: [
+    { <span class="k">"field"</span>:<span class="s">"id"</span>,       <span class="k">"type"</span>:<span class="s">"string"</span> },
+    { <span class="k">"field"</span>:<span class="s">"amount"</span>,   <span class="k">"type"</span>:<span class="s">"integer"</span> },   <span class="c">// cents</span>
+    { <span class="k">"field"</span>:<span class="s">"created"</span>,  <span class="k">"type"</span>:<span class="s">"timestamp"</span> }, <span class="c">// unix epoch</span>
+    { <span class="k">"field"</span>:<span class="s">"refunded"</span>, <span class="k">"type"</span>:<span class="s">"boolean"</span> }
+  ],
+  <span class="k">"pagination"</span>: { <span class="k">"style"</span>:<span class="s">"cursor"</span>, <span class="k">"details"</span>:<span class="s">"starting_after=&lt;id&gt;, has_more flag"</span> },
+  <span class="k">"rateLimits"</span>: { <span class="k">"limit"</span>:<span class="n">100</span>, <span class="k">"window"</span>:<span class="s">"1s"</span>, <span class="k">"details"</span>:<span class="s">"per-key"</span> },
+  <span class="k">"notes"</span>: <span class="s">"Confirmed REST+Bearer+cursor by probing. 'amount' is cents; 'created' is unix epoch — ETL must normalize."</span>
+}</pre>
+
+    <div class="callout term"><span class="ic">🤖</span><div><b>The Master Connector Identifier.</b> MerchantsBI's AI agent that does this automatically. Give it a source description (and optionally a URL + credential) and it classifies, probes within an SSRF guard, infers schema/auth/pagination/limits, and emits the spec — in a single shot, marking what it confirmed vs. inferred. Credentials are passed per-run as <code>secret:NAME</code> and never stored in the transcript.</div></div>
+
+    <h3>Secrets, handled safely</h3>
+    <p>Credentials never live in the spec or the logs. They're supplied per-run; a request header is set to the placeholder <code>secret:STRIPE_KEY</code> and the runtime substitutes the real value server-side at request time. The model and the saved transcript only ever see the placeholder.</p>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"Why are JDBC/file/webhook connector specs treated as lower-confidence than REST?",
+        opts:["They're always wrong","The platform can only live-probe public HTTP(S); the rest are inferred","Databases don't have schemas","REST is older"],
+        a:1, e:"An SSRF guard blocks private/internal hosts, so non-public sources can't be probed and are inferred — verify them before wiring the job." },
+      { t:"A connector spec says pagination style is 'cursor'. That tells the sync layer to…",
+        opts:["Stop after page 1","Follow next_cursor / has_more until exhausted","Ignore pagination","Use page numbers"],
+        a:1, e:"Cursor pagination means follow the next-token until has_more is false — that's how sync pulls every record." },
+      { t:"How does a credential reach the source without ending up in logs?",
+        opts:["It's hardcoded in the spec","It's emailed to the customer","A 'secret:NAME' placeholder is substituted server-side at request time","It isn't — sources are all public"],
+        a:2, e:"The placeholder is substituted by the runtime; the model and transcript only ever see 'secret:NAME', never the real value." }
+    ]
+  }
+},
+{
+  id:"sync", nav:"Data sync", icon:"3",
+  eyebrow:"Module 3 · Stage three",
+  title:"Data sync: pulling records into the lake",
+  lede:"With a connector spec in hand, the sync layer actually moves data — authenticating, paginating, respecting rate limits, and landing raw records. The big lever here is full vs. incremental.",
+  obj:[
+    "Distinguish full refresh from incremental sync and pick correctly",
+    "Explain how the connector spec drives a reliable extraction",
+    "Describe how sync handles rate limits, failures, and back-pressure"
+  ],
+  body:`
+    <h2>From spec to records</h2>
+    <p>Sync reads the connector spec and does the mechanical work: open a session with the right auth, walk every page using the declared pagination, throttle to stay under the rate limit, and write what comes back into a <b>raw landing zone</b> in the datalake — untouched, exactly as the source returned it.</p>
+    <div class="callout tip"><span class="ic">💡</span><div><b>Land raw, transform later.</b> Sync deliberately does <i>not</i> clean the data. Keeping a faithful raw copy means we can re-run transforms later (e.g. after fixing a bug) without re-pulling from the source — which is slower, rate-limited, and sometimes impossible for data that's since changed.</div></div>
+
+    <h2>Full refresh vs. incremental</h2>
+    <table class="t">
+      <tr><th></th><th>Full refresh</th><th>Incremental</th></tr>
+      <tr><td><b>What it does</b></td><td>Re-pulls every record every run</td><td>Pulls only what changed since last run</td></tr>
+      <tr><td><b>Needs</b></td><td>Nothing special</td><td>A reliable cursor: <code>updated_at</code>, an ID, or a source cursor</td></tr>
+      <tr><td><b>Good for</b></td><td>Small or fully-mutable tables</td><td>Large, append-mostly sources (events, charges)</td></tr>
+      <tr><td><b>Cost</b></td><td>High — scales with total size</td><td>Low — scales with change volume</td></tr>
+    </table>
+    <p>For Northwind's Stripe charges (large, append-mostly), we sync <b>incrementally</b> on <code>created</code> — each nightly run asks only for charges after the last one we saw. For the small <code>subscriptions</code> table we just do a <b>full refresh</b> nightly.</p>
+
+    <h2>Being a good API citizen</h2>
+    <ul>
+      <li><b>Rate limits.</b> The spec's <code>rateLimits</code> tell sync how fast it may go. On a <code>429</code>, it honors <code>Retry-After</code> and backs off — never hammers to find the ceiling.</li>
+      <li><b>Idempotency.</b> A run that dies halfway can re-run safely; landing is keyed so duplicates are de-duplicated, not double-counted.</li>
+      <li><b>Watermarks.</b> Each incremental run records the high-water mark it reached, so the next run knows exactly where to resume.</li>
+    </ul>
+
+    <div class="callout warn"><span class="ic">⚠️</span><div><b>Incremental's classic trap.</b> If a source can <i>update</i> old rows but you key incremental sync only on <code>created</code>, you'll miss those edits forever. Use an <code>updated_at</code> cursor when rows mutate, or periodically reconcile with a full refresh.</div></div>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"Why does sync land data raw and untouched instead of cleaning it on the way in?",
+        opts:["To save disk","So transforms can be re-run later without re-pulling from the rate-limited source","Because cleaning is impossible","Customers prefer messy data"],
+        a:1, e:"A faithful raw copy lets us re-run/ fix transforms anytime without hitting the source again — which is slow, throttled, and sometimes irreversible." },
+      { t:"You're syncing a huge, append-mostly events table nightly. Best strategy?",
+        opts:["Full refresh every night","Incremental on a created/updated cursor","Never sync it","Sync it by hand"],
+        a:1, e:"Incremental scales with change volume, not total size — ideal for large append-mostly sources." },
+      { t:"On a 429 Too Many Requests, a well-behaved sync…",
+        opts:["Retries instantly in a tight loop","Honors Retry-After and backs off","Gives up permanently","Switches to a different customer"],
+        a:1, e:"Respect Retry-After / back off. Hammering a rate-limited API gets you throttled harder or blocked." }
+    ]
+  }
+},
+{
+  id:"etl", nav:"ETL & modeling", icon:"4",
+  eyebrow:"Module 4 · Stage four",
+  title:"ETL: from raw records to trustworthy tables",
+  lede:"Extract, Transform, Load. The raw landed data gets typed, cleaned, joined, and shaped into the models that answer the customer's questions. This is where 'amount in cents, time as a unix epoch' becomes 'net revenue per day'.",
+  obj:[
+    "Define each step of ETL and the normalized type vocabulary",
+    "Walk a real transform from raw fields to a business metric",
+    "Explain the raw → staging → marts modeling layers"
+  ],
+  body:`
+    <h2>E, T, L</h2>
+    <ul>
+      <li><b>Extract</b> — already done by sync: raw records sit in the landing zone.</li>
+      <li><b>Transform</b> — the heart of it: normalize types, clean bad values, deduplicate, join sources, apply business rules, and aggregate to the grain the dashboard needs.</li>
+      <li><b>Load</b> — write the finished tables into the curated/serving area of the lake where delivery reads from.</li>
+    </ul>
+    <div class="callout term"><span class="ic">📖</span><div><b>ELT vs. ETL.</b> Modern lake-based pipelines often <i>load raw first, then transform in place</i> (ELT) — which is exactly the "land raw, transform later" pattern from the sync module. We still say "ETL" for the overall stage, but the transforms run on data already in the lake.</div></div>
+
+    <h2>Normalized type vocabulary</h2>
+    <p>Every source describes types its own way. The connector spec already mapped them onto one shared vocabulary so transforms stay consistent across sources:</p>
+    <p><span class="tag">string</span><span class="tag">integer</span><span class="tag">number</span><span class="tag">boolean</span><span class="tag">timestamp</span><span class="tag">date</span><span class="tag">object</span><span class="tag">array</span><span class="tag">null / unknown</span></p>
+    <p>The spec's <code>notes</code> flagged two normalizations for Stripe: <code>amount</code> is in <b>cents</b> (integer) and <code>created</code> is a <b>unix epoch</b> (timestamp). Transform handles both.</p>
+
+    <h2>Northwind's revenue transform</h2>
+    <pre><span class="c">-- raw_stripe_charges  →  daily net revenue</span>
+<span class="k">SELECT</span>
+  <span class="n">date</span>(to_timestamp(created)) <span class="k">AS</span> day,          <span class="c">-- epoch → date</span>
+  <span class="k">SUM</span>(amount) / <span class="n">100.0</span>            <span class="k">AS</span> gross_revenue, <span class="c">-- cents → dollars</span>
+  <span class="k">SUM</span>(<span class="k">CASE WHEN</span> refunded <span class="k">THEN</span> amount <span class="k">ELSE</span> <span class="n">0</span> <span class="k">END</span>)/<span class="n">100.0</span> <span class="k">AS</span> refunds,
+  (<span class="k">SUM</span>(amount) - <span class="k">SUM</span>(<span class="k">CASE WHEN</span> refunded <span class="k">THEN</span> amount <span class="k">ELSE</span> <span class="n">0</span> <span class="k">END</span>))/<span class="n">100.0</span> <span class="k">AS</span> net_revenue
+<span class="k">FROM</span> raw_stripe_charges
+<span class="k">WHERE</span> status = <span class="s">'succeeded'</span>
+<span class="k">GROUP BY</span> <span class="n">1</span>;</pre>
+    <p>That single model turns thousands of raw cent-denominated charge rows into the one clean <code>net_revenue</code>-per-day table the dashboard plots.</p>
+
+    <h2>Modeling in layers</h2>
+    <table class="t">
+      <tr><th>Layer</th><th>Contains</th><th>Who reads it</th></tr>
+      <tr><td><b>Raw</b></td><td>Exact source copy, untouched</td><td>Only transforms</td></tr>
+      <tr><td><b>Staging</b></td><td>Typed, cleaned, renamed, deduped — one model per source table</td><td>Other transforms</td></tr>
+      <tr><td><b>Marts</b></td><td>Business concepts: revenue, subscribers, joined across sources</td><td>Dashboards &amp; reports</td></tr>
+    </table>
+    <p>Layering means a fix to a type cast happens once in staging and every downstream mart inherits it — and it gives you a clear lineage from a dashboard number back to a raw field.</p>
+
+    <div class="callout tip"><span class="ic">💡</span><div><b>Data quality is part of T.</b> Good transforms also <i>test</i>: assert keys are unique, values aren't null where they shouldn't be, and totals reconcile. A failing test should stop the pipeline before bad numbers reach the customer.</div></div>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"In the 'land raw, transform in place' (ELT) pattern, where do transforms run?",
+        opts:["Inside the source API","On data already loaded into the lake","In the customer's browser","Nowhere — there are no transforms"],
+        a:1, e:"ELT loads raw first, then transforms the data in place in the lake — matching the 'land raw, transform later' principle." },
+      { t:"Stripe's 'amount' is an integer in cents and 'created' is a unix epoch. Whose job is fixing that?",
+        opts:["The customer's","The Transform step (e.g. /100 and epoch→date)","Nobody's — leave it raw","The web designer's"],
+        a:1, e:"Transform normalizes units and types — dividing cents to dollars and converting epoch seconds to a date." },
+      { t:"Why model in raw → staging → marts layers?",
+        opts:["It looks fancy","A fix made once in staging propagates to every downstream mart, with clear lineage","To use more storage","It's legally required"],
+        a:1, e:"Layering centralizes cleaning and gives clear lineage from a dashboard number back to its raw source field." }
+    ]
+  }
+},
+{
+  id:"lake", nav:"The datalake", icon:"5",
+  eyebrow:"Module 5 · Stage five",
+  title:"The datalake: one governed home for everything",
+  lede:"All of it — raw landings, staging models, and finished marts — lives in the datalake. It's the single store the whole pipeline reads and writes, and where governance and history live.",
+  obj:[
+    "Describe the zones of the lake and what lives in each",
+    "Explain why a single store beats per-customer silos",
+    "Connect data classification & retention to the lake"
+  ],
+  body:`
+    <h2>Zones, not a swamp</h2>
+    <p>A datalake without structure becomes a "data swamp" nobody trusts. Ours is organized into zones that mirror the modeling layers:</p>
+    <table class="t">
+      <tr><th>Zone</th><th>Holds</th><th>Mutability</th></tr>
+      <tr><td><b>Raw / landing</b></td><td>Exact source copies from sync</td><td>Append-only, immutable history</td></tr>
+      <tr><td><b>Staging</b></td><td>Typed &amp; cleaned intermediate models</td><td>Rebuilt by transforms</td></tr>
+      <tr><td><b>Curated / marts</b></td><td>Business-ready tables delivery reads</td><td>Rebuilt by transforms</td></tr>
+    </table>
+
+    <h2>Why one lake</h2>
+    <ul>
+      <li><b>Re-runnable.</b> Because raw is kept immutably, any model can be rebuilt from history at any time.</li>
+      <li><b>Joinable.</b> Stripe and Postgres data sitting in the same store can be joined — that's how "revenue" and "fulfillment" become one view of Northwind.</li>
+      <li><b>Governable.</b> One place to apply access control, encryption, classification, and retention — instead of chasing data across silos.</li>
+    </ul>
+
+    <div class="callout term"><span class="ic">📖</span><div><b>Data classification.</b> Not all data is equal — a public product name vs. a customer's payment details. MerchantsBI's data-classification policy tags data by sensitivity, and the lake enforces who can read each tier and how long it's retained. Sensitive fields are encrypted at rest.</div></div>
+
+    <div class="callout warn"><span class="ic">⚠️</span><div><b>Per-customer isolation still matters.</b> "One lake" means one platform and one governance model — <i>not</i> that customers can see each other's data. Northwind's data is logically isolated; access control ensures their dashboards only ever read Northwind's marts.</div></div>
+
+    <h2>History pays off</h2>
+    <p>Keeping immutable raw history is what lets us answer "what did the number look like last Tuesday?" and recover from a bad transform deploy by simply rebuilding. It's the safety net under the entire pipeline.</p>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"The raw/landing zone is kept immutable and append-only because…",
+        opts:["Storage is free","It preserves history so any model can be rebuilt and you can recover from bad transforms","Customers can't read it otherwise","It's faster to query"],
+        a:1, e:"Immutable raw history is the safety net — rebuild any model anytime, recover from a bad deploy, answer 'what was it last week?'." },
+      { t:"'One datalake' means…",
+        opts:["Every customer can see every other customer's data","One governed platform with logical per-customer isolation and access control","No security at all","Each customer gets a separate company"],
+        a:1, e:"One platform and one governance model — but access control keeps each customer's data logically isolated." },
+      { t:"Putting Stripe and Postgres data in the same lake primarily enables…",
+        opts:["Joining them into a single unified view","Deleting the customer","Slower queries","Avoiding ETL"],
+        a:0, e:"Co-locating sources is what lets transforms join revenue with fulfillment into one view of the business." }
+    ]
+  }
+},
+{
+  id:"schedule", nav:"Scheduling & ops", icon:"6",
+  eyebrow:"Module 6 · Stage six",
+  title:"Scheduling & orchestration: keeping it reliable",
+  lede:"A pipeline that works once is a demo. A pipeline that works every night at 5am, recovers from failures, and tells you when it didn't — that's a product. This is the operational layer that wraps everything before it.",
+  obj:[
+    "Explain orchestration: schedules, dependencies (DAGs), retries",
+    "Describe how monitoring and alerting protect the SLA",
+    "Trace a full nightly run for Northwind"
+  ],
+  body:`
+    <h2>Orchestration in one picture</h2>
+    <p>Jobs have <b>dependencies</b>: you can't transform what hasn't synced, or deliver what hasn't transformed. Orchestration encodes that as a <b>DAG</b> (directed acyclic graph) and runs each job only after its inputs are ready.</p>
+    <pre><span class="c">Northwind nightly DAG (runs 04:30, must finish before 07:00)</span>
+  sync_stripe_charges  ─┐
+  sync_stripe_subs     ─┼─►  transform_staging  ─►  transform_marts  ─►  refresh_dashboard
+  sync_postgres_orders ─┘</pre>
+
+    <h2>The three guarantees ops provides</h2>
+    <table class="t">
+      <tr><th>Concern</th><th>Mechanism</th></tr>
+      <tr><td><b>On time</b></td><td>Cron-style schedules sized to the freshness promised at intake (Northwind: nightly, done by 7am)</td></tr>
+      <tr><td><b>Resilient</b></td><td>Automatic retries with back-off; idempotent jobs so a retry can't double-count; a failed job blocks its dependents instead of shipping bad data</td></tr>
+      <tr><td><b>Observable</b></td><td>Every run is logged with status, row counts, and cost; alerts fire on failure or when a run misses its window</td></tr>
+    </table>
+
+    <div class="callout term"><span class="ic">📖</span><div><b>Idempotent.</b> A job you can run twice with the same result as running it once. It's what makes automatic retries safe — re-running a half-finished sync or transform can't create duplicate rows or double-counted revenue.</div></div>
+
+    <h2>When something breaks</h2>
+    <ul>
+      <li>A sync fails → it retries; if it keeps failing, the DAG <b>stops</b> there and alerts on-call. The dashboard simply keeps yesterday's good data rather than showing wrong data.</li>
+      <li>A data-quality test fails in transform → the run halts before marts update, so bad numbers never reach delivery.</li>
+      <li>A run runs long and risks the 7am SLA → an alert fires early enough to intervene.</li>
+    </ul>
+
+    <div class="callout tip"><span class="ic">💡</span><div><b>Stale-but-correct &gt; fresh-but-wrong.</b> The cardinal ops rule: if you can't ship correct data on time, ship yesterday's correct data and raise an alarm. A customer can live with a one-day-old number; they can't trust a wrong one.</div></div>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"Why model the pipeline as a DAG with dependencies?",
+        opts:["It looks impressive","So each job runs only after its inputs are ready — you can't transform what hasn't synced","DAGs are required by law","To slow things down"],
+        a:1, e:"Dependencies enforce correct order: sync before transform, transform before deliver." },
+      { t:"What makes automatic retries safe?",
+        opts:["Idempotent jobs — re-running can't double-count or duplicate","Running them on a faster server","Asking the customer first","Nothing — retries are never safe"],
+        a:0, e:"Idempotency means a job run twice yields the same result as once, so a retry can't corrupt the data." },
+      { t:"A transform's data-quality test fails at 5am. The right behavior is…",
+        opts:["Publish the bad numbers anyway","Halt before marts update; keep yesterday's good data and alert","Delete the datalake","Email the customer the error"],
+        a:1, e:"Stale-but-correct beats fresh-but-wrong: stop the run, keep good data, raise an alert." }
+    ]
+  }
+},
+{
+  id:"deliver", nav:"Customer delivery", icon:"7",
+  eyebrow:"Module 7 · Stage seven",
+  title:"Delivery: the data flows back to the customer",
+  lede:"The whole pipeline exists for this moment — the customer opens a dashboard and sees a number they trust. Delivery turns curated marts into living dashboards, scheduled reports, and secure self-serve access.",
+  obj:[
+    "Describe the delivery surfaces and who each one serves",
+    "Connect a dashboard number back through every prior stage",
+    "Explain the trust factors that make delivery credible"
+  ],
+  body:`
+    <h2>How data leaves the lake</h2>
+    <table class="t">
+      <tr><th>Surface</th><th>What it is</th><th>Best for</th></tr>
+      <tr><td><b>Dashboards</b></td><td>Live, interactive charts on the marts</td><td>Daily monitoring (Northwind's morning check)</td></tr>
+      <tr><td><b>Scheduled reports</b></td><td>PDF/email snapshots on a cadence</td><td>Recurring updates, board decks</td></tr>
+      <tr><td><b>Self-serve / exports</b></td><td>Governed query access, CSV/API out</td><td>Customers who want to dig in themselves</td></tr>
+    </table>
+
+    <h2>Northwind opens the dashboard</h2>
+    <div class="card">
+      <p style="margin-top:0">At 7:05am, Northwind's owner opens the dashboard and sees <b>"Net revenue yesterday: $4,182"</b>. Trace that one number all the way back:</p>
+      <ol style="margin-bottom:0">
+        <li><b>Delivery</b> renders it from the <code>daily_revenue</code> mart.</li>
+        <li><b>Scheduling</b> made sure the 4:30am run finished, passed its tests, and refreshed by 7.</li>
+        <li><b>Datalake</b> holds the mart in the curated zone, isolated to Northwind.</li>
+        <li><b>ETL</b> summed succeeded charges, converted cents→dollars and epoch→date, subtracted refunds.</li>
+        <li><b>Sync</b> incrementally pulled yesterday's charges via cursor pagination, under the rate limit.</li>
+        <li><b>Connection</b> emitted the Stripe connector spec (REST, Bearer, cursor) that drove the sync.</li>
+        <li><b>Intake</b> captured the goal — "yesterday's net revenue, every morning" — that started it all.</li>
+      </ol>
+    </div>
+    <p>Seven stages, one number. That round-trip — a sentence in a sales call becoming a trusted figure on a screen — <i>is</i> MerchantsBI.</p>
+
+    <h2>What makes delivery trustworthy</h2>
+    <ul>
+      <li><b>Correctness</b> — data-quality tests upstream mean the number reconciles with the customer's own books.</li>
+      <li><b>Freshness</b> — it's as current as intake promised, and the dashboard shows when it last refreshed.</li>
+      <li><b>Security</b> — access control ensures the customer sees only their own data, over encrypted connections.</li>
+      <li><b>Lineage</b> — when they ask "where does this come from?", layered modeling lets us answer precisely.</li>
+    </ul>
+
+    <div class="callout tip"><span class="ic">💡</span><div><b>Delivery closes the loop.</b> What customers see here generates the next round of questions — "can I also see it by product?" — which feeds straight back into <b>intake</b>. The pipeline is a cycle, not a line.</div></div>
+  `,
+  quiz:{
+    title:"Check yourself", sub:"",
+    qs:[
+      { t:"A customer asks 'where does this $4,182 come from?'. What lets you answer precisely?",
+        opts:["Guesswork","Layered modeling lineage from mart back to raw source field","Asking Stripe","You can't answer that"],
+        a:1, e:"Raw→staging→marts layering gives a clear lineage from any delivered number back to its raw source." },
+      { t:"What ensures the customer sees only their own data on the dashboard?",
+        opts:["Hope","Access control + per-customer isolation in the lake, over encrypted connections","Nothing, all data is shared","The customer's browser"],
+        a:1, e:"Governance in the lake plus access control enforce isolation; encryption protects it in transit." },
+      { t:"Why is the pipeline described as a cycle rather than a line?",
+        opts:["It runs backwards","What customers see in delivery generates new questions that feed back into intake","Delivery comes first","There is no intake"],
+        a:1, e:"Delivery sparks new questions ('can I see it by product?') which re-enter at intake — closing the loop." }
+    ]
+  }
+}
+];
+
+/* ---- render ------------------------------------------------------------- */
+const main = document.getElementById("main");
+const nav  = document.getElementById("nav");
+
+function isDone(id){ return !!(state[id] && state[id].done); }
+
+function buildPipe(){
+  const steps = MODULES.filter(m=>m.id!=="overview");
+  const el = document.getElementById("pipe");
+  if(!el) return;
+  el.innerHTML = steps.map((m,i)=>`
+    <div class="pstep" data-go="${m.id}">
+      <div class="pn">Stage ${i+1}</div>
+      <div class="pt">${m.nav}</div>
+      <div class="pd">${stepBlurb(m.id)}</div>
+      <span class="ar">→</span>
+    </div>`).join("");
+  el.querySelectorAll(".pstep").forEach(s=>s.onclick=()=>go(s.dataset.go));
+}
+function stepBlurb(id){
+  return ({intake:"Understand the need",connect:"Build the connector spec",sync:"Pull raw records",
+    etl:"Clean & model",lake:"Store & govern",schedule:"Run reliably",deliver:"Back to the customer"})[id]||"";
+}
+
+function renderModule(m, idx){
+  const sec = document.createElement("section");
+  sec.className = "module"; sec.id = "m-"+m.id;
+  const quizHtml = m.quiz ? `
+    <div class="quiz" data-mod="${m.id}">
+      <h3>${m.quiz.title}</h3>
+      ${m.quiz.sub?`<p class="qsub">${m.quiz.sub}</p>`:""}
+      ${m.quiz.qs.map((q,qi)=>`
+        <div class="q" data-qi="${qi}">
+          <div class="qtext"><span class="qn">Q${qi+1}.</span>${q.t}</div>
+          ${q.opts.map((o,oi)=>`<button class="opt" data-oi="${oi}">${o}<span class="mk"></span></button>`).join("")}
+          <div class="expl">${q.e}</div>
+        </div>`).join("")}
+      <div class="qresult"></div>
+    </div>` : "";
+
+  sec.innerHTML = `
+    <div class="eyebrow">${m.eyebrow}</div>
+    <h1>${m.title}</h1>
+    <p class="lede">${m.lede}</p>
+    <div class="objectives">
+      <h4>By the end of this module you'll be able to</h4>
+      <ul>${m.obj.map(o=>`<li>${o}</li>`).join("")}</ul>
+    </div>
+    ${m.body}
+    ${quizHtml}
+    <div class="pgnav">
+      <button class="btn ghost" data-prev>${idx>0?"← "+MODULES[idx-1].nav:""}</button>
+      <span class="markdone">
+        <span class="donechip" data-chip>✓ Completed</span>
+        <button class="btn primary" data-done>${idx<MODULES.length-1?"Mark complete & continue →":"Mark complete →"}</button>
+      </span>
+    </div>`;
+  main.appendChild(sec);
+
+  // wire quiz
+  if(m.quiz) wireQuiz(sec, m);
+  // wire nav buttons
+  sec.querySelector("[data-done]").onclick = ()=>{ markDone(m.id); if(idx<MODULES.length-1) go(MODULES[idx+1].id); else go("done"); };
+  const pv = sec.querySelector("[data-prev]");
+  if(idx>0) pv.onclick = ()=>go(MODULES[idx-1].id); else pv.style.visibility="hidden";
+  refreshDoneChip(sec, m.id);
+}
+
+function wireQuiz(sec, m){
+  const qstate = (state[m.id] && state[m.id].quiz) || {};
+  sec.querySelectorAll(".q").forEach(qEl=>{
+    const qi = +qEl.dataset.qi, q = m.quiz.qs[qi];
+    const opts = [...qEl.querySelectorAll(".opt")];
+    const expl = qEl.querySelector(".expl");
+    function lockIn(chosen){
+      opts.forEach((o,oi)=>{
+        o.classList.add("disabled");
+        if(oi===q.a){ o.classList.add("correct"); o.querySelector(".mk").textContent="✓"; }
+        else if(oi===chosen){ o.classList.add("wrong"); o.querySelector(".mk").textContent="✗"; }
+      });
+      expl.classList.add("show");
+    }
+    opts.forEach(o=>o.onclick=()=>{
+      const chosen = +o.dataset.oi;
+      qstate[qi] = chosen;
+      state[m.id] = state[m.id]||{}; state[m.id].quiz = qstate; save();
+      lockIn(chosen); tallyQuiz(sec, m);
+    });
+    if(qstate[qi]!=null) lockIn(qstate[qi]);
+  });
+  tallyQuiz(sec, m);
+}
+function tallyQuiz(sec, m){
+  const qstate = (state[m.id] && state[m.id].quiz) || {};
+  const answered = m.quiz.qs.filter((q,i)=>qstate[i]!=null).length;
+  const correct  = m.quiz.qs.filter((q,i)=>qstate[i]===q.a).length;
+  const res = sec.querySelector(".qresult");
+  if(answered===m.quiz.qs.length){
+    res.classList.add("show");
+    res.style.color = correct===answered ? "var(--ok)" : "var(--muted)";
+    res.textContent = `You got ${correct} of ${answered} right.` + (correct===answered? " Nicely done — you've got this stage." : " Review the explanations above, then mark complete.");
+  } else { res.classList.remove("show"); }
+}
+
+function buildNav(){
+  nav.innerHTML = MODULES.map((m,i)=>`
+    <button class="navitem" data-go="${m.id}" id="nav-${m.id}">
+      <span class="dot">${m.icon}</span>
+      <span class="lbl">${m.nav}</span>
+      <span class="chk"></span>
+    </button>`).join("");
+  nav.querySelectorAll(".navitem").forEach(b=>b.onclick=()=>go(b.dataset.go));
+}
+
+let current = null;
+function go(id){
+  if(id==="done"){ showFinish(); return; }
+  const m = MODULES.find(x=>x.id===id); if(!m) return;
+  current = id;
+  document.querySelectorAll(".module").forEach(s=>s.classList.remove("show"));
+  const sec = document.getElementById("m-"+id); if(sec) sec.classList.add("show");
+  // nav highlight
+  document.querySelectorAll(".navitem").forEach(n=>n.classList.toggle("active", n.dataset.go===id));
+  window.scrollTo({top:0, behavior:"smooth"});
+  if(id==="overview") buildPipe();
+  location.hash = id;
+  state.last = id; save();
+}
+
+function markDone(id){
+  state[id] = state[id]||{}; state[id].done = true; save();
+  syncProgress();
+}
+function refreshDoneChip(sec, id){
+  const chip = sec.querySelector("[data-chip]");
+  const btn  = sec.querySelector("[data-done]");
+  if(isDone(id)){ chip.classList.add("show"); }
+}
+
+function syncProgress(){
+  const total = MODULES.length;
+  const done  = MODULES.filter(m=>isDone(m.id)).length;
+  const pct = Math.round(done/total*100);
+  document.getElementById("topfill").style.width = pct+"%";
+  document.getElementById("toppct").textContent = pct+"%";
+  MODULES.forEach(m=>{
+    const n = document.getElementById("nav-"+m.id);
+    if(!n) return;
+    n.classList.toggle("done", isDone(m.id));
+    n.querySelector(".chk").textContent = isDone(m.id) ? "✓" : "";
+    if(isDone(m.id)) n.querySelector(".dot").textContent = "✓"; else n.querySelector(".dot").textContent = m.icon;
+  });
+  // refresh visible chips
+  MODULES.forEach(m=>{
+    const sec = document.getElementById("m-"+m.id);
+    if(sec){ const chip=sec.querySelector("[data-chip]"); if(chip) chip.classList.toggle("show", isDone(m.id)); }
+  });
+}
+
+function showFinish(){
+  document.querySelectorAll(".module").forEach(s=>s.classList.remove("show"));
+  document.querySelectorAll(".navitem").forEach(n=>n.classList.remove("active"));
+  let f = document.getElementById("m-finish");
+  if(!f){
+    f = document.createElement("section");
+    f.className="module"; f.id="m-finish";
+    f.innerHTML = `
+      <div class="finish">
+        <div class="big">🎓</div>
+        <h2>You've followed the data all the way home.</h2>
+        <p class="lede" style="margin:0 auto 22px;">Source → connect → sync → ETL → datalake → schedule → deliver. You can now trace any MerchantsBI dashboard number back through every stage that produced it.</p>
+        <button class="btn primary" onclick="go('overview')">Revisit the big picture</button>
+        <button class="btn" onclick="resetCourse()">Reset progress</button>
+      </div>`;
+    main.appendChild(f);
+  }
+  f.classList.add("show");
+  window.scrollTo({top:0,behavior:"smooth"});
+  location.hash = "done";
+}
+function resetCourse(){
+  if(!confirm("Reset all course progress and quiz answers?")) return;
+  for(const k of Object.keys(state)) delete state[k];
+  save(); location.reload();
+}
+window.go = go; window.resetCourse = resetCourse;
+
+/* ---- boot --------------------------------------------------------------- */
+buildNav();
+MODULES.forEach((m,i)=>renderModule(m,i));
+syncProgress();
+const start = (location.hash||"").replace("#","") || state.last || "overview";
+go(MODULES.find(m=>m.id===start) ? start : "overview");
+</script>
+</body>
+</html>
