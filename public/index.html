@@ -4498,12 +4498,13 @@ function renderAgendas(m){
       items.forEach(r=>{
         const li=document.createElement("li");li.style.cssText="display:flex;align-items:baseline;gap:3px;";
         const color=(DB.areas.find(x=>x.name===r.area)||{}).color||"#9aa0a8";
-        const tog=document.createElement("button");tog.type="button";tog.style.cssText="background:none;border:none;cursor:pointer;font-size:10px;color:var(--muted,#7a7f88);padding:0 1px;line-height:inherit;flex-shrink:0;";tog.textContent="▾";tog.title="Collapse";
+        const ikey=a.id+":"+r.id;const iCollapsed=agendaItemCollapsed.has(ikey);
+        const tog=document.createElement("button");tog.type="button";tog.style.cssText="background:none;border:none;cursor:pointer;font-size:10px;color:var(--muted,#7a7f88);padding:0 1px;line-height:inherit;flex-shrink:0;";tog.textContent=iCollapsed?"▸":"▾";tog.title=iCollapsed?"Expand":"Collapse";
         const main=document.createElement("span");main.style.flex="1";
         main.innerHTML='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+color+';margin-right:7px;vertical-align:middle;"></span>'+esc(r.title);
-        const det=document.createElement("span");det.className="cmeta";det.innerHTML=' (<span style="color:'+color+';font-weight:600;">'+esc(r.area)+'</span>'+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')';
+        const det=document.createElement("span");det.className="cmeta";det.style.display=iCollapsed?"none":"";det.innerHTML=' (<span style="color:'+color+';font-weight:600;">'+esc(r.area)+'</span>'+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')';
         main.appendChild(det);
-        tog.onclick=()=>{const c=det.style.display==="none";det.style.display=c?"":"none";tog.textContent=c?"▾":"▸";tog.title=c?"Collapse":"Expand";};
+        tog.onclick=()=>{const c=!agendaItemCollapsed.has(ikey);c?agendaItemCollapsed.add(ikey):agendaItemCollapsed.delete(ikey);det.style.display=c?"none":"";tog.textContent=c?"▸":"▾";tog.title=c?"Expand":"Collapse";};
         const x=document.createElement("button");x.className="rm";x.textContent="remove";x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;margin-left:8px;";
         x.onclick=()=>removeItemFromAgenda(a.id,r.id);main.appendChild(x);li.append(tog,main);ul.appendChild(li);
       });
