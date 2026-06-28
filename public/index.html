@@ -3933,36 +3933,27 @@ function renderRoadmap(m){
   pfScroll.appendChild(unB);
   const clrP=document.createElement("button");clrP.className="btn sm";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
   pfAdd.appendChild(clrP);
-  // Filters toggle controls the area filter; People has its own collapse toggle.
-  // Mobile: rows stay hidden inline and are floated in a popover instead (like Tasks filter groups).
-  if(isMobileFilters){
-    fl.style.display="none";pf.style.display="none";
-    filT.onclick=()=>{const n=!rmFilterOpen;rmFilterOpen=n;if(n)rmPeopleOpen=false;renderRoadmap();};
-    peoT.onclick=()=>{const n=!rmPeopleOpen;rmPeopleOpen=n;if(n)rmFilterOpen=false;renderRoadmap();};
-  }else{
-    fl.style.display=rmFilterOpen?"":"none";
-    filT.onclick=()=>{rmFilterOpen=!rmFilterOpen;fl.style.display=rmFilterOpen?"":"none";filT.classList.toggle("on",rmFilterOpen);rmStickTop();rmUpdateArrows();};
-    pf.style.display=rmPeopleOpen?"":"none";
-    peoT.onclick=()=>{rmPeopleOpen=!rmPeopleOpen;pf.style.display=rmPeopleOpen?"":"none";peoT.classList.toggle("on",rmPeopleOpen);rmStickTop();rmUpdateArrows();};
-  }
+  // Filters and People toggles always use the dropdown popover style (like the Tasks category filter dropdown).
+  // The option rows stay hidden inline; clicking a toggle floats the row in a body-mounted popover.
+  fl.style.display="none";pf.style.display="none";
+  filT.onclick=()=>{const n=!rmFilterOpen;rmFilterOpen=n;if(n)rmPeopleOpen=false;renderRoadmap();};
+  peoT.onclick=()=>{const n=!rmPeopleOpen;rmPeopleOpen=n;if(n)rmFilterOpen=false;renderRoadmap();};
   tools.append(fl,pf,bar);
   // The Timeline's Layout/Colour-by row lives inside the sticky toolbar (one sticky block — no extra offset math)
   // so it stays pinned while the timeline scrolls. Timeline-only; other views don't have this row.
   if(roadmapView==="timeline")tools.append(timelineControlRow());
   m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
-  // Mobile: float the open filter group's row in a popover anchored under its toggle. Runs every render,
-  // so toggling an option (which re-renders) keeps the dropdown open and re-anchored. Detach prior closer first.
-  if(isMobileFilters){
-    if(rmFilterPopCloser){document.removeEventListener("mousedown",rmFilterPopCloser,true);rmFilterPopCloser=null;}
-    const _rmOpenRow=rmFilterOpen?fl:rmPeopleOpen?pf:null;
-    const _rmOpenTgl=rmFilterOpen?filT:rmPeopleOpen?peoT:null;
-    if(_rmOpenRow&&_rmOpenTgl){
-      const {pop,place}=floatTaskPop(_rmOpenTgl);
-      _rmOpenRow.style.display="";_rmOpenRow.style.margin="0";
-      pop.appendChild(_rmOpenRow);place();
-      const _rmOnOut=e=>{if(pop.contains(e.target)||_rmOpenTgl.contains(e.target))return;document.removeEventListener("mousedown",_rmOnOut,true);rmFilterPopCloser=null;if(rmFilterOpen)rmFilterOpen=false;else rmPeopleOpen=false;renderRoadmap();};
-      rmFilterPopCloser=_rmOnOut;setTimeout(()=>document.addEventListener("mousedown",_rmOnOut,true),0);
-    }
+  // Float the open filter/people row in a popover anchored under its toggle. Runs every render so toggling an
+  // option (which re-renders) keeps the dropdown open and re-anchored. Detach any prior outside-click listener first.
+  if(rmFilterPopCloser){document.removeEventListener("mousedown",rmFilterPopCloser,true);rmFilterPopCloser=null;}
+  const _rmOpenRow=rmFilterOpen?fl:rmPeopleOpen?pf:null;
+  const _rmOpenTgl=rmFilterOpen?filT:rmPeopleOpen?peoT:null;
+  if(_rmOpenRow&&_rmOpenTgl){
+    const {pop,place}=floatTaskPop(_rmOpenTgl);
+    _rmOpenRow.style.display="";_rmOpenRow.style.margin="0";
+    pop.appendChild(_rmOpenRow);place();
+    const _rmOnOut=e=>{if(pop.contains(e.target)||_rmOpenTgl.contains(e.target))return;document.removeEventListener("mousedown",_rmOnOut,true);rmFilterPopCloser=null;if(rmFilterOpen)rmFilterOpen=false;else rmPeopleOpen=false;renderRoadmap();};
+    rmFilterPopCloser=_rmOnOut;setTimeout(()=>document.addEventListener("mousedown",_rmOnOut,true),0);
   }
   if(_rmRefocus){rmS.focus();try{rmS.setSelectionRange(_rmCaret,_rmCaret);}catch(_){}}
   if(roadmapView==="timeline")renderTimeline(m);
