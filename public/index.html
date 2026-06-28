@@ -226,6 +226,7 @@
   .idcopy:hover .copy-ico{opacity:.95;}
   /* roadmap toolbar: collapse toggles for Areas+Phases and Filters (saves vertical space) */
   .rmtoolbar-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;}
+  .rmtgl{white-space:nowrap;flex-shrink:0;}
   .rmtgl .tgchev{display:inline-block;transition:transform .15s;margin-right:6px;font-size:11px;}
   .rmtgl:not(.on) .tgchev{transform:rotate(-90deg);}
   .rmtgl.on{background:rgba(37,107,145,.13);border-color:#256b91;color:#256b91;}
@@ -316,6 +317,8 @@
   .ag .agmeta{font-size:12.5px;color:var(--muted);margin:3px 0 0;}
   .ag ul{margin:9px 0 0;padding-left:18px;}
   .ag li{font-size:13px;margin-bottom:3px;}
+  .ag.ag-done{opacity:0.65;}
+  .ag.ag-done h3 .ag-title{text-decoration:line-through;color:var(--muted);}
   .field{margin-bottom:10px;}
   .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:500;}
   .field input.ctrl,.field select.ctrl{width:100%;}
@@ -464,6 +467,9 @@
   .agtable .at-sub{color:var(--muted);font-size:11.5px;}
   .agtable .at-link{color:var(--accent,#4646c8);text-decoration:none;font-weight:600;}
   .agtable .at-link:hover{text-decoration:underline;}
+  .agtable .ag-grp-tr td{background:var(--soft,#f7f7f5);border-bottom:1px solid var(--line,#e6e6e3);cursor:default;padding:6px 12px;}
+  .agtable .ag-grp-tr:hover td{background:var(--soft,#f7f7f5);}
+  .agtable .ag-grp-tr:focus-visible{outline:none;}
   /* standalone Description column (shared by all three table views) — read-only, clamped to 2 lines with a full-text tooltip */
   .tbl-desc{color:var(--muted);font-size:12px;line-height:1.35;max-width:340px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;}
   /* resizable table columns (shared by .rmtable/.tasktable/.agtable) — a drag grip on each header's right edge */
@@ -639,6 +645,8 @@ let taskRmOpen=false;
 let taskGroupOpen=false;
 let taskFilterPopCloser=null;// mobile: the tracked outside-mousedown handler that closes the open filter dropdown; removed before re-wiring so the listeners don't pile up across live re-renders
 let taskFilterMQ=null;       // mobile: the (matchMedia,handler) pair re-rendering Tasks when the viewport crosses the filter-dropdown breakpoint; detached each renderTasks so listeners don't leak
+let rmFilterPopCloser=null;  // mobile: outside-mousedown handler that closes the open roadmap filter dropdown
+let rmFilterMQ=null;         // mobile: (matchMedia,handler) pair; detached each renderRoadmap to avoid listener leaks
 let taskCollapsed=new Set(); // ids of task cards collapsed to title+chips only; survives live re-renders
 let runPanelCollapsed=new Set(); // ids of task run panels collapsed; survives live re-renders
 let runPanelHeight=new Map(); // task id → user-adjusted px height for run log body; survives live re-renders
@@ -649,6 +657,7 @@ let taskRoadmapOpen=new Set();// ids of task cards with roadmap picker pop open;
 let taskFilesOpen=new Set();  // ids of task cards with files pop open; survives live re-renders
 let taskAskOpen=new Set();    // ids of task cards with ask-Claude pop open; survives live re-renders
 let agendaCollapsed=new Set(); // ids of agenda cards collapsed to their header only; survives live re-renders
+let agendaItemCollapsed=new Set(); // ids of roadmap items whose detail rows are hidden in agenda cards; survives live re-renders
 let agendaPlanOpen=false;      // is the "Plan a meeting" section expanded? collapsed by default each session
 let agendaSearch="";           // free-text search over agenda title/notes/attendees/linked item titles; "" = off
 let agendaSearchTimer=null;    // debounce handle for search oninput → renderAgendas
@@ -1019,12 +1028,21 @@ function liveStreamOnly(prev,next){
 // re-renders (e.g. runner status transitions writing non-stream fields) won't wipe unsaved input.
 function renderWithEditGuard(){
   const drafts=[];
-  const snapPop=(id,kind,pop)=>{const ae=document.activeElement;const ti=pop.querySelector('input.ctrl'),cx=pop.querySelector('textarea.ctrl');if(!ti&&!cx)return;drafts.push({id,kind,tit:ti?ti.value:null,ctx:cx?cx.value:null,focTi:ae===ti,focCx:ae===cx,ss:ae?(ae.selectionStart||0):0,se:ae?(ae.selectionEnd||0):0});};
+  const snapPop=(id,kind,pop)=>{const ae=document.activeElement;const ti=pop.querySelector('input.ctrl'),cx=pop.querySelector('textarea.ctrl');if(!ti&&!cx)return;const nl=kind==='note'?pop.querySelector('.notes-list'):null;drafts.push({id,kind,tit:ti?ti.value:null,ctx:cx?cx.value:null,focTi:ae===ti,focCx:ae===cx,ss:ae?(ae.selectionStart||0):0,se:ae?(ae.selectionEnd||0):0,nSc:nl?nl.scrollTop:0});};
   taskEditOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const pop=card.querySelector('.pop.open');if(pop)snapPop(id,'edit',pop);});
   taskNotesOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;card.querySelectorAll('.pop.open').forEach(pop=>{if(!pop.querySelector('input.ctrl')&&pop.querySelector('textarea.ctrl'))snapPop(id,'note',pop);});});
+  // Save scroll positions of run-panel bodies and open notes lists so a full re-render
+  // (triggered by a non-stream Firestore field change while a run is in progress) doesn't
+  // snap those inner scrollable areas back to the top.
+  const runBodyScrolls=[];
+  document.querySelectorAll('.card[data-task-id]').forEach(card=>{const b=card.querySelector(':scope > .runprog .runprog-body');if(b&&b.scrollTop>0)runBodyScrolls.push({id:card.dataset.taskId,st:b.scrollTop,sh:b.scrollHeight,ch:b.clientHeight});});
+  const nlistScrolls=[];
+  taskNotesOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const pop=Array.from(card.querySelectorAll('.pop.open')).find(p=>!p.querySelector('input.ctrl')&&p.querySelector('textarea.ctrl'));if(!pop)return;const nl=pop.firstElementChild;if(nl&&nl.scrollTop>0)nlistScrolls.push({id,st:nl.scrollTop});});
   const y=window.scrollY;render();
   requestAnimationFrame(()=>{
     window.scrollTo(0,y);
+    runBodyScrolls.forEach(({id,st,sh,ch})=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const nb=card.querySelector('.runprog .runprog-body');if(!nb)return;const ratio=sh>ch?st/(sh-ch):1;nb.scrollTop=Math.round(ratio*Math.max(0,nb.scrollHeight-nb.clientHeight));});
+    nlistScrolls.forEach(({id,st})=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const pop=Array.from(card.querySelectorAll('.pop.open')).find(p=>!p.querySelector('input.ctrl')&&p.querySelector('textarea.ctrl'));if(!pop)return;const nl=pop.firstElementChild;if(nl)nl.scrollTop=st;});
     drafts.forEach(d=>{
       const card=document.querySelector('.card[data-task-id="'+CSS.escape(d.id)+'"]');if(!card)return;
       const pop=d.kind==='edit'?card.querySelector('.pop.open'):Array.from(card.querySelectorAll('.pop.open')).find(p=>!p.querySelector('input.ctrl')&&p.querySelector('textarea.ctrl'));if(!pop)return;
@@ -1849,7 +1867,16 @@ function updateRunPanel(t){
     if(!body&&toShow.length){body=document.createElement("div");body.className="runprog-body";if(runPanelHeight.has(t.id))body.style.height=runPanelHeight.get(t.id);body.addEventListener("mouseup",()=>{const h=body.style.height;if(h)runPanelHeight.set(t.id,h);});old.appendChild(body);}
     if(body){
       const existCount=body.childElementCount;
-      if(toShow.length<existCount){body.innerHTML="";toShow.forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});}
+      // Detect window shift: same count but first line changed (20-line cap slid forward)
+      const windowShifted=existCount>0&&toShow.length===existCount&&body.firstElementChild&&body.firstElementChild.textContent!==toShow[0];
+      if(toShow.length<existCount||windowShifted){
+        // Preserve scroll during rebuild: keep proportional distance from bottom if not at top
+        const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;
+        const prevFromBottom=body.scrollHeight-body.clientHeight-body.scrollTop;
+        body.innerHTML="";toShow.forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
+        if(atBottom)body.scrollTop=body.scrollHeight;
+        else body.scrollTop=Math.max(0,body.scrollHeight-body.clientHeight-prevFromBottom);
+      }
       else if(toShow.length>existCount){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;toShow.slice(existCount).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;}
     }
   }
@@ -2110,7 +2137,7 @@ function taskCard(t){
   link.onclick=()=>{const open=rpop.classList.toggle("open");open?taskRoadmapOpen.add(t.id):taskRoadmapOpen.delete(t.id);if(open)rsearch.focus();};
   // notes pop -> per-user tagged notes on the task (each note records who wrote it)
   const npop=document.createElement("div");npop.className="pop"+(taskNotesOpen.has(t.id)?" open":"");
-  const nlist=document.createElement("div");nlist.style.cssText="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto;";
+  const nlist=document.createElement("div");nlist.className="notes-list";nlist.style.cssText="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto;";
   if(taskNotes.length){
     taskNotes.forEach(nt=>{
       const mm=member(nt.by);const color=mm&&mm.color?mm.color:"#9aa0a8";
@@ -3233,18 +3260,18 @@ function renderTasks(m){
   const rmT=mkGroup("Roadmap",()=>taskRmOpen,v=>{taskRmOpen=v;},rmLabel,rf);
   const trow=document.createElement("div");
   // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
-  trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
+  trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:nowrap;overflow-x:auto;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   const hdr=document.querySelector("header");const hh=hdr?hdr.offsetHeight:0;
   vb.style.top=(hh-1)+"px";                       // first sticky bar: directly under the page header
   trow.style.top=(hh+vb.offsetHeight-1)+"px";     // second sticky bar: stacked below the (now-measured) Group/Sort row
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskBranchFilter||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
-  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;background:#D4537E;border-color:#D4537E;color:#fff;";clearAll.textContent="Clear all filters";
+  const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;flex-shrink:0;background:#D4537E;border-color:#D4537E;color:#fff;white-space:nowrap;";clearAll.textContent="Clear all filters";
   clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;taskBranchFilter=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
-  const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.marginLeft="auto";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
+  const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.cssText="margin-left:auto;flex-shrink:0;white-space:nowrap;";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
   resetBtn.onclick=()=>resetTaskFiltersToDefault();
   // ⟲ Reset runner — a global control to recover a wedged local Claude runner (.local/runner.mjs). Shown only when
   // at least one task is in a live run state (queued/running/runRequested), i.e. when there's something to reset.
@@ -3252,7 +3279,7 @@ function renderTasks(m){
   // (b) clears the board run-state on every in-flight task here, so the board recovers even if the runner is down.
   const liveRuns=DB.tasks.filter(t=>t.runRequested||t.runStatus==="running"||t.runStatus==="queued");
   const runnerReset=liveRuns.length?document.createElement("button"):null;
-  if(runnerReset){runnerReset.className="btn sm";runnerReset.style.cssText="background:#D4537E;border-color:#D4537E;color:#fff;";
+  if(runnerReset){runnerReset.className="btn sm";runnerReset.style.cssText="background:#D4537E;border-color:#D4537E;color:#fff;flex-shrink:0;white-space:nowrap;";
     runnerReset.textContent="⟲ Reset runner";
     runnerReset.title="Reset the local Claude runner: tell it to abort the current run and clear its queue, and clear the stuck run state on all in-flight tasks. Use if the runner is wedged or a run is stuck.";
     runnerReset.onclick=()=>{
@@ -3266,7 +3293,7 @@ function renderTasks(m){
   // Single collapse/expand-all toggle, pinned right. Flips based on whether every visible card is already collapsed.
   const visible=DB.tasks.filter(t=>taskFilter(t));
   const allCollapsed=visible.length>0&&visible.every(t=>taskCollapsed.has(t.id));
-  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.marginLeft="0";
+  const collExp=document.createElement("button");collExp.className="btn sm";collExp.style.cssText="margin-left:0;flex-shrink:0;white-space:nowrap;";
   collExp.textContent=allCollapsed?"Expand all":"Collapse all";
   collExp.onclick=()=>{if(allCollapsed)taskCollapsed.clear();else visible.forEach(t=>taskCollapsed.add(t.id));renderTasks();};
   // Free-text search box (leftmost). Debounced 150ms — value updates on every keystroke, render fires after typing pauses.
@@ -3308,7 +3335,10 @@ function renderTasks(m){
     if(backRm)trow.append(backRm);
     if(backCap)trow.append(backCap);
     if(backBranch)trow.append(backBranch);
-    trow.append(searchInp,timeT,whoT,catT,stageT,rmT,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
+    const filterBar=document.createElement("div");
+    filterBar.style.cssText="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;";
+    filterBar.append(searchInp,timeT,whoT,catT,stageT,rmT);
+    trow.append(filterBar,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group
     if(runnerReset)trow.append(runnerReset);  // sits in the right-hand group beside "Reset to default", only while a run is in flight
     if(anyFilter)trow.append(clearAll);
     if(taskLayout==="card")trow.append(collExp);  // per-card collapse only applies to the card layout (not table/chart)
@@ -3817,6 +3847,11 @@ function renderRoadmap(m){
   // Preserve search-box focus + caret across the per-keystroke re-render (capture before innerHTML teardown).
   const _rmSe=document.getElementById("rmSearch");const _rmRefocus=!!(_rmSe&&document.activeElement===_rmSe);const _rmCaret=_rmRefocus?(_rmSe.selectionStart??_rmSe.value.length):0;
   m.innerHTML="";
+  const _rmNarrowMQ=window.matchMedia("(max-width:560px)");const isMobileFilters=_rmNarrowMQ.matches;
+  if(_rmNarrowMQ.addEventListener){
+    if(rmFilterMQ&&rmFilterMQ.mq.removeEventListener)rmFilterMQ.mq.removeEventListener("change",rmFilterMQ.fn);
+    const _rmMQfn=()=>{if(page==="roadmap")renderRoadmap();};_rmNarrowMQ.addEventListener("change",_rmMQfn);rmFilterMQ={mq:_rmNarrowMQ,fn:_rmMQfn};
+  }
   if(rmActive===null)rmActive=new Set(DB.areas.map(a=>a.name));
   rmActive=new Set([...rmActive].filter(n=>DB.areas.some(a=>a.name===n)));
   m.insertAdjacentHTML("beforeend",'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"><div class="pagehead" style="margin:0;">Roadmap</div><p class="pagesub" style="margin:0;">The overarching plan across the business.</p></div>');
@@ -3888,15 +3923,36 @@ function renderRoadmap(m){
   const clrP=document.createElement("button");clrP.className="btn sm";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
   pfAdd.appendChild(clrP);
   // Filters toggle controls the area filter; People has its own collapse toggle.
-  fl.style.display=rmFilterOpen?"":"none";
-  filT.onclick=()=>{rmFilterOpen=!rmFilterOpen;fl.style.display=rmFilterOpen?"":"none";filT.classList.toggle("on",rmFilterOpen);rmStickTop();rmUpdateArrows();};
-  pf.style.display=rmPeopleOpen?"":"none";
-  peoT.onclick=()=>{rmPeopleOpen=!rmPeopleOpen;pf.style.display=rmPeopleOpen?"":"none";peoT.classList.toggle("on",rmPeopleOpen);rmStickTop();rmUpdateArrows();};
+  // Mobile: rows stay hidden inline and are floated in a popover instead (like Tasks filter groups).
+  if(isMobileFilters){
+    fl.style.display="none";pf.style.display="none";
+    filT.onclick=()=>{const n=!rmFilterOpen;rmFilterOpen=n;if(n)rmPeopleOpen=false;renderRoadmap();};
+    peoT.onclick=()=>{const n=!rmPeopleOpen;rmPeopleOpen=n;if(n)rmFilterOpen=false;renderRoadmap();};
+  }else{
+    fl.style.display=rmFilterOpen?"":"none";
+    filT.onclick=()=>{rmFilterOpen=!rmFilterOpen;fl.style.display=rmFilterOpen?"":"none";filT.classList.toggle("on",rmFilterOpen);rmStickTop();rmUpdateArrows();};
+    pf.style.display=rmPeopleOpen?"":"none";
+    peoT.onclick=()=>{rmPeopleOpen=!rmPeopleOpen;pf.style.display=rmPeopleOpen?"":"none";peoT.classList.toggle("on",rmPeopleOpen);rmStickTop();rmUpdateArrows();};
+  }
   tools.append(fl,pf,bar);
   // The Timeline's Layout/Colour-by row lives inside the sticky toolbar (one sticky block — no extra offset math)
   // so it stays pinned while the timeline scrolls. Timeline-only; other views don't have this row.
   if(roadmapView==="timeline")tools.append(timelineControlRow());
   m.appendChild(tools);rmStickTop();requestAnimationFrame(rmUpdateArrows);
+  // Mobile: float the open filter group's row in a popover anchored under its toggle. Runs every render,
+  // so toggling an option (which re-renders) keeps the dropdown open and re-anchored. Detach prior closer first.
+  if(isMobileFilters){
+    if(rmFilterPopCloser){document.removeEventListener("mousedown",rmFilterPopCloser,true);rmFilterPopCloser=null;}
+    const _rmOpenRow=rmFilterOpen?fl:rmPeopleOpen?pf:null;
+    const _rmOpenTgl=rmFilterOpen?filT:rmPeopleOpen?peoT:null;
+    if(_rmOpenRow&&_rmOpenTgl){
+      const {pop,place}=floatTaskPop(_rmOpenTgl);
+      _rmOpenRow.style.display="";_rmOpenRow.style.margin="0";
+      pop.appendChild(_rmOpenRow);place();
+      const _rmOnOut=e=>{if(pop.contains(e.target)||_rmOpenTgl.contains(e.target))return;document.removeEventListener("mousedown",_rmOnOut,true);rmFilterPopCloser=null;if(rmFilterOpen)rmFilterOpen=false;else rmPeopleOpen=false;renderRoadmap();};
+      rmFilterPopCloser=_rmOnOut;setTimeout(()=>document.addEventListener("mousedown",_rmOnOut,true),0);
+    }
+  }
   if(_rmRefocus){rmS.focus();try{rmS.setSelectionRange(_rmCaret,_rmCaret);}catch(_){}}
   if(roadmapView==="timeline")renderTimeline(m);
   else if(roadmapView==="kanban")renderKanban(m);
@@ -4327,9 +4383,12 @@ function renderAgendas(m){
   m.appendChild(agbar);
   if(!shownAg.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No agendas match</div>Try a different search.</div>');if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}return;}
   if(agendaLayout==="table"){renderAgendasTable(m,shownAg);if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}return;}
-  shownAg.forEach(a=>{
+  const todayStr=today();
+  const openAg=shownAg.filter(a=>!a.date||a.date>=todayStr);
+  const completedAg=shownAg.filter(a=>a.date&&a.date<todayStr);
+  const renderAgCard=a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
-    const el=document.createElement("div");el.id="agcard-"+a.id;el.className="ag"+(agendaCollapsed.has(a.id)?" collapsed":"");
+    const el=document.createElement("div");el.id="agcard-"+a.id;el.className="ag"+(agendaCollapsed.has(a.id)?" collapsed":"")+(a.completedAt?" ag-done":"");
     const h=document.createElement("h3");h.style.cssText="display:flex;align-items:center;gap:8px;";
     // Per-card collapse toggle — flips just this agenda instantly (no full re-render); state in agendaCollapsed.
     const chev=document.createElement("button");chev.className="ccollapse";chev.type="button";chev.style.marginLeft="0";
@@ -4337,7 +4396,10 @@ function renderAgendas(m){
     setChev();
     chev.onclick=e=>{e.stopPropagation();const on=el.classList.toggle("collapsed");on?agendaCollapsed.add(a.id):agendaCollapsed.delete(a.id);setChev();};
     h.appendChild(chev);
-    const ttl=document.createElement("span");ttl.textContent=a.title;ttl.style.flex="1";h.appendChild(ttl);
+    const ttl=document.createElement("span");ttl.className="ag-title";ttl.textContent=a.title;ttl.style.flex="1";h.appendChild(ttl);
+    const completeBtn=document.createElement("button");completeBtn.className="btn sm"+(a.completedAt?" primary":"");completeBtn.textContent=a.completedAt?"✓ Complete":"Mark complete";
+    completeBtn.onclick=async e=>{e.stopPropagation();try{await fbUpdate("agendas",a.id,a.completedAt?{completedAt:null}:{completedAt:nowTs()});banner(a.completedAt?"Meeting reopened.":"Meeting marked complete.","ok");}catch(ex){banner(ex.message,"err");}};
+    h.appendChild(completeBtn);
     const editBtn=document.createElement("button");editBtn.className="btn sm";editBtn.textContent="Edit";h.appendChild(editBtn);
     el.appendChild(h);
     const meta=document.createElement("div");meta.className="agmeta";meta.textContent=(a.date?a.date:"No date set")+(a.time?" · "+a.time:"")+(a.time&&a.tz?" "+a.tz:"")+(a.createdBy?" · Created by "+a.createdBy:"");el.appendChild(meta);
@@ -4430,11 +4492,16 @@ function renderAgendas(m){
     if(items.length){
       const ul=document.createElement("ul");
       items.forEach(r=>{
-        const li=document.createElement("li");
+        const li=document.createElement("li");li.style.cssText="display:flex;align-items:baseline;gap:3px;";
         const color=(DB.areas.find(x=>x.name===r.area)||{}).color||"#9aa0a8";
-        li.innerHTML='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+color+';margin-right:7px;vertical-align:middle;"></span>'+esc(r.title)+' <span class="cmeta">(<span style="color:'+color+';font-weight:600;">'+esc(r.area)+'</span>'+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')</span>';
+        const tog=document.createElement("button");tog.type="button";tog.style.cssText="background:none;border:none;cursor:pointer;font-size:10px;color:var(--muted,#7a7f88);padding:0 1px;line-height:inherit;flex-shrink:0;";tog.textContent="▾";tog.title="Collapse";
+        const main=document.createElement("span");main.style.flex="1";
+        main.innerHTML='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+color+';margin-right:7px;vertical-align:middle;"></span>'+esc(r.title);
+        const det=document.createElement("span");det.className="cmeta";det.innerHTML=' (<span style="color:'+color+';font-weight:600;">'+esc(r.area)+'</span>'+(phaseOf(r)?' · '+esc(phaseOf(r)):'')+' · '+esc(r.status||"Not started")+')';
+        main.appendChild(det);
+        tog.onclick=()=>{const c=det.style.display==="none";det.style.display=c?"":"none";tog.textContent=c?"▾":"▸";tog.title=c?"Collapse":"Expand";};
         const x=document.createElement("button");x.className="rm";x.textContent="remove";x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;margin-left:8px;";
-        x.onclick=()=>removeItemFromAgenda(a.id,r.id);li.appendChild(x);ul.appendChild(li);
+        x.onclick=()=>removeItemFromAgenda(a.id,r.id);main.appendChild(x);li.append(tog,main);ul.appendChild(li);
       });
       el.appendChild(ul);
     }else{el.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-top:8px;">No roadmap items attached yet.</div>');}
@@ -4537,7 +4604,9 @@ function renderAgendas(m){
       del.replaceWith(q);q.after(y,n);
     };
     el.appendChild(del);m.appendChild(el);
-  });
+  };
+  if(openAg.length){m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm" style="font-size:13px;">Open</span><span class="cat-count">'+openAg.length+'</span></div>');openAg.forEach(renderAgCard);}
+  if(completedAg.length){m.insertAdjacentHTML("beforeend",'<div class="areahead"><span class="nm" style="font-size:13px;">Completed</span><span class="cat-count">'+completedAg.length+'</span></div>');completedAg.forEach(renderAgCard);}
   if(_agRefocus){agS.focus();try{agS.setSelectionRange(_agCaret,_agCaret);}catch(_){}}
   // Jumped here from the table: scroll the target card into view and flash it.
   if(agendaScrollTo){const tgt=document.getElementById("agcard-"+agendaScrollTo);agendaScrollTo=null;if(tgt){tgt.scrollIntoView({behavior:"smooth",block:"center"});tgt.classList.add("flash");setTimeout(()=>tgt.classList.remove("flash"),1700);}}
@@ -4563,13 +4632,14 @@ function renderAgendasTable(m,rows){
   thead.appendChild(htr);t.appendChild(thead);
   const tb=document.createElement("tbody");
   if(!rows.length&&base.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.className="at-sub";td.style.padding="14px 12px";td.textContent="No agendas match the attendee filter.";tr.appendChild(td);tb.appendChild(tr);}
-  rows.forEach(a=>{
+  const addAgTblGrpRow=(label,count)=>{const tr=document.createElement("tr");tr.className="ag-grp-tr";const td=document.createElement("td");td.colSpan=7;td.innerHTML='<span style="font-weight:700;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);">'+esc(label)+'</span><span class="at-sub" style="margin-left:6px;">('+count+')</span>';tr.appendChild(td);tb.appendChild(tr);};
+  const addAgTblRow=a=>{
     const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
     const tr=document.createElement("tr");tr.tabIndex=0;tr.title="Open this agenda";
     const open=()=>{agendaLayout="cards";localStorage.setItem("gp_agendaLayout","cards");agendaCollapsed.delete(a.id);agendaScrollTo=a.id;renderAgendas();};
     tr.onclick=open;tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}};
-    // Title (+ created-by)
-    const cT=document.createElement("td");cT.innerHTML='<div class="at-title">'+esc(a.title||"Untitled")+'</div>'+(a.createdBy?'<div class="at-sub">by '+esc(a.createdBy)+'</div>':'');tr.appendChild(cT);
+    // Title (+ created-by + completed badge)
+    const cT=document.createElement("td");cT.innerHTML='<div class="at-title">'+(a.completedAt?'<span title="Meeting complete" style="color:#1f9d55;margin-right:4px;">✓</span>':'')+esc(a.title||"Untitled")+'</div>'+(a.createdBy?'<div class="at-sub">by '+esc(a.createdBy)+'</div>':'')+(a.completedAt?'<div class="at-sub" style="color:#1f9d55;">Completed</div>':'');tr.appendChild(cT);
     // Description — the agenda's meeting notes, read-only and clamped (full text on hover).
     const cD=document.createElement("td");const dtxt=(a.notes||"").trim();
     if(dtxt){const dv=document.createElement("div");dv.className="tbl-desc";dv.textContent=dtxt;dv.title=dtxt;cD.appendChild(dv);}else cD.innerHTML='<span class="at-sub">—</span>';
@@ -4592,7 +4662,14 @@ function renderAgendasTable(m,rows){
     else cM.innerHTML='<span class="at-sub">—</span>';
     tr.appendChild(cM);
     tb.appendChild(tr);
-  });
+  };
+  if(rows.length){
+    const todayStr=today();
+    const openRows=rows.filter(a=>!a.date||a.date>=todayStr);
+    const completedRows=rows.filter(a=>a.date&&a.date<todayStr);
+    if(openRows.length){addAgTblGrpRow("Open",openRows.length);openRows.forEach(addAgTblRow);}
+    if(completedRows.length){addAgTblGrpRow("Completed",completedRows.length);completedRows.forEach(addAgTblRow);}
+  }
   t.appendChild(tb);wrap.appendChild(t);m.appendChild(wrap);
   makeColumnsResizable(t,"agendas");
 }
