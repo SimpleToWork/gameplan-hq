@@ -1138,8 +1138,8 @@ function recordRunDurations(prev,next){
     notifyRunComplete(t.title||"Task");
   });
 }
-// Short synthesised bell via Web Audio API — no external file, no autoplay restriction (fires on task completion, not page load).
-function playBell(){try{const c=new (window.AudioContext||window.webkitAudioContext)();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(880,c.currentTime);o.frequency.exponentialRampToValueAtTime(440,c.currentTime+0.5);g.gain.setValueAtTime(0.4,c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+1.5);o.start();o.stop(c.currentTime+1.5);}catch(e){}}
+// Short synthesised ping via Web Audio API — no external file, no autoplay restriction (fires on task completion, not page load).
+function playBell(){try{const c=new (window.AudioContext||window.webkitAudioContext)();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.type="sine";o.frequency.setValueAtTime(1400,c.currentTime);o.frequency.exponentialRampToValueAtTime(1200,c.currentTime+0.08);g.gain.setValueAtTime(0.35,c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.5);o.start();o.stop(c.currentTime+0.5);}catch(e){}}
 // Fire all enabled alerts when a runner task finishes: audio bell, browser notification, ntfy.sh push.
 function notifyRunComplete(title){
   if(notifyPrefs.audio)playBell();
@@ -5165,7 +5165,7 @@ function renderTeam(m){
   const audioRow=document.createElement("div");audioRow.style.cssText="display:flex;align-items:center;gap:9px;margin-bottom:10px;";
   const audioCb=document.createElement("input");audioCb.type="checkbox";audioCb.id="nt_audio";audioCb.checked=!!notifyPrefs.audio;
   audioCb.onchange=()=>{notifyPrefs.audio=audioCb.checked;saveNotifyPrefs();if(audioCb.checked)playBell();};
-  const audioLbl=document.createElement("label");audioLbl.htmlFor="nt_audio";audioLbl.style.cssText="font-size:13px;cursor:pointer;";audioLbl.textContent="Play an audio bell when a run finishes";
+  const audioLbl=document.createElement("label");audioLbl.htmlFor="nt_audio";audioLbl.style.cssText="font-size:13px;cursor:pointer;";audioLbl.textContent="Play a ping when a run finishes";
   audioRow.append(audioCb,audioLbl);ntBody.appendChild(audioRow);
   // Browser notification
   const bnRow=document.createElement("div");bnRow.style.cssText="display:flex;align-items:center;gap:9px;margin-bottom:14px;";
