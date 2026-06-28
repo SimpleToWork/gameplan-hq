@@ -3897,8 +3897,9 @@ function renderRoadmap(m){
   fl.style.margin="6px 0 4px";
   areasSorted().forEach(a=>{
     const on=rmActive.has(a.name);
-    const b=document.createElement("button");b.className="btn sm";b.textContent=a.name;
-    b.style.cssText="border-color:"+a.color+(on?(";background:"+a.color+"22;color:"+a.color):";opacity:.45");
+    const b=document.createElement("button");b.className="btn sm";
+    b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":a.color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(a.name);
+    if(on)b.style.cssText="background:"+a.color+";border-color:"+a.color+";color:#fff;";
     b.onclick=()=>{on?rmActive.delete(a.name):rmActive.add(a.name);renderRoadmap();};
     flScroll.appendChild(b);
   });
@@ -3910,14 +3911,17 @@ function renderRoadmap(m){
   pf.style.margin="6px 0 4px";
   roster().forEach(mem=>{
     const on=!!(rmPeopleActive&&rmPeopleActive.has(mem.name));
-    const b=document.createElement("button");b.className="btn sm";b.textContent=mem.name;
-    b.style.cssText="border-color:"+mem.color+(on?(";background:"+mem.color+"22;color:"+mem.color):";opacity:.5");
+    const mc=mem.color||"#8a8a8a";
+    const b=document.createElement("button");b.className="btn sm";
+    b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":mc)+';margin-right:6px;vertical-align:middle;"></span>'+esc(mem.name);
+    if(on)b.style.cssText="background:"+mc+";border-color:"+mc+";color:#fff;";
     b.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(mem.name)?rmPeopleActive.delete(mem.name):rmPeopleActive.add(mem.name);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
     pfScroll.appendChild(b);
   });
   const unOn=!!(rmPeopleActive&&rmPeopleActive.has(UNASSIGNED));
-  const unB=document.createElement("button");unB.className="btn sm";unB.textContent="Unassigned";
-  unB.style.cssText="border-color:#8a8a8a"+(unOn?";background:#8a8a8a22;color:#6a7280":";opacity:.5");
+  const unB=document.createElement("button");unB.className="btn sm";
+  unB.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(unOn?"#fff":"#8a8a8a")+';margin-right:6px;vertical-align:middle;"></span>'+esc("Unassigned");
+  if(unOn)unB.style.cssText="background:#8a8a8a;border-color:#8a8a8a;color:#fff;";
   unB.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(UNASSIGNED)?rmPeopleActive.delete(UNASSIGNED):rmPeopleActive.add(UNASSIGNED);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
   pfScroll.appendChild(unB);
   const clrP=document.createElement("button");clrP.className="btn sm";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
