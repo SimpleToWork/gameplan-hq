@@ -1050,9 +1050,17 @@ function liveStreamOnly(prev,next){
   return changed;
 }
 // Wraps render() with (1) mobile-safe scroll restoration via rAF so DOM rebuilds don't snap
-// the page to top, and (2) preservation of any open edit-pop / notes-pop draft text so live
-// re-renders (e.g. runner status transitions writing non-stream fields) won't wipe unsaved input.
+// the page to top, (2) preservation of any open edit-pop / notes-pop draft text so live
+// re-renders (e.g. runner status transitions writing non-stream fields) won't wipe unsaved input,
+// and (3) deferral when a task-card native <select> is focused so open dropdowns aren't reset.
+let _editGuardDeferTimer=null;
 function renderWithEditGuard(){
+  // If a task-card <select> (status/priority/category) is focused, the user may have the
+  // dropdown open. Rebuilding the DOM would close it. Retry in 200ms; successive snapshots
+  // keep pushing the timer so the render waits until the user finishes selecting.
+  const _aeFocus=document.activeElement;
+  if(_aeFocus&&_aeFocus.tagName==="SELECT"&&_aeFocus.closest("[data-task-id]")){clearTimeout(_editGuardDeferTimer);_editGuardDeferTimer=setTimeout(renderWithEditGuard,200);return;}
+  clearTimeout(_editGuardDeferTimer);_editGuardDeferTimer=null;
   const drafts=[];
   const snapPop=(id,kind,pop)=>{const ae=document.activeElement;const ti=pop.querySelector('input.ctrl'),cx=pop.querySelector('textarea.ctrl');if(!ti&&!cx)return;const nl=kind==='note'?pop.querySelector('.notes-list'):null;drafts.push({id,kind,tit:ti?ti.value:null,ctx:cx?cx.value:null,focTi:ae===ti,focCx:ae===cx,ss:ae?(ae.selectionStart||0):0,se:ae?(ae.selectionEnd||0):0,nSc:nl?nl.scrollTop:0});};
   taskEditOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const pop=card.querySelector('.pop.open');if(pop)snapPop(id,'edit',pop);});
@@ -1064,6 +1072,11 @@ function renderWithEditGuard(){
   document.querySelectorAll('.card[data-task-id]').forEach(card=>{const b=card.querySelector(':scope > .runprog .runprog-body');if(b&&b.scrollTop>0)runBodyScrolls.push({id:card.dataset.taskId,st:b.scrollTop,sh:b.scrollHeight,ch:b.clientHeight});});
   const nlistScrolls=[];
   taskNotesOpen.forEach(id=>{const card=document.querySelector('.card[data-task-id="'+CSS.escape(id)+'"]');if(!card)return;const pop=Array.from(card.querySelectorAll('.pop.open')).find(p=>!p.querySelector('input.ctrl')&&p.querySelector('textarea.ctrl'));if(!pop)return;const nl=pop.firstElementChild;if(nl&&nl.scrollTop>0)nlistScrolls.push({id,st:nl.scrollTop});});
+  // Preserve any focused named input/textarea outside the task-pop system (e.g. #planText in
+  // agendas, search boxes, form fields) so a live re-render triggered by a non-tasks collection
+  // change (members, roadmap, etc.) doesn't wipe in-progress typing on the current page.
+  const _ae=document.activeElement;
+  const _aeSaved=_ae&&(_ae.tagName==="INPUT"||_ae.tagName==="TEXTAREA")&&_ae.id&&!_ae.closest('[data-task-id]')?{id:_ae.id,val:_ae.value,ss:_ae.selectionStart||0,se:_ae.selectionEnd||0}:null;
   const y=window.scrollY;render();
   requestAnimationFrame(()=>{
     window.scrollTo(0,y);
@@ -1077,6 +1090,8 @@ function renderWithEditGuard(){
       if(d.focTi&&ti){try{ti.focus();ti.setSelectionRange(d.ss,d.se);}catch(_){}}
       else if(d.focCx&&cx){try{cx.focus();cx.setSelectionRange(d.ss,d.se);}catch(_){}}
     });
+    // Restore focus+caret for non-task-pop named inputs (runs after per-page search-box refocus).
+    if(_aeSaved){const _rel=document.getElementById(_aeSaved.id);if(_rel&&document.activeElement!==_rel){_rel.value=_aeSaved.val;try{_rel.focus();_rel.setSelectionRange(_aeSaved.ss,_aeSaved.se);}catch(_){}}}
   });
 }
 let subUnsubs=[];
@@ -1129,6 +1144,9 @@ function subscribeAll(){
       // Capture is normally skipped, but its category picker is built from CATS — when disciplines sync and rebuild CATS
       // (fallback literals → the real team disciplines) we must repaint it, else a persisted selection whose category
       // isn't in the fallback list won't render as selected (it'd look like the choice was lost on refresh).
+      // Tasks snapshot while on another page: DB.tasks is already fresh — skip the disruptive re-render so active
+      // edits in agendas, roadmap, etc. are preserved. The tasks board renders correctly on the next page switch.
+      if(k==="tasks"&&page!=="tasks")return;
       if(page!=="capture"||seededDefault||capRmChanged||catsRebuilt){ renderWithEditGuard(); }
     },err=>banner("Sync error: "+err.message,"err")));
   });
@@ -3585,7 +3603,7 @@ function renderTasks(m){
     const uniq=new Map();sections.forEach(s=>s.items.forEach(t=>uniq.set(t.id,t)));
     const allVis=[...uniq.values()];const totalVisible=allVis.length;
     const statusCounts=STATUSES.map(st=>[st,allVis.filter(t=>t.status===st).length]).filter(([,n])=>n);
-    const sum=document.createElement("div");sum.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 8px;font-size:12.5px;color:var(--muted);";
+    const sum=document.createElement("div");sum.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;padding:4px 0 6px;font-size:12.5px;color:var(--muted);position:sticky;z-index:3;background:var(--canvas);box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
     const lead=document.createElement("span");lead.innerHTML='<b style="color:var(--ink);font-size:14px;">'+totalVisible+'</b> task'+(totalVisible!==1?'s':'')+' visible across '+sections.length+' group'+(sections.length!==1?'s':'');
     sum.appendChild(lead);
     // Each chip is a clickable count label: click to isolate the board to that status (sets taskStage to just it),
@@ -3597,6 +3615,7 @@ function renderTasks(m){
       chip.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+pair[1]+';"></span>'+esc(st)+' '+n;
       chip.onclick=()=>{taskStage=active?null:new Set([st]);renderTasks();};sum.appendChild(chip);});
     m.appendChild(sum);
+    sum.style.top=(hh+vb.offsetHeight+trow.offsetHeight+panelWrap.offsetHeight-1)+"px";
   }
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecExpanded.
