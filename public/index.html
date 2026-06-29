@@ -809,7 +809,7 @@ const phaseOf=r=>r.phase||r.horizon||"";
 
 const today=()=>new Date().toISOString().slice(0,10);
 const nowTs=()=>new Date().toISOString(); // full-precision timestamp; used as agent updatedAt for last-write-wins repo sync
-const normRepo=u=>String(u||"").toLowerCase().replace(/\/+$/,"").replace(/\.git$/,"").replace(/\/+$/,""); // compare repo URLs ignoring .git/trailing-slash/case (strip slashes before .git so "x.git/" matches "x")
+const normRepo=u=>String(u||"").toLowerCase().replace(/^https?:\/\/[^/]+\//,"").replace(/\/+$/,"").replace(/\.git$/,"").replace(/\/+$/,""); // compare repo URLs ignoring protocol/domain/.git/trailing-slash/case → always "owner/repo"
 // Team-shared friendly names for connected repos (Settings → Connected repos). Stored one doc per repo in the
 // `repoNames` collection, keyed by a sanitized repo URL so writes are idempotent (no dupes on repeated saves).
 const repoNameKey=u=>normRepo(u).replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"_"; // Firestore doc id (no slashes)
@@ -3827,7 +3827,7 @@ function openRoadmapModal(r){
   meta.appendChild(chip(r.status||"Not started"));
   if(r.start||r.target)meta.appendChild(chip((r.start||"?")+" → "+(r.target||"?")));
   if(linked.length)meta.appendChild(chip(done+"/"+linked.length+" tasks done"));
-  if(r.repos&&r.repos.length){r.repos.forEach(u=>{const rc=repoColor(u)||"#5a6069";const c=chip(repoLabel(u));c.title=u;c.style.cssText+=";background:"+rc+"22;color:"+rc;meta.appendChild(c);});}
+  if(r.repos&&r.repos.length){const _s=new Set();r.repos.filter(u=>_s.has(normRepo(u))?false:_s.add(normRepo(u))).forEach(u=>{const rc=repoColor(u)||"#5a6069";const c=chip(repoLabel(u));c.title=u;c.style.cssText+=";background:"+rc+"22;color:"+rc;meta.appendChild(c);});}
   card.appendChild(meta);
   const lbl=t=>{const l=document.createElement("div");l.className="cmeta";l.style.cssText="font-weight:600;margin:0 0 4px;";l.textContent=t;return l;};
   const areaSel=mkSelect2(areaNames(),r.area);areaSel.style.width="100%";areaSel.style.marginBottom="10px";
@@ -3999,10 +3999,12 @@ function targetCard(r,group){
   const ac=areaColor(r.area);
   const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
   const dates=(r.start||r.target)?('<span class="chip" style="background:#eef0f4;color:#5a6069">'+(r.start||"?")+" → "+(r.target||"?")+'</span>'):'';
-  const repoChips=(r.repos&&r.repos.length)?r.repos.map(u=>{const rc=repoColor(u)||"#5a6069";return '<span class="chip" style="background:'+rc+'22;color:'+rc+'" title="'+esc(u)+'">'+esc(repoLabel(u))+'</span>';}).join(''):'';
+  const _dedupRepos=arr=>{const seen=new Set();return arr.filter(u=>seen.has(normRepo(u))?false:seen.add(normRepo(u)));};
+  const repoChips=(r.repos&&r.repos.length)?_dedupRepos(r.repos).map(u=>{const rc=repoColor(u)||"#5a6069";return '<span class="chip" style="background:'+rc+'22;color:'+rc+'" title="'+esc(u)+'">'+esc(repoLabel(u))+'</span>';}).join(''):'';
+  const agentChips=(r.agents&&r.agents.length)?r.agents.map(aid=>{const ag=DB.agents.find(x=>x.id===aid);if(!ag)return'';return '<span class="chip" style="background:#f0f0ff;color:#4646c8" title="'+esc(ag.summary||agentDisplayName(ag))+'">'+esc(agentDisplayName(ag))+'</span>';}).join(''):'';
   el.innerHTML='<div class="tt">'+esc(r.title)+'</div>'+(r.detail?'<div class="td">'+esc(r.detail)+'</div>':'')+
     '<div class="tf"><span class="chip" style="background:'+ac+'22;color:'+ac+'">'+esc(r.area)+'</span>'+
-    '<span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span>'+dates+repoChips+
+    '<span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span>'+dates+repoChips+agentChips+
     (linked.length?'<span class="linkcount">'+done+'/'+linked.length+' tasks done</span>':'<span class="cmeta">no linked tasks</span>')+'</div>';
   // Click the title to open the item modal (area/phase + Go to task) — reachable for every target, dated or not.
   const ttEl=el.querySelector(".tt");if(ttEl){ttEl.style.cursor="pointer";ttEl.title="Open details";ttEl.onclick=()=>openRoadmapModal(r);}
@@ -4011,9 +4013,10 @@ function targetCard(r,group){
   const editB=document.createElement("button");editB.textContent="Edit";
   const asgB=document.createElement("button");asgB.textContent="Assign";
   const reposB=document.createElement("button");reposB.textContent="Repos";
+  const agentsB=document.createElement("button");agentsB.textContent="Agents";
   const taskB=document.createElement("button");taskB.textContent="Break into tasks";
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
-  acts.append(editB,asgB,reposB,taskB);
+  acts.append(editB,asgB,reposB,agentsB,taskB);
   // Direct "Go to task(s)" action when this target has linked tasks — jumps to them on the Tasks board.
   if(linked.length){const goB=document.createElement("button");goB.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";goB.title="Filter the Tasks board to this target's tasks";goB.onclick=()=>goToRoadmapTasks(r);acts.append(goB);}
   acts.append(delB);
@@ -4033,6 +4036,11 @@ function targetCard(r,group){
   const buildReposPop=()=>{rpop.innerHTML="";const allR=knownRepos();if(!allR.length){const em=document.createElement("div");em.className="cmeta";em.textContent="No repos configured";rpop.appendChild(em);return;}allR.forEach(u=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(r.repos&&r.repos.some(s=>normRepo(s)===normRepo(u)));cb.dataset.url=u;const rc=repoColor(u);if(rc){const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+rc+";margin:0 4px 0 2px;";l.append(cb,sw);}else l.appendChild(cb);l.appendChild(document.createTextNode(" "+repoLabel(u)));rpop.appendChild(l);});const rApply=document.createElement("button");rApply.className="btn primary sm";rApply.style.alignSelf="flex-start";rApply.textContent="Apply";rApply.onclick=()=>{setTarget(r.id,{repos:Array.from(rpop.querySelectorAll("input:checked")).map(x=>normRepo(x.dataset.url))});rpop.classList.remove("open");};rpop.appendChild(rApply);};
   buildReposPop();el.appendChild(rpop);
   reposB.onclick=()=>{buildReposPop();rpop.classList.toggle("open");};
+  // agents popover — pick which agents are assigned to this target
+  const agpop=document.createElement("div");agpop.className="pop";
+  const buildAgentsPop=()=>{agpop.innerHTML="";const allAgs=agentsSorted();if(!allAgs.length){const em=document.createElement("div");em.className="cmeta";em.textContent="No agents configured";agpop.appendChild(em);return;}allAgs.forEach(a=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(r.agents&&r.agents.includes(a.id));cb.dataset.id=a.id;l.append(cb,document.createTextNode(" "+(agentDisplayName(a)||a.id)));if(a.summary){const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";sub.textContent=a.summary;l.appendChild(sub);}agpop.appendChild(l);});const agApply=document.createElement("button");agApply.className="btn primary sm";agApply.style.alignSelf="flex-start";agApply.textContent="Apply";agApply.onclick=()=>{setTarget(r.id,{agents:Array.from(agpop.querySelectorAll("input:checked")).map(x=>x.dataset.id)});agpop.classList.remove("open");};agpop.appendChild(agApply);};
+  buildAgentsPop();el.appendChild(agpop);
+  agentsB.onclick=()=>{buildAgentsPop();agpop.classList.toggle("open");};
   const ep=document.createElement("div");ep.className="pop";ep.appendChild(targetForm(r,()=>{ep.classList.remove("open");rmOpenEdits.delete(r.id);}));el.appendChild(ep);
   if(rmOpenEdits.has(r.id))ep.classList.add("open");
   editB.onclick=()=>{
@@ -4051,11 +4059,12 @@ function targetCard(r,group){
   // Drag-and-drop reorder. The whole card is draggable, but not while an editor is open (so its inputs stay usable).
   if(canDrag){
     el.classList.add("draggable");
-    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open")&&!apop.classList.contains("open")&&!rpop.classList.contains("open");};
+    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open")&&!apop.classList.contains("open")&&!rpop.classList.contains("open")&&!agpop.classList.contains("open");};
     syncDrag();
     editB.addEventListener("click",()=>setTimeout(syncDrag,0));
     asgB.addEventListener("click",()=>setTimeout(syncDrag,0));
     reposB.addEventListener("click",()=>setTimeout(syncDrag,0));
+    agentsB.addEventListener("click",()=>setTimeout(syncDrag,0));
     taskB.addEventListener("click",()=>setTimeout(syncDrag,0));
     const clearMark=()=>document.querySelectorAll(".target.drop-before,.target.drop-after").forEach(n=>n.classList.remove("drop-before","drop-after"));
     el.addEventListener("dragstart",e=>{if(!el.draggable){e.preventDefault();return;}rmDragId=r.id;e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",r.id);}catch(_){}el.classList.add("dragging");});
@@ -6152,7 +6161,7 @@ function runnerStateDoc(){return (DB.runnerControl||[]).find(x=>x.id==="state")|
 // Online when the runner has heart-beaten within the last 90s. The runner writes runnerControl/state.heartbeatAt;
 // until that integration ships the indicator reads as offline (which correctly gates merges, the only git-dependent action).
 function runnerOnline(){const s=runnerStateDoc();if(!s.heartbeatAt)return false;const age=Date.now()-Date.parse(s.heartbeatAt);return age>=0&&age<90000;}
-function knownRepos(){return [...new Set([...DB.repoNames.map(r=>r.repoUrl),...DB.tasks.map(t=>t.repoUrl),...(ghRepos||[]).map(r=>r.url)].filter(Boolean))];}
+function knownRepos(){const all=[...DB.repoNames.map(r=>r.repoUrl),...DB.tasks.map(t=>t.repoUrl),...(ghRepos||[]).map(r=>r.url)].filter(Boolean);const seen=new Set();return all.filter(u=>seen.has(normRepo(u))?false:seen.add(normRepo(u)));}
 function branchTasks(b){return DB.tasks.filter(t=>t.feature_branch_id===b.id);}
 function chipEl(text,colors){const c=colors||["#eeeeec","#646b78"];const s=document.createElement("span");s.className="chip";s.style.cssText="background:"+c[0]+";color:"+c[1]+";";s.textContent=text;return s;}
 function runnerStatusBadge(){
