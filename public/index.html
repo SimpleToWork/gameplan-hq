@@ -58,6 +58,15 @@
   .brandtext{display:flex;align-items:baseline;gap:9px;}
   .brand b{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:21px;letter-spacing:-.02em;}
   .brand span{font-size:12px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;}
+  .app-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 6px;border-radius:20px;font-size:10.5px;font-weight:600;letter-spacing:.03em;border:1.5px solid var(--app-accent,#4646c8);color:var(--app-accent,#4646c8);cursor:pointer;user-select:none;transition:opacity .15s;white-space:nowrap;vertical-align:middle;}
+  .app-badge:hover{opacity:.75;}
+  .app-badge::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--app-accent,#4646c8);flex-shrink:0;}
+  .app-switcher{position:relative;display:inline-block;}
+  .app-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:100;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:0 4px 18px rgba(0,0,0,.13);padding:5px;min-width:168px;display:none;flex-direction:column;gap:1px;}
+  .app-menu.open{display:flex;}
+  .app-menu-item{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink);}
+  .app-menu-item:hover,.app-menu-item.cur{background:var(--canvas);}
+  .app-menu-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
   .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
   .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:wrap;}
   .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;}
@@ -536,7 +545,7 @@
 <div class="app">
   <header>
     <div class="brandrow">
-      <div class="brand"><img class="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>MerchantsBI</b></span></div>
+      <div class="brand"><img class="brandlogo" id="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>MerchantsBI</b><span class="app-switcher" id="appSwitcher"><span class="app-badge" id="appBadge"></span><div class="app-menu" id="appMenu"></div></span></span></div>
       <div class="hctrl"><button id="syncBtn" class="btn sm" title="Re-sync live data — recover a stalled connection and fetch the latest">↻ Sync</button> You are <span id="identity" style="font-weight:600;"></span></div>
     </div>
     <div class="tabs" id="tabs">
@@ -615,6 +624,14 @@ const ST_COLOR={"Not started":["#eeeeec","#646b78"],"Working on it":["#fdeecf","
 const isTaskOpen=t=>t.status!=="Done"&&t.status!=="Archived";
 const DEFAULT_AREAS=[{name:"Development",color:"#378ADD"},{name:"AI",color:"#7F77DD"},{name:"Biz-Dev",color:"#1D9E75"},{name:"Operations",color:"#C9A227"}];
 const AREA_POOL=["#378ADD","#7F77DD","#1D9E75","#C9A227","#E24B4A","#D85A30","#D4537E","#BA7517","#2DA8A8","#7A6FF0","#5B8C2A","#B5641F"];
+// App color variants — each app/product gets a distinct accent color; logoFilter uses grayscale→sepia→hue-rotate
+// to reliably colorize the logo PNG regardless of its original colors.
+const APP_VARIANTS={
+  gameplan: {label:"Gameplan HQ", color:"#4646c8", soft:"#ecebfb", logoFilter:"grayscale(1) sepia(1) hue-rotate(210deg) saturate(2)"},
+  crm:      {label:"CRM",         color:"#1D9E75", soft:"#e0f5ee", logoFilter:"grayscale(1) sepia(1) hue-rotate(131deg) saturate(2) brightness(.85)"},
+  analytics:{label:"Analytics",   color:"#C9A227", soft:"#faf0db", logoFilter:"grayscale(1) sepia(1) hue-rotate(13deg) saturate(2) brightness(.95)"},
+  portal:   {label:"Portal",      color:"#D4537E", soft:"#fce8ef", logoFilter:"grayscale(1) sepia(1) hue-rotate(309deg) saturate(1.8)"},
+};
 const HORIZONS=["Now","Next","Later"];
 const DEFAULT_PHASES=[{name:"Phase I",color:"#1D9E75",order:0},{name:"Phase II",color:"#378ADD",order:1},{name:"Phase III",color:"#7F77DD",order:2}];
 // Prepended to inputs sent to Claude so a pasted document can't hijack the request
@@ -628,6 +645,7 @@ let identity=TEAM[0].name; // bound to the signed-in user by resolveIdentity(); 
 let authUser=null;         // the current Firebase auth user, kept so identity can re-resolve once the roster loads
 let identityUnknown=false; // true when the signed-in account isn't in the roster (identity falls back to their own name)
 let page="capture";
+let currentApp=(()=>{const v=localStorage.getItem("gp_app");return APP_VARIANTS[v]?v:"gameplan";})();
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
 let speechRec=null;          // active Web Speech recognition while dictating in Capture; null when idle
 // Capture picker selections persist across page refreshes via localStorage (gp_capturePrefs). Seeded from the
@@ -6452,6 +6470,29 @@ function startApp(user){
 }
 
 /* ---------- Init ---------- */
+function applyAppVariant(key){
+  const v=APP_VARIANTS[key]||APP_VARIANTS.gameplan;
+  currentApp=key;
+  try{localStorage.setItem("gp_app",key);}catch(e){}
+  const r=document.documentElement;
+  r.style.setProperty("--accent",v.color);
+  r.style.setProperty("--accent-soft",v.soft);
+  r.style.setProperty("--app-accent",v.color);
+  const logo=document.getElementById("brandlogo");
+  if(logo)logo.style.filter=v.logoFilter||"none";
+  const badge=document.getElementById("appBadge");
+  if(badge)badge.textContent=v.label;
+  const menu=document.getElementById("appMenu");
+  if(menu){
+    menu.innerHTML=Object.entries(APP_VARIANTS).map(([k,av])=>
+      `<div class="app-menu-item${k===key?" cur":""}" data-app="${k}"><span class="app-menu-dot" style="background:${av.color}"></span>${av.label}</div>`
+    ).join("");
+    menu.querySelectorAll(".app-menu-item").forEach(el=>{
+      el.addEventListener("click",e=>{e.stopPropagation();applyAppVariant(el.dataset.app);document.getElementById("appMenu")?.classList.remove("open");});
+    });
+  }
+}
+
 function init(){
   // Identity is bound to the authenticated user (see resolveIdentity), not chosen here.
   // Drop any stale manually-saved pick so it can't override the real login.
@@ -6463,7 +6504,12 @@ function init(){
   try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","branches","team"].includes(sp))page=sp;}catch(e){}
   restoreTaskState(); // restore the Tasks-tab filters/view/sort/column-filters the user last had
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
-  document.addEventListener("click",e=>{if(!e.target.closest(".dots-wrap"))document.querySelectorAll(".dots-drop.open").forEach(d=>d.classList.remove("open"));});
+  applyAppVariant(currentApp);
+  document.getElementById("appSwitcher")?.addEventListener("click",e=>{e.stopPropagation();document.getElementById("appMenu")?.classList.toggle("open");});
+  document.addEventListener("click",e=>{
+    if(!e.target.closest(".dots-wrap"))document.querySelectorAll(".dots-drop.open").forEach(d=>d.classList.remove("open"));
+    if(!e.target.closest("#appSwitcher"))document.getElementById("appMenu")?.classList.remove("open");
+  });
 
   if(!fbReady){
     const warn=document.getElementById("setupwarn");
