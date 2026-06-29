@@ -292,9 +292,34 @@
   .runprog-h{font-size:11px;font-weight:600;color:#D97757;padding:5px 9px;border-bottom:1px solid #D9775722;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;}
   .runprog-h:hover{background:#D9775705;}
   .runprog-toggle{font-size:12px;color:#D97757;flex-shrink:0;}
+  .runprog-ts{font-size:10px;color:#D97757;opacity:.65;white-space:nowrap;}
   .runprog-body{height:140px;min-height:60px;max-height:600px;overflow-y:auto;padding:5px 9px;display:flex;flex-direction:column;gap:2px;scroll-behavior:smooth;resize:vertical;}
   .runprog.collapsed .runprog-body{display:none;}
   .runprog-l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;word-break:break-word;flex-shrink:0;}
+  /* Interactive run panel */
+  .runprog.run-waiting{border-color:#f59e0b55;background:#fffbeb14;}
+  .runprog.run-waiting .runprog-h{color:#d97706;}
+  .runprog.run-waiting .runprog-h:hover{background:#fef3c705;}
+  .runprog.run-paused{border-color:#60a5fa55;background:#eff6ff10;}
+  .runprog.run-paused .runprog-h{color:#2563eb;}
+  .run-ctrl-bar{display:flex;gap:6px;padding:5px 9px;border-bottom:1px solid #D9775722;align-items:center;flex-wrap:wrap;}
+  .run-ctrl-btn{font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid;cursor:pointer;font-weight:600;line-height:1.6;background:transparent;}
+  .run-ctrl-btn.run-pause{color:#d97706;border-color:#f59e0b66;} .run-ctrl-btn.run-pause:hover{background:#fffbeb;}
+  .run-ctrl-btn.run-continue{color:#059669;border-color:#10b98166;} .run-ctrl-btn.run-continue:hover{background:#ecfdf5;}
+  .run-ctrl-btn.run-abort{color:#dc2626;border-color:#ef444466;} .run-ctrl-btn.run-abort:hover{background:#fef2f2;}
+  .run-ctrl-btn:disabled{opacity:.4;cursor:default;}
+  .run-waiting-badge{font-size:10.5px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b55;border-radius:4px;padding:1px 7px;font-weight:600;margin-left:auto;}
+  .run-paused-badge{font-size:10.5px;background:#dbeafe;color:#1e40af;border:1px solid #60a5fa55;border-radius:4px;padding:1px 7px;font-weight:600;margin-left:auto;}
+  .run-msg-thread{padding:6px 9px;display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;}
+  .run-msg{font-size:11.5px;line-height:1.45;padding:5px 9px;border-radius:6px;max-width:88%;}
+  .run-msg.run-msg-claude{background:#f5f3ff;color:#3730a3;align-self:flex-start;border:1px solid #c4b5fd44;}
+  .run-msg.run-msg-user{background:#ecfdf5;color:#065f46;align-self:flex-end;border:1px solid #6ee7b744;}
+  .run-msg-at{font-size:9.5px;color:var(--muted);margin-top:2px;display:block;}
+  .run-reply-bar{padding:5px 9px 7px;border-top:1px solid #D9775722;display:flex;gap:6px;align-items:flex-end;}
+  .run-reply-input{flex:1;font-size:11.5px;padding:5px 8px;border:1px solid var(--line);border-radius:5px;resize:vertical;min-height:36px;font-family:inherit;color:var(--ink);background:var(--surface);}
+  .run-reply-input:focus{outline:none;border-color:#4646c8;}
+  .run-reply-send{font-size:11.5px;padding:4px 10px;background:#4646c8;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap;}
+  .run-reply-send:hover{background:#3535aa;}
   .pop{border-top:1px dashed var(--line);padding-top:8px;display:none;flex-direction:column;gap:6px;}
   .pop.open{display:flex;}
   .opt{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
@@ -1008,7 +1033,7 @@ function attachmentsBox(coll,docId,seed){
 // wipe an in-progress edit. Also includes run-start fields (runRequested, runId, runRequestedBy, runRequestedAt,
 // runLevel) — updateRunPanel patches the run/reset buttons in-place so a full re-render is no longer needed.
 // liveStreamOnly returns the list of tasks whose ONLY changes are these fields — or null if anything else moved.
-const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit","runRequested","runId","runRequestedBy","runRequestedAt","runLevel"]);
+const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit","runRequested","runId","runRequestedBy","runRequestedAt","runLevel","runMode","runInteractive","runPendingPrompt","runPendingPromptAt","runUserReply","runUserReplyAt","runMessages","runStepControl","runStepControlAt","runPaused"]);
 function liveStreamOnly(prev,next){
   if(!prev||prev.length!==next.length)return null;
   const pm=new Map(prev.map(t=>[t.id,t]));const changed=[];
@@ -1157,6 +1182,8 @@ function fmtDur(ms){
   const h=Math.floor(m/60),rm=m%60;
   return rm?h+"h "+rm+"m":h+"h";
 }
+// Format an ISO timestamp as time-only "h:mm:ss AM/PM" — used for last-log indicators where date is obvious.
+function fmtRunTs(s){if(!s)return "";const d=new Date(s);if(isNaN(d))return "";return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit",second:"2-digit"});}
 // Format an ISO timestamp as a compact local "Mon D, YYYY · h:mm AM/PM". Date-only inputs ("YYYY-MM-DD",
 // e.g. legacy createdAt) parse to local midnight and omit the time. Empty for blank/invalid input.
 function fmtTs(s){
@@ -1230,7 +1257,7 @@ async function captureTasks(){
     const selRepoNames=selRepoUrls.map(u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;});
     const selAgents=captureAgentIds&&captureAgentIds.size?DB.agents.filter(a=>captureAgentIds.has(a.id)):[];
     const repoCtxStr=selRepoNames.length?" The team member is working in these repos: "+selRepoNames.join(", ")+".":"";
-    const agentCtxStr=selAgents.length?" Available agents relevant to this work: "+selAgents.map(a=>(a.name||a.id)+(a.summary?" ("+a.summary+")":"")).join("; ")+".":"";
+    const agentCtxStr=selAgents.length?" Available agents relevant to this work: "+selAgents.map(a=>(agentDisplayName(a)||a.id)+(a.summary?" ("+a.summary+")":"")).join("; ")+".":"";
     const p='Convert this team member\'s plain-language plan into structured tasks for an internal board. '+
       'Categories (choose exactly ONE per task by primary deliverable, ONLY from this list): '+cats.join(", ")+'. '+
       'Priorities: Critical/High/Medium/Low (Medium unless urgency is signaled). The writer is '+identity+'.'+repoCtxStr+agentCtxStr+' '+
@@ -1494,8 +1521,8 @@ async function emptyTrash(){
   if(!ids.length)return;
   try{for(const id of ids)await fbDelete("tasks",id);banner("Trash emptied — "+ids.length+" task"+(ids.length!==1?"s":"")+" deleted permanently.","ok");}catch(e){banner(e.message,"err");}
 }
-async function addManualTask(title,category,priority,due){
-  try{await fbAdd("tasks",{title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:null});banner("Task added.","ok");}catch(e){banner(e.message,"err");}
+async function addManualTask(title,category,priority,due,roadmapId,agentIds){
+  try{const t={title,category,priority,status:"Not started",assignees:[identity],context:"",due:due||today(),createdBy:identity,createdAt:today(),insertedAt:nowTs(),roadmapId:roadmapId||null};if(agentIds&&agentIds.length)t.agentIds=agentIds;await fbAdd("tasks",t);banner("Task added.","ok");}catch(e){banner(e.message,"err");}
 }
 
 /* ---------- Task "Ask" => copy-paste prompt for claude.ai ---------- */
@@ -1717,7 +1744,7 @@ function renderCapture(m){m=m||document.getElementById("main");
   cr.parentNode.insertBefore(brRow,cr);
   // Agents dropdown — filtered to agents linked to the selected repos (or all agents if no repos selected).
   const filteredAgents=()=>{const all=agentsSorted();if(!captureRepos||!captureRepos.size)return all;return all.filter(a=>a.repoUrl&&captureRepos.has(normRepo(a.repoUrl)));};
-  const agSummary=()=>{if(!captureAgentIds||!captureAgentIds.size)return "None selected";const matched=filteredAgents().filter(a=>captureAgentIds.has(a.id));if(!matched.length)return "None selected";return matched.length<=2?matched.map(a=>a.name||a.id).join(", "):matched.slice(0,2).map(a=>a.name||a.id).join(", ")+" +"+(matched.length-2);};
+  const agSummary=()=>{if(!captureAgentIds||!captureAgentIds.size)return "None selected";const matched=filteredAgents().filter(a=>captureAgentIds.has(a.id));if(!matched.length)return "None selected";return matched.length<=2?matched.map(a=>agentDisplayName(a)||a.id).join(", "):matched.slice(0,2).map(a=>agentDisplayName(a)||a.id).join(", ")+" +"+(matched.length-2);};
   const agRow=document.createElement("div");agRow.className="views";agRow.style.margin="8px 0 0";
   const agLab=document.createElement("span");agLab.className="cmeta";agLab.style.cssText="align-self:center;margin-right:4px;";agLab.title="Include these agents as context when drafting tasks";agLab.textContent="Agents:";agRow.appendChild(agLab);
   const agBtn=document.createElement("button");agBtn.type="button";const agLbl=document.createTextNode(agSummary());const agCar=document.createElement("span");agCar.textContent=" ▾";agCar.style.opacity=".55";
@@ -1733,7 +1760,7 @@ function renderCapture(m){m=m||document.getElementById("main");
     const buildList=()=>{
       list.innerHTML="";
       const q=srch.value.trim().toLowerCase();
-      const agents=filteredAgents().filter(a=>!q||(a.name||"").toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));
+      const agents=filteredAgents().filter(a=>!q||agentDisplayName(a).toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));
       if(!agents.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=q?"No agents match":(captureRepos&&captureRepos.size)?"No agents linked to selected repos — check Agents tab":"No agents configured yet — visit Agents tab";list.appendChild(nm);}
       agents.forEach(a=>{
         const row=document.createElement("label");row.className="opt";
@@ -1741,7 +1768,7 @@ function renderCapture(m){m=m||document.getElementById("main");
         const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";if(a.repoUrl)sub.textContent=repoLabel(a.repoUrl);
         cb.onchange=()=>{if(!captureAgentIds)captureAgentIds=new Set();if(cb.checked)captureAgentIds.add(a.id);else captureAgentIds.delete(a.id);
           if(!captureAgentIds.size)captureAgentIds=null;saveCapturePrefs();anchor.firstChild.textContent=agSummary();anchor.style.fontWeight=(captureAgentIds&&captureAgentIds.size)?"600":"";};
-        row.append(cb,document.createTextNode(" "+(a.name||a.id)),sub);
+        row.append(cb,document.createTextNode(" "+(agentDisplayName(a)||a.id)),sub);
         if(a.summary){const desc=document.createElement("div");desc.className="cmeta";desc.style.cssText="margin-left:20px;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";desc.textContent=a.summary;row.appendChild(desc);}
         list.appendChild(row);
       });
@@ -1833,50 +1860,159 @@ function buildAssignWheel(host,t){
 
 // Builds the in-card run-progress panel (header + last log lines), or null when there's nothing to show. Shared by
 // taskCard (initial render) and updateRunPanel (in-place live refresh) so both stay identical.
+// Send a user reply to a pending Claude prompt during an interactive run.
+function sendRunReply(taskId,text){
+  const t=DB.tasks.find(x=>x.id===taskId);if(!t)return;
+  const msg={role:"user",text,at:new Date().toISOString()};
+  const msgs=Array.isArray(t.runMessages)?[...t.runMessages,msg]:[msg];
+  setTask(taskId,{runUserReply:text,runUserReplyAt:new Date().toISOString(),runMessages:msgs,runPendingPrompt:null});
+}
+// Send a step-control signal to the runner (pause / continue / abort).
+function sendRunStepControl(taskId,control){
+  setTask(taskId,{runStepControl:control,runStepControlAt:new Date().toISOString()});
+  if(control==="abort")banner("Abort signal sent — the runner will stop at the next safe point.","ok");
+  else if(control==="pause")banner("Pause signal sent.","ok");
+  else if(control==="continue")banner("Continue signal sent.","ok");
+}
 function buildRunPanel(t){
   const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
-  if(!(t.runStatus==="running"||t.runStatus==="queued"||runLines.length))return null;
-  const rp=document.createElement("div");const collapsed=runPanelCollapsed.has(t.id);rp.className="runprog"+(collapsed?" collapsed":"");
+  const runLive=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
+  if(!runLive&&t.runStatus!=="detached"&&!runLines.length&&!t.runError)return null;
+  const collapsed=runPanelCollapsed.has(t.id);
+  const isInteractive=t.runMode==="interactive"||!!t.runInteractive;
+  const isPending=isInteractive&&runLive&&!!t.runPendingPrompt;
+  const isPaused=isInteractive&&runLive&&!!t.runPaused;
+  let panelClass="runprog"+(collapsed?" collapsed":"")+(isPending?" run-waiting":isPaused?" run-paused":"");
+  const rp=document.createElement("div");rp.className=panelClass;
+  // Header
   const head=document.createElement("div");head.className="runprog-h";
   const headText=document.createElement("span");
-  headText.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";
+  if(t.runStatus==="queued")headText.textContent="⏳ Queued — waiting for the runner…";
+  else if(isPending)headText.textContent="⏰ Waiting — Claude has a question";
+  else if(isPaused)headText.textContent="⏸ Paused — run is held";
+  else if(t.runStatus==="waiting")headText.textContent="💬 Waiting — Claude needs your input…";
+  else if(runLive)headText.textContent="🔴 Live — Claude is working…";
+  else if(t.runStatus==="detached")headText.textContent="⎗ Detached — session opened locally";
+  else if(t.runError)headText.textContent="⚠️ Last run logs — failed";
+  else headText.textContent="📜 Last run logs";
   const tog=document.createElement("span");tog.className="runprog-toggle";tog.textContent=collapsed?"▸":"▾";
-  head.append(headText,tog);
+  const tsSpan=document.createElement("span");tsSpan.className="runprog-ts";if(t.runProgressAt)tsSpan.textContent=fmtRunTs(t.runProgressAt);
+  const right=document.createElement("span");right.style.cssText="display:flex;align-items:center;gap:5px;flex-shrink:0;";right.append(tsSpan,tog);
+  head.append(headText,right);
+  if(isPending){const badge=document.createElement("span");badge.className="run-waiting-badge";badge.textContent="⏰ Input needed";head.insertBefore(badge,right);}
+  else if(isPaused){const badge=document.createElement("span");badge.className="run-paused-badge";badge.textContent="⏸ Paused";head.insertBefore(badge,right);}
   head.onclick=e=>{e.stopPropagation();const on=rp.classList.toggle("collapsed");on?runPanelCollapsed.add(t.id):runPanelCollapsed.delete(t.id);tog.textContent=on?"▸":"▾";};
   rp.appendChild(head);
-  if(runLines.length){const body=document.createElement("div");body.className="runprog-body";
+  // Step controls — only when interactive + live
+  if(isInteractive&&runLive){
+    const ctrl=document.createElement("div");ctrl.className="run-ctrl-bar";
+    const pauseBtn=document.createElement("button");pauseBtn.className="run-ctrl-btn run-pause";pauseBtn.textContent="⏸ Pause";
+    pauseBtn.disabled=isPaused||t.runStepControl==="pause";
+    pauseBtn.onclick=e=>{e.stopPropagation();sendRunStepControl(t.id,"pause");};
+    const contBtn=document.createElement("button");contBtn.className="run-ctrl-btn run-continue";contBtn.textContent="▶ Continue";
+    contBtn.disabled=!isPaused&&t.runStepControl!=="pause";
+    contBtn.onclick=e=>{e.stopPropagation();sendRunStepControl(t.id,"continue");};
+    const abortBtn=document.createElement("button");abortBtn.className="run-ctrl-btn run-abort";abortBtn.textContent="⛔ Abort";
+    abortBtn.onclick=e=>{e.stopPropagation();if(!confirm("Abort this run? The runner will stop at the next safe checkpoint."))return;sendRunStepControl(t.id,"abort");};
+    ctrl.append(pauseBtn,contBtn,abortBtn);rp.appendChild(ctrl);
+  }
+  // Message thread — shows interactive conversation history
+  const msgs=Array.isArray(t.runMessages)?t.runMessages:[];
+  if(msgs.length){
+    const thread=document.createElement("div");thread.className="run-msg-thread";
+    msgs.forEach(m=>{
+      const bubble=document.createElement("div");bubble.className="run-msg "+(m.role==="user"?"run-msg-user":"run-msg-claude");
+      bubble.textContent=m.text;
+      const at=document.createElement("span");at.className="run-msg-at";at.textContent=(m.role==="user"?"You":"Claude")+(m.at?" · "+fmtTs(m.at):"");
+      bubble.appendChild(at);thread.appendChild(bubble);
+    });
+    rp.appendChild(thread);
+  }
+  // Pending prompt reply bar — shown when Claude is waiting for user input
+  if(isPending){
+    const prompt=document.createElement("div");prompt.style.cssText="padding:6px 9px 3px;font-size:11.5px;font-weight:600;color:#3730a3;";
+    prompt.textContent="Claude: "+t.runPendingPrompt;rp.appendChild(prompt);
+    const replyBar=document.createElement("div");replyBar.className="run-reply-bar";
+    const inp=document.createElement("textarea");inp.className="run-reply-input";inp.placeholder="Type your reply…";inp.rows=2;
+    const send=document.createElement("button");send.className="run-reply-send";send.textContent="Send Reply";
+    send.onclick=e=>{e.stopPropagation();const txt=inp.value.trim();if(!txt){banner("Reply can't be empty.","err");return;}sendRunReply(t.id,txt);inp.value="";banner("Reply sent.","ok");};
+    inp.addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();send.onclick(e);}});
+    replyBar.append(inp,send);rp.appendChild(replyBar);
+  }
+  // Log body
+  if(runLines.length){
+    const body=document.createElement("div");body.className="runprog-body";
     if(runPanelHeight.has(t.id))body.style.height=runPanelHeight.get(t.id);
     body.addEventListener("mouseup",()=>{const h=body.style.height;if(h)runPanelHeight.set(t.id,h);});
     runLines.slice(-20).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
-    rp.appendChild(body);}
+    rp.appendChild(body);
+  }
   return rp;
 }
 // In-place run-panel refresh for one task's inline card: swap (or add/remove) just the .runprog block so a streamed
 // log update never rebuilds the card and discards an in-progress edit. No-op if the card isn't currently on screen.
+// Interactive runs rebuild the panel wholesale on structural changes (pending prompt, messages, paused state) since
+// panel-level rebuild is safe — only card-level rebuilds would lose edits.
 function updateRunPanel(t){
   const main=document.getElementById("main");if(!main)return;
   const card=main.querySelector('.card[data-task-id="'+CSS.escape(t.id)+'"]');if(!card)return;
   const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
-  const runLive=t.runStatus==="running"||t.runStatus==="queued";
+  const runLive=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
   const old=card.querySelector(":scope > .runprog");
-  if(!runLive&&!runLines.length&&!t.runError){if(old)old.remove();}
+  const needsPanel=runLive||t.runStatus==="detached"||runLines.length||t.runError;
+  if(!needsPanel){if(old)old.remove();}
   else if(!old){
     // No panel yet — build fresh (run just started or first render after page load)
     const fresh=buildRunPanel(t);if(fresh){const acts=card.querySelector(":scope > .acts");acts?acts.after(fresh):card.appendChild(fresh);}
+  } else if(t.runInteractive){
+    // Interactive mode: rebuild the whole panel when structural content changes (pending prompt, messages, paused, ctrl).
+    // Log-only appends skip this and fall through to the cheap patch below.
+    const rebuildNeeded=(()=>{
+      const curPending=old.querySelector(".run-reply-bar");
+      const hasPending=!!(t.runPendingPrompt&&runLive);
+      if(!!curPending!==hasPending)return true;
+      const curMsgCount=old.querySelectorAll(".run-msg").length;
+      const newMsgCount=Array.isArray(t.runMessages)?t.runMessages.length:0;
+      if(curMsgCount!==newMsgCount)return true;
+      const isPaused=!!(t.runPaused&&runLive);
+      if(old.classList.contains("run-paused")!==isPaused)return true;
+      if(old.classList.contains("run-waiting")!==hasPending)return true;
+      return false;
+    })();
+    if(rebuildNeeded){
+      const fresh=buildRunPanel(t);if(fresh)old.replaceWith(fresh);else old.remove();
+    } else {
+      // Just patch the header text and log lines
+      const headText=old.querySelector(".runprog-h > span:first-child");
+      if(headText){
+        const isPending=!!(t.runPendingPrompt&&runLive);
+        const isPaused=!!(t.runPaused&&runLive);
+        const newTxt=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":isPending?"⏰ Waiting — Claude has a question":isPaused?"⏸ Paused — run is held":runLive?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";
+        if(headText.textContent!==newTxt)headText.textContent=newTxt;
+      }
+      // Patch step-control button states
+      const pauseBtn=old.querySelector(".run-ctrl-btn.run-pause");
+      const contBtn=old.querySelector(".run-ctrl-btn.run-continue");
+      if(pauseBtn)pauseBtn.disabled=!!(t.runPaused||t.runStepControl==="pause");
+      if(contBtn)contBtn.disabled=!(t.runPaused||t.runStepControl==="pause");
+      // Append new log lines
+      const toShow=runLines.slice(-20);
+      let body=old.querySelector(".runprog-body");
+      if(!body&&toShow.length){body=document.createElement("div");body.className="runprog-body";if(runPanelHeight.has(t.id))body.style.height=runPanelHeight.get(t.id);body.addEventListener("mouseup",()=>{const h=body.style.height;if(h)runPanelHeight.set(t.id,h);});old.appendChild(body);}
+      if(body){const existCount=body.childElementCount;const windowShifted=existCount>0&&toShow.length===existCount&&body.firstElementChild&&body.firstElementChild.textContent!==toShow[0];if(toShow.length<existCount||windowShifted){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;const pfb=body.scrollHeight-body.clientHeight-body.scrollTop;body.innerHTML="";toShow.forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;else body.scrollTop=Math.max(0,body.scrollHeight-body.clientHeight-pfb);}else if(toShow.length>existCount){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;toShow.slice(existCount).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;}}
+    }
   } else {
-    // Panel exists — patch in-place to avoid layout thrash from replaceWith on every log line
+    // Non-interactive: patch in-place to avoid layout thrash from replaceWith on every log line
     const headText=old.querySelector(".runprog-h > span:first-child");
-    if(headText){const newTxt=runLive&&t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":runLive?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";if(headText.textContent!==newTxt)headText.textContent=newTxt;}
-    // Only append new log lines (or trim+rebuild if the 20-line window shifted)
+    if(headText){const newTxt=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runStatus==="waiting"?"💬 Waiting — Claude needs your input…":t.runStatus==="detached"?"⎗ Detached — session opened locally":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";if(headText.textContent!==newTxt)headText.textContent=newTxt;}
+    const tsSpan=old.querySelector(".runprog-ts");if(tsSpan){const newTs=t.runProgressAt?fmtRunTs(t.runProgressAt):"";if(tsSpan.textContent!==newTs)tsSpan.textContent=newTs;}
     const toShow=runLines.slice(-20);
     let body=old.querySelector(".runprog-body");
     if(!body&&toShow.length){body=document.createElement("div");body.className="runprog-body";if(runPanelHeight.has(t.id))body.style.height=runPanelHeight.get(t.id);body.addEventListener("mouseup",()=>{const h=body.style.height;if(h)runPanelHeight.set(t.id,h);});old.appendChild(body);}
     if(body){
       const existCount=body.childElementCount;
-      // Detect window shift: same count but first line changed (20-line cap slid forward)
       const windowShifted=existCount>0&&toShow.length===existCount&&body.firstElementChild&&body.firstElementChild.textContent!==toShow[0];
       if(toShow.length<existCount||windowShifted){
-        // Preserve scroll during rebuild: keep proportional distance from bottom if not at top
         const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;
         const prevFromBottom=body.scrollHeight-body.clientHeight-body.scrollTop;
         body.innerHTML="";toShow.forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});
@@ -1886,13 +2022,25 @@ function updateRunPanel(t){
       else if(toShow.length>existCount){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;toShow.slice(existCount).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;}
     }
   }
+  // Interactive reply block — add/remove/update in-place based on runInteractivePrompt
+  if(old){const needReply=t.runMode==="interactive"&&t.runInteractivePrompt&&(t.runStatus==="waiting"||t.runStatus==="running");
+    const existReply=old.querySelector("[data-interactivereply]");
+    if(needReply&&!existReply){const rb=document.createElement("div");rb.className="runprog-reply";rb.dataset.interactivereply="1";rb.style.cssText="padding:8px 10px;border-top:1px solid #D9775733;";
+      const q=document.createElement("div");q.className="runprog-reply-q";q.style.cssText="font-size:12px;font-weight:600;color:#D97757;margin-bottom:5px;white-space:pre-wrap;";q.textContent="💬 "+t.runInteractivePrompt;
+      const inp=document.createElement("textarea");inp.className="ctrl";inp.placeholder="Your reply…";inp.rows=2;inp.style.cssText="width:100%;font-size:12px;resize:vertical;box-sizing:border-box;";
+      if(t.runInteractiveResponse)inp.value=t.runInteractiveResponse;
+      const sendBtn=document.createElement("button");sendBtn.className="btn primary sm";sendBtn.textContent="Send ▶";sendBtn.style.cssText="margin-top:4px;";
+      sendBtn.onclick=e=>{e.stopPropagation();const v=inp.value.trim();if(!v)return;setTask(t.id,{runInteractiveResponse:v});banner("Reply sent to Claude.","ok");sendBtn.disabled=true;sendBtn.textContent="Sent ✓";};
+      rb.append(q,inp,sendBtn);old.appendChild(rb);}
+    else if(!needReply&&existReply){existReply.remove();}
+    else if(needReply&&existReply){const q=existReply.querySelector(".runprog-reply-q");if(q&&q.textContent!=="💬 "+t.runInteractivePrompt)q.textContent="💬 "+t.runInteractivePrompt;}}
   // Update git badge in title row (runGit is a stream field so this won't trigger a full re-render)
   const titleRow=card.querySelector(".ctitle-row");
   if(titleRow){const ob=titleRow.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):titleRow.appendChild(nb);}else if(ob)ob.remove();}
   // Patch the run button and reset button in the acts bar so run-start fields (runRequested, runStatus, etc.)
   // no longer need a full re-render to update the button state.
   const runBtn=card.querySelector(".runbtn");
-  if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";runBtn.disabled=runLive;runBtn.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}
+  if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":t.runStatus==="waiting"?"💬 Waiting…":"▶ Run";runBtn.disabled=runLive;runBtn.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}
   const acts=card.querySelector(":scope > .acts");
   if(acts){const existReset=acts.querySelector("[data-runreset]");
     if(runLive&&!existReset){const reset=document.createElement("button");reset.className="rm";reset.dataset.runreset="1";reset.textContent="✕ reset";reset.title="Clear a stuck run state (use if it's been stuck on running/queued). Does not stop a process already running on the dev machine.";reset.onclick=e=>{e.stopPropagation();if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});banner("Run state reset.","ok");};if(runBtn)runBtn.after(reset);else acts.appendChild(reset);}
@@ -2002,7 +2150,7 @@ function taskCard(t){
     taskAgentIds.forEach(aid=>{
       const ag=DB.agents.find(x=>x.id===aid);if(!ag)return;
       const chip=document.createElement("span");chip.className="mini";chip.style.cssText="cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px;display:inline-flex;align-items:center;gap:4px;background:#1a1d2322;color:#ccc;border-color:#ffffff22;";
-      chip.textContent=ag.name||ag.type||"Agent";chip.title=(ag.summary||"")+" — click to remove";
+      chip.textContent=agentDisplayName(ag)||ag.type||"Agent";chip.title=(ag.summary||"")+" — click to remove";
       chip.onclick=e=>{e.stopPropagation();setTask(t.id,{agentIds:taskAgentIds.filter(x=>x!==aid)});};
       rcrow.appendChild(chip);
     });
@@ -2013,7 +2161,7 @@ function taskCard(t){
       const pop=document.createElement("div");pop.className="pop open";pop.style.cssText="min-width:220px;top:unset;left:0;z-index:999;";
       const avail=DB.agents.filter(a=>!taskAgentIds.includes(a.id));
       if(!avail.length){const li=document.createElement("div");li.className="pm-item";li.style.color="var(--muted)";li.textContent="No agents available";pop.appendChild(li);}
-      avail.forEach(ag=>{const li=document.createElement("div");li.className="pm-item";li.textContent=ag.name||ag.type||"Agent";li.title=ag.summary||"";li.onclick=ev=>{ev.stopPropagation();setTask(t.id,{agentIds:[...taskAgentIds,ag.id]});pop.remove();};pop.appendChild(li);});
+      avail.forEach(ag=>{const li=document.createElement("div");li.className="pm-item";li.textContent=agentDisplayName(ag)||ag.type||"Agent";li.title=ag.summary||"";li.onclick=ev=>{ev.stopPropagation();setTask(t.id,{agentIds:[...taskAgentIds,ag.id]});pop.remove();};pop.appendChild(li);});
       addAgent.style.position="relative";addAgent.appendChild(pop);
       const close=ev=>{if(!pop.contains(ev.target)){pop.remove();document.removeEventListener("click",close);}};
       setTimeout(()=>document.addEventListener("click",close),0);
@@ -2055,15 +2203,18 @@ function taskCard(t){
   lvl.onclick=e=>e.stopPropagation();
   lvl.onchange=e=>{e.stopPropagation();setTask(t.id,{runLevel:lvl.value});};
   const run=document.createElement("button");run.className="runbtn";
-  const runLive=t.runStatus==="running"||t.runStatus==="queued";
-  run.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";
+  const runLive=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
+  run.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":t.runStatus==="waiting"?"💬 Waiting…":"▶ Run";
   run.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
   if(runLive)run.disabled=true;
   run.onclick=e=>{e.stopPropagation();if(runLive)return;
-    runApprovalModal(t,(selectedLevel)=>{
+    runApprovalModal(t,(selectedLevel,selectedMode)=>{
       const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-      setTask(t.id,{runRequested:true,runId,runLevel:selectedLevel,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
-      banner("Queued for the local runner — it'll start shortly.","ok");});};
+      const mode=selectedMode||"auto";
+      const isInteractive=mode==="interactive";
+      setTask(t.id,{runRequested:true,runId,runLevel:selectedLevel,runMode:mode,runInteractive:isInteractive,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null});
+      const modeMsg={auto:"Queued for the local runner — it'll start shortly.",interactive:"Queued in interactive mode — you can send replies and control steps during the run.",detach:"Queued for detach — the runner will open a Claude Code session in the repo locally."};
+      banner(modeMsg[mode]||modeMsg.auto,"ok");});};
   // ✕ Reset — clear a stuck run. runStatus is just a field; if the runner dies (or its writeback errors)
   // mid-run it never flips to done/error, so the task shows "running" forever. This resets the board state.
   // NOTE: it does NOT kill a claude process genuinely still alive on the dev machine — stop that there.
@@ -2183,13 +2334,13 @@ function taskCard(t){
   const raRow=document.createElement("div");raRow.className="crow";raRow.style.cssText="gap:6px;flex-wrap:wrap;align-items:center;";
   const tRepoLabel=u=>repoFriendly(u)||u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,"")||u;
   const reposSumm=()=>{const urls=Array.isArray(t.repoUrls)?t.repoUrls:[];if(!urls.length)return "None";const ns=urls.map(tRepoLabel);return ns.length<=2?ns.join(", "):ns.slice(0,2).join(", ")+" +"+(ns.length-2);};
-  const agentsSumm=()=>{const ids=Array.isArray(t.agentIds)?t.agentIds:[];if(!ids.length)return "None";const m=agentsSorted().filter(a=>ids.includes(a.id));if(!m.length)return "None";return m.length<=2?m.map(a=>a.name||a.id).join(", "):m.slice(0,2).map(a=>a.name||a.id).join(", ")+" +"+(m.length-2);};
+  const agentsSumm=()=>{const ids=Array.isArray(t.agentIds)?t.agentIds:[];if(!ids.length)return "None";const m=agentsSorted().filter(a=>ids.includes(a.id));if(!m.length)return "None";return m.length<=2?m.map(a=>agentDisplayName(a)||a.id).join(", "):m.slice(0,2).map(a=>agentDisplayName(a)||a.id).join(", ")+" +"+(m.length-2);};
   const rLab=document.createElement("span");rLab.className="cmeta";rLab.style.cssText="align-self:center;white-space:nowrap;";rLab.textContent="Repos:";
   const rBtn=document.createElement("button");rBtn.type="button";rBtn.className="mini";const rBLbl=document.createTextNode(reposSumm());const rBCar=document.createElement("span");rBCar.textContent=" ▾";rBCar.style.opacity=".55";rBtn.append(rBLbl,rBCar);if(Array.isArray(t.repoUrls)&&t.repoUrls.length)rBtn.style.fontWeight="600";
   rBtn.onclick=e=>{e.stopPropagation();const{pop,place}=floatTaskPop(rBtn);pop.style.cssText+=";display:flex;flex-direction:column;gap:3px;min-width:200px;";const repos=ghRepos||[];if(!repos.length){const m=document.createElement("div");m.className="cmeta";m.style.padding="4px 0";m.textContent="No repos connected — check Settings";pop.appendChild(m);}else{repos.forEach(r=>{const row=document.createElement("label");row.className="opt";const cb=document.createElement("input");cb.type="checkbox";const curUrls=Array.isArray(t.repoUrls)?t.repoUrls:[];cb.checked=curUrls.some(u=>normRepo(u)===normRepo(r.url));cb.onchange=()=>{const cur=Array.isArray(t.repoUrls)?[...t.repoUrls]:[];const nm=normRepo(r.url);if(cb.checked){if(!cur.some(u=>normRepo(u)===nm))cur.push(r.url);}else{const i=cur.findIndex(u=>normRepo(u)===nm);if(i>=0)cur.splice(i,1);}setTask(t.id,{repoUrls:cur});t.repoUrls=cur;rBLbl.textContent=reposSumm();rBtn.style.fontWeight=cur.length?"600":"";};row.append(cb,document.createTextNode(" "+tRepoLabel(r.url)));pop.appendChild(row);});}const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear";clr.onclick=()=>{setTask(t.id,{repoUrls:[]});t.repoUrls=[];pop.remove();rBLbl.textContent=reposSumm();rBtn.style.fontWeight="";};pop.appendChild(clr);place();};
   const aLab=document.createElement("span");aLab.className="cmeta";aLab.style.cssText="align-self:center;white-space:nowrap;margin-left:8px;";aLab.textContent="Agents:";
   const aBtn=document.createElement("button");aBtn.type="button";aBtn.className="mini";const aBLbl=document.createTextNode(agentsSumm());const aBCar=document.createElement("span");aBCar.textContent=" ▾";aBCar.style.opacity=".55";aBtn.append(aBLbl,aBCar);if(Array.isArray(t.agentIds)&&t.agentIds.length)aBtn.style.fontWeight="600";
-  aBtn.onclick=e=>{e.stopPropagation();const{pop,place}=floatTaskPop(aBtn);pop.style.cssText+=";display:flex;flex-direction:column;gap:3px;min-width:220px;max-width:340px;max-height:320px;overflow:hidden;resize:both;";const srch=document.createElement("input");srch.type="search";srch.className="ctrl";srch.placeholder="Search agents…";srch.style.cssText="margin-bottom:4px;flex:none;";pop.appendChild(srch);const list=document.createElement("div");list.style.cssText="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px;";pop.appendChild(list);const buildList=()=>{list.innerHTML="";const q=srch.value.trim().toLowerCase();const tUrls=Array.isArray(t.repoUrls)?t.repoUrls:[];const rel=tUrls.length?agentsSorted().filter(a=>!a.repoUrl||tUrls.some(u=>normRepo(u)===normRepo(a.repoUrl))):agentsSorted();const ags=rel.filter(a=>!q||(a.name||"").toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));if(!ags.length){const m=document.createElement("div");m.className="cmeta";m.style.padding="4px 0";m.textContent=q?"No agents match":(tUrls.length?"No agents linked to selected repos":"No agents configured yet");list.appendChild(m);}else{ags.forEach(a=>{const row=document.createElement("label");row.className="opt";const cb=document.createElement("input");cb.type="checkbox";const curIds=Array.isArray(t.agentIds)?t.agentIds:[];cb.checked=curIds.includes(a.id);cb.onchange=()=>{const cur=Array.isArray(t.agentIds)?[...t.agentIds]:[];if(cb.checked){if(!cur.includes(a.id))cur.push(a.id);}else{const i=cur.indexOf(a.id);if(i>=0)cur.splice(i,1);}setTask(t.id,{agentIds:cur});t.agentIds=cur;aBLbl.textContent=agentsSumm();aBtn.style.fontWeight=cur.length?"600":"";};const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";if(a.repoUrl)sub.textContent=repoFriendly(a.repoUrl)||a.repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,"")||a.repoUrl;row.append(cb,document.createTextNode(" "+(a.name||a.id)),sub);if(a.summary){const desc=document.createElement("div");desc.className="cmeta";desc.style.cssText="margin-left:20px;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";desc.textContent=a.summary;row.appendChild(desc);}list.appendChild(row);});}};srch.addEventListener("input",buildList);buildList();const clr=document.createElement("button");clr.className="btn sm";clr.style.cssText="margin-top:8px;flex:none;";clr.textContent="Clear";clr.onclick=()=>{setTask(t.id,{agentIds:[]});t.agentIds=[];pop.remove();aBLbl.textContent=agentsSumm();aBtn.style.fontWeight="";};pop.appendChild(clr);place();};
+  aBtn.onclick=e=>{e.stopPropagation();const{pop,place}=floatTaskPop(aBtn);pop.style.cssText+=";display:flex;flex-direction:column;gap:3px;min-width:220px;max-width:340px;max-height:320px;overflow:hidden;resize:both;";const srch=document.createElement("input");srch.type="search";srch.className="ctrl";srch.placeholder="Search agents…";srch.style.cssText="margin-bottom:4px;flex:none;";pop.appendChild(srch);const list=document.createElement("div");list.style.cssText="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px;";pop.appendChild(list);const buildList=()=>{list.innerHTML="";const q=srch.value.trim().toLowerCase();const tUrls=Array.isArray(t.repoUrls)?t.repoUrls:[];const rel=tUrls.length?agentsSorted().filter(a=>!a.repoUrl||tUrls.some(u=>normRepo(u)===normRepo(a.repoUrl))):agentsSorted();const ags=rel.filter(a=>!q||agentDisplayName(a).toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));if(!ags.length){const m=document.createElement("div");m.className="cmeta";m.style.padding="4px 0";m.textContent=q?"No agents match":(tUrls.length?"No agents linked to selected repos":"No agents configured yet");list.appendChild(m);}else{ags.forEach(a=>{const row=document.createElement("label");row.className="opt";const cb=document.createElement("input");cb.type="checkbox";const curIds=Array.isArray(t.agentIds)?t.agentIds:[];cb.checked=curIds.includes(a.id);cb.onchange=()=>{const cur=Array.isArray(t.agentIds)?[...t.agentIds]:[];if(cb.checked){if(!cur.includes(a.id))cur.push(a.id);}else{const i=cur.indexOf(a.id);if(i>=0)cur.splice(i,1);}setTask(t.id,{agentIds:cur});t.agentIds=cur;aBLbl.textContent=agentsSumm();aBtn.style.fontWeight=cur.length?"600":"";};const sub=document.createElement("span");sub.className="cmeta";sub.style.cssText="margin-left:4px;font-size:.8em;";if(a.repoUrl)sub.textContent=repoFriendly(a.repoUrl)||a.repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,"")||a.repoUrl;row.append(cb,document.createTextNode(" "+(agentDisplayName(a)||a.id)),sub);if(a.summary){const desc=document.createElement("div");desc.className="cmeta";desc.style.cssText="margin-left:20px;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";desc.textContent=a.summary;row.appendChild(desc);}list.appendChild(row);});}};srch.addEventListener("input",buildList);buildList();const clr=document.createElement("button");clr.className="btn sm";clr.style.cssText="margin-top:8px;flex:none;";clr.textContent="Clear";clr.onclick=()=>{setTask(t.id,{agentIds:[]});t.agentIds=[];pop.remove();aBLbl.textContent=agentsSumm();aBtn.style.fontWeight="";};pop.appendChild(clr);place();};
   raRow.append(rLab,rBtn,aLab,aBtn);d.appendChild(raRow);
   // Notes / Files / Claude prompt / Model selector row — isolated from the main action toolbar.
   const nfRow=document.createElement("div");nfRow.className="nf-row";
@@ -2347,10 +2498,10 @@ function openTaskLogsPop(anchor,t){
   pop.style.cssText="position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:0;width:"+initW+"px;height:"+initH+"px;min-width:280px;min-height:160px;resize:both;overflow:hidden;top:"+initT+"px;left:"+initL+"px;display:flex;flex-direction:column;";
   document.body.appendChild(pop);
   // Header drag bar
-  const live=t.runStatus==="running"||t.runStatus==="queued";
+  const live=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
   const bar=document.createElement("div");bar.style.cssText="padding:8px 10px 7px;display:flex;align-items:center;justify-content:space-between;cursor:move;border-bottom:1px solid var(--line);flex-shrink:0;user-select:none;background:var(--surface);border-radius:10px 10px 0 0;";
   const head=document.createElement("div");head.style.cssText="font-size:11px;font-weight:600;color:#D97757;";
-  head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runError?"⚠️ Last run failed":t.runEndedAt?"✓ Last run":"Runtime logs";
+  head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":(t.runMode==="interactive"||t.runInteractive)&&t.runPendingPrompt&&live?"⏰ Waiting — Claude has a question":(t.runMode==="interactive"||t.runInteractive)&&t.runPaused&&live?"⏸ Paused":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runStatus==="waiting"?"💬 Waiting — Claude needs your input…":t.runStatus==="detached"?"⎗ Detached — session opened locally":t.runError?"⚠️ Last run failed":t.runEndedAt?"✓ Last run":"Runtime logs";
   const closeBtn=document.createElement("button");closeBtn.style.cssText="border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted);padding:0 2px;line-height:1;flex-shrink:0;margin-left:8px;";closeBtn.textContent="✕";closeBtn.title="Close";closeBtn.onclick=()=>pop.remove();
   bar.append(head,closeBtn);pop.appendChild(bar);
   // Dragging
@@ -2369,7 +2520,36 @@ function openTaskLogsPop(anchor,t){
   if(start)meta.push("Started "+new Date(start).toLocaleString()+(t.runRequestedBy?(" by "+t.runRequestedBy):""));
   if(live&&start)meta.push("Elapsed "+fmtDur(Date.now()-start));
   else if(t.runDurationMs>0)meta.push("Took "+fmtDur(t.runDurationMs));
+  if(live&&t.runProgressAt)meta.push("Last update "+fmtRunTs(t.runProgressAt));
   if(meta.length){const m=document.createElement("div");m.className="cmeta";m.style.cssText="line-height:1.5;flex-shrink:0;";m.textContent=meta.join(" · ");content.appendChild(m);}
+  // Interactive mode controls and conversation thread
+  if(t.runInteractive&&live){
+    const isPending=!!t.runPendingPrompt;const isPaused=!!t.runPaused;
+    // Step controls
+    const ctrl=document.createElement("div");ctrl.className="run-ctrl-bar";ctrl.style.borderRadius="6px";ctrl.style.border="1px solid #D9775722";
+    const pauseBtn=document.createElement("button");pauseBtn.className="run-ctrl-btn run-pause";pauseBtn.textContent="⏸ Pause";pauseBtn.disabled=isPaused||t.runStepControl==="pause";pauseBtn.onclick=()=>{sendRunStepControl(t.id,"pause");};
+    const contBtn=document.createElement("button");contBtn.className="run-ctrl-btn run-continue";contBtn.textContent="▶ Continue";contBtn.disabled=!isPaused&&t.runStepControl!=="pause";contBtn.onclick=()=>{sendRunStepControl(t.id,"continue");};
+    const abortBtn=document.createElement("button");abortBtn.className="run-ctrl-btn run-abort";abortBtn.textContent="⛔ Abort";abortBtn.onclick=()=>{if(!confirm("Abort this run?"))return;sendRunStepControl(t.id,"abort");};
+    ctrl.append(pauseBtn,contBtn,abortBtn);content.appendChild(ctrl);
+    // Message thread
+    const msgs=Array.isArray(t.runMessages)?t.runMessages:[];
+    if(msgs.length){
+      const thread=document.createElement("div");thread.className="run-msg-thread";thread.style.cssText="border:1px solid var(--line);border-radius:6px;max-height:150px;";
+      msgs.forEach(m=>{const bubble=document.createElement("div");bubble.className="run-msg "+(m.role==="user"?"run-msg-user":"run-msg-claude");bubble.textContent=m.text;const at=document.createElement("span");at.className="run-msg-at";at.textContent=(m.role==="user"?"You":"Claude")+(m.at?" · "+fmtTs(m.at):"");bubble.appendChild(at);thread.appendChild(bubble);});
+      content.appendChild(thread);setTimeout(()=>{thread.scrollTop=thread.scrollHeight;},0);
+    }
+    // Reply input when pending
+    if(isPending){
+      const prompt=document.createElement("div");prompt.style.cssText="font-size:12px;font-weight:600;color:#3730a3;background:#f5f3ff;border:1px solid #c4b5fd44;border-radius:5px;padding:6px 9px;flex-shrink:0;";prompt.textContent="Claude asks: "+t.runPendingPrompt;content.appendChild(prompt);
+      const replyBar=document.createElement("div");replyBar.style.cssText="display:flex;gap:6px;align-items:flex-end;flex-shrink:0;";
+      const inp=document.createElement("textarea");inp.className="run-reply-input";inp.placeholder="Type your reply…";inp.rows=2;inp.style.flex="1";
+      const send=document.createElement("button");send.className="run-reply-send";send.textContent="Send Reply";
+      send.onclick=()=>{const txt=inp.value.trim();if(!txt){banner("Reply can't be empty.","err");return;}sendRunReply(t.id,txt);inp.value="";banner("Reply sent.","ok");};
+      inp.addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();send.onclick();}});
+      replyBar.append(inp,send);content.appendChild(replyBar);
+    }
+    const refreshNote=document.createElement("div");refreshNote.className="cmeta";refreshNote.style.cssText="font-size:10.5px;";refreshNote.textContent="Close and reopen to see new messages from Claude.";content.appendChild(refreshNote);
+  }
   const lines=Array.isArray(t.runProgress)?t.runProgress:[];
   if(lines.length){
     const body=document.createElement("div");body.style.cssText="flex:1;min-height:0;overflow-y:auto;scroll-behavior:smooth;border:1px solid #D9775744;border-radius:8px;background:#D9775710;padding:6px 9px;display:flex;flex-direction:column;gap:2px;";
@@ -2410,13 +2590,13 @@ function openTaskAgentsPop(anchor,t){
   const cur=new Set(Array.isArray(t.agentIds)?t.agentIds.filter(Boolean):[]);
   const buildList=()=>{
     list.innerHTML="";const q=srch.value.trim().toLowerCase();
-    const agents=agentsSorted().filter(a=>!q||(a.name||"").toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));
+    const agents=agentsSorted().filter(a=>!q||agentDisplayName(a).toLowerCase().includes(q)||(a.type||"").toLowerCase().includes(q)||(a.summary||"").toLowerCase().includes(q));
     if(!agents.length){const nm=document.createElement("div");nm.className="cmeta";nm.style.padding="4px 0";nm.textContent=q?"No agents match":"No agents configured yet — visit Agents tab";list.appendChild(nm);return;}
     agents.forEach(a=>{
       const row=document.createElement("label");row.style.cssText="display:flex;align-items:flex-start;gap:7px;cursor:pointer;padding:3px 0;";
       const cb=document.createElement("input");cb.type="checkbox";cb.checked=cur.has(a.id);cb.style.marginTop="2px";
       const info=document.createElement("div");info.style.minWidth="0";
-      const nm=document.createElement("div");nm.style.cssText="font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";nm.textContent=a.name||a.id;
+      const nm=document.createElement("div");nm.style.cssText="font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";nm.textContent=agentDisplayName(a);
       info.appendChild(nm);
       if(a.repoUrl){const sub=document.createElement("div");sub.className="cmeta";sub.style.cssText="font-size:.78em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";sub.textContent=repoLabel(a.repoUrl);info.appendChild(sub);}
       cb.onchange=()=>{if(cb.checked)cur.add(a.id);else cur.delete(a.id);setTask(t.id,{agentIds:[...cur]});};
@@ -2515,8 +2695,8 @@ function openColFilterPop(anchor,label,options,filters,field,reRender){
 // Run-status bucket for a task, mirroring what the Run column actually surfaces: a live run (Running/Queued), a
 // previous failure (runError set, surfaced in the button's hover title), or idle ("▶ Run"). These are the filterable
 // values for the Run column. Canonical order (RUN_STATUS_ORDER) drives the dropdown ordering, like STATUSES/PRIORITIES.
-const RUN_STATUS_ORDER=["Running","Queued","Failed","Not run"];
-const runStatusLabel=t=>t.runStatus==="running"?"Running":t.runStatus==="queued"?"Queued":t.runError?"Failed":"Not run";
+const RUN_STATUS_ORDER=["Running","Waiting","Queued","Detached","Failed","Not run"];
+const runStatusLabel=t=>t.runStatus==="running"?"Running":t.runStatus==="waiting"?"Waiting":t.runStatus==="queued"?"Queued":t.runStatus==="detached"?"Detached":t.runError?"Failed":"Not run";
 // Value accessors per table (key → reader). Multi-value readers return an array (assignees/attendees); "" = none/unassigned.
 const TASK_COL_ACC={
   status:t=>t.status||"",priority:t=>t.priority||"",category:t=>t.category||"",
@@ -2673,7 +2853,7 @@ function taskTable(items,secLabel){
     const tdAgents=document.createElement("td");
     const taskAgentIds=Array.isArray(t.agentIds)?t.agentIds.filter(Boolean):[];
     const agentsWrap=document.createElement("div");agentsWrap.className="tt-who";agentsWrap.style.flexWrap="wrap";
-    if(taskAgentIds.length){taskAgentIds.forEach(aid=>{const ag=DB.agents.find(x=>x.id===aid);if(!ag)return;const chip=document.createElement("span");chip.className="tt-sub";chip.style.cssText="background:#f0f0ff;color:#4646c8;border-radius:4px;padding:1px 5px;font-size:11px;white-space:nowrap;margin-right:2px;";chip.textContent=ag.name||ag.id;chip.title=(ag.summary||"")+(ag.repoUrl?" · "+repoLabel(ag.repoUrl):"");agentsWrap.appendChild(chip);});}
+    if(taskAgentIds.length){taskAgentIds.forEach(aid=>{const ag=DB.agents.find(x=>x.id===aid);if(!ag)return;const chip=document.createElement("span");chip.className="tt-sub";chip.style.cssText="background:#f0f0ff;color:#4646c8;border-radius:4px;padding:1px 5px;font-size:11px;white-space:nowrap;margin-right:2px;";chip.textContent=agentDisplayName(ag);chip.title=(ag.summary||"")+(ag.repoUrl?" · "+repoLabel(ag.repoUrl):"");agentsWrap.appendChild(chip);});}
     else{const dash=document.createElement("span");dash.className="tt-sub";dash.textContent="—";agentsWrap.appendChild(dash);}
     const agBtn=document.createElement("button");agBtn.type="button";agBtn.className="tt-asgbtn";agBtn.textContent="✎";agBtn.title="Edit associated agents";
     agBtn.onclick=()=>openTaskAgentsPop(agBtn,t);agentsWrap.appendChild(agBtn);tdAgents.appendChild(agentsWrap);
@@ -2692,15 +2872,17 @@ function taskTable(items,secLabel){
     // Run — hand the task to the local Claude runner (.local/runner.mjs), same as the card's ▶ Run. Sets runRequested
     // + a fresh runId on the doc; the daemon claims it and writes status/result back. Reflects live state + self-disables.
     const tdRun=document.createElement("td");const runBtn=document.createElement("button");runBtn.type="button";runBtn.className="tt-asgbtn tt-runbtn";
-    const ttRunLive=t.runStatus==="running"||t.runStatus==="queued";
-    runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";
+    const ttRunLive=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
+    runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":t.runStatus==="waiting"?"💬 Waiting…":"▶ Run";
     runBtn.title=t.runError?("Last run failed: "+t.runError):ttRunLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";
     if(ttRunLive)runBtn.disabled=true;
     runBtn.onclick=e=>{e.stopPropagation();if(ttRunLive)return;
-      runApprovalModal(t,(selectedLevel)=>{
+      runApprovalModal(t,(selectedLevel,selectedMode)=>{
         const runId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():(String(Date.now())+"-"+Math.random().toString(36).slice(2));
-        setTask(t.id,{runRequested:true,runId,runLevel:selectedLevel,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null});
-        banner("Queued for the local runner — it'll start shortly.","ok");});};
+        const mode=selectedMode||"auto";
+        setTask(t.id,{runRequested:true,runId,runLevel:selectedLevel,runMode:mode,runRequestedBy:identity,runRequestedAt:new Date().toISOString(),runStatus:"queued",runError:null,runDurationMs:null,runEndedAt:null,runDurationRunId:null,runInteractivePrompt:null,runInteractiveResponse:null});
+        const modeMsg={auto:"Queued for the local runner — it'll start shortly.",interactive:"Queued in interactive mode — the runner will relay prompts here for your input.",detach:"Queued for detach — the runner will open a Claude Code session in the repo locally."};
+        banner(modeMsg[mode]||modeMsg.auto,"ok");});};
     tdRun.appendChild(runBtn);
     // Duration — how long the last (or in-flight) run took, measured from ▶ Run. See runDurationCell.
     const tdDur=document.createElement("td");tdDur.appendChild(runDurationCell(t));
@@ -2956,7 +3138,7 @@ function goToCaptureTasks(captureId,extraIds){
 }
 function goToBranchTasks(branchId){
   taskCatDefaulted=true;
-  taskView="done";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
+  taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;taskCaptureExtraIds=null;
   taskBranchFilter=branchId;
   setPage("tasks");
@@ -3074,11 +3256,22 @@ function renderTasks(m){
   const c3=document.createElement("div");c3.className="field";c3.innerHTML='<label>Priority</label>';c3.appendChild(priS);
   const c4=document.createElement("div");c4.className="field";c4.innerHTML='<label>Due date</label>';c4.appendChild(dueI);
   fg.append(c1,c2,c3,c4);
+  // Roadmap + agent row
+  const rmSel=roadmapSelect(null,()=>{});rmSel.className="ctrl";
+  let newTaskAgentIds=[];
+  const agList=document.createElement("div");agList.style.cssText="max-height:80px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;border:1px solid var(--border);border-radius:5px;padding:4px 6px;background:var(--input-bg,#1a1e2a);";
+  const buildNewAgList=()=>{agList.innerHTML="";const rmId=rmSel.value;const rm=rmId?DB.roadmap.find(r=>r.id===rmId):null;const rmRepos=rm&&rm.repos&&rm.repos.length?rm.repos:[];const ags=rmRepos.length?agentsSorted().filter(a=>a.repoUrl&&rmRepos.some(u=>normRepo(u)===normRepo(a.repoUrl))):agentsSorted();if(!ags.length){const m=document.createElement("div");m.className="cmeta";m.style.padding="2px 0";m.textContent=rmRepos.length?"No agents for this target's repos":"No agents configured";agList.appendChild(m);return;}ags.forEach(a=>{const row=document.createElement("label");row.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.value=a.id;cb.onchange=()=>{cb.checked?(!newTaskAgentIds.includes(a.id)&&newTaskAgentIds.push(a.id)):(newTaskAgentIds=newTaskAgentIds.filter(id=>id!==a.id));};row.append(cb,document.createTextNode(" "+(agentDisplayName(a)||a.id)));agList.appendChild(row);});};
+  rmSel.onchange=()=>{newTaskAgentIds=[];buildNewAgList();};
+  buildNewAgList();
+  const fg2=document.createElement("div");fg2.className="formgrid";fg2.style.cssText="grid-template-columns:1fr 1fr;margin-top:6px;";
+  const c5=document.createElement("div");c5.className="field";c5.innerHTML='<label>Roadmap target</label>';c5.appendChild(rmSel);
+  const c6=document.createElement("div");c6.className="field";const agLbl=document.createElement("label");agLbl.textContent="Agents";c6.append(agLbl,agList);
+  fg2.append(c5,c6);
   const fAdd=document.createElement("button");fAdd.className="btn primary";fAdd.textContent="Add task";
-  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value,dueI.value);titleI.value="";dueI.value="";titleI.focus();};
+  fAdd.onclick=()=>{if(!titleI.value.trim()){banner("Give the task a title.","err");return;}addManualTask(titleI.value.trim(),catS.value,priS.value,dueI.value,rmSel.value||null,newTaskAgentIds.length?newTaskAgentIds:null);titleI.value="";dueI.value="";rmSel.value="";newTaskAgentIds=[];buildNewAgList();titleI.focus();};
   const fCancel=document.createElement("button");fCancel.className="btn";fCancel.textContent="Cancel";fCancel.onclick=closeForm;
   const brow=document.createElement("div");brow.style.cssText="display:flex;gap:10px;align-items:center;margin-top:4px;";brow.append(fAdd,fCancel);
-  form.append(fhead,fg,brow);
+  form.append(fhead,fg,fg2,brow);
   titleI.addEventListener("keydown",e=>{if(e.key==="Escape")closeForm();});
   addBtn.onclick=()=>{const isOpen=form.style.display!=="none";form.style.display=isOpen?"none":"block";addBtn.textContent=isOpen?"+ Add task":"Close";if(!isOpen)titleI.focus();};
   m.append(form);
@@ -3320,7 +3513,7 @@ function renderTasks(m){
   const activeBranchObj=taskBranchFilter?DB.featureBranches.find(b=>b.id===taskBranchFilter):null;
   const backBranch=activeBranchObj?document.createElement("button"):null;
   if(backBranch){backBranch.className="btn sm";backBranch.style.cssText="flex-shrink:0;background:#eef4fb;border-color:#2c6cb055;color:#2c6cb0;font-weight:600;";
-    backBranch.textContent="\u2190 \u23b7 "+(activeBranchObj.name||activeBranchObj.branch_name);backBranch.title="Viewing completed tasks for this branch \u2014 click to go back to Branches";
+    backBranch.textContent="\u2190 \u23b7 "+(activeBranchObj.name||activeBranchObj.branch_name);backBranch.title="Viewing all tasks in this branch \u2014 click to go back to Branches";
     backBranch.onclick=()=>{taskBranchFilter=null;setPage("branches");};}
   if(isMobileFilters){
     // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
@@ -3570,7 +3763,7 @@ function avatarsRow(names){
 /* ---------- Roadmap ops ---------- */
 const nextRoadmapOrder=()=>DB.roadmap.reduce((mx,r)=>Math.max(mx,r.order??0),0)+1;
 async function addManualTarget(o){
-  try{await fbAdd("roadmap",{area:o.area,title:o.title,detail:o.detail||"",phase:o.phase||(phaseNames()[0]||""),status:"Not started",start:o.start||"",target:o.target||"",createdAt:today(),order:nextRoadmapOrder()});banner("Target added.","ok");}catch(e){banner(e.message,"err");}
+  try{await fbAdd("roadmap",{area:o.area,title:o.title,detail:o.detail||"",phase:o.phase||(phaseNames()[0]||""),status:"Not started",start:o.start||"",target:o.target||"",repos:o.repos||[],createdAt:today(),order:nextRoadmapOrder()});banner("Target added.","ok");}catch(e){banner(e.message,"err");}
 }
 async function setTarget(id,patch){try{await fbUpdate("roadmap",id,patch);}catch(e){banner(e.message,"err");}}
 // Roadmap item modal (opened by clicking a timeline bar / plot dot): shows the item and lets you reassign
@@ -3597,6 +3790,7 @@ function openRoadmapModal(r){
   meta.appendChild(chip(r.status||"Not started"));
   if(r.start||r.target)meta.appendChild(chip((r.start||"?")+" → "+(r.target||"?")));
   if(linked.length)meta.appendChild(chip(done+"/"+linked.length+" tasks done"));
+  if(r.repos&&r.repos.length){r.repos.forEach(u=>{const rc=repoColor(u)||"#5a6069";const c=chip(repoLabel(u));c.title=u;c.style.cssText+=";background:"+rc+"22;color:"+rc;meta.appendChild(c);});}
   card.appendChild(meta);
   const lbl=t=>{const l=document.createElement("div");l.className="cmeta";l.style.cssText="font-weight:600;margin:0 0 4px;";l.textContent=t;return l;};
   const areaSel=mkSelect2(areaNames(),r.area);areaSel.style.width="100%";areaSel.style.marginBottom="10px";
@@ -3729,13 +3923,21 @@ function targetForm(r,onDone,onCancel){
   const hz=mkSelect2(phaseNames(),r?phaseOf(r):(phaseNames()[0]||""));
   const st=document.createElement("input");st.className="ctrl";st.type="date";st.value=r?(r.start||""):"";
   const tg=document.createElement("input");tg.className="ctrl";tg.type="date";tg.value=r?(r.target||""):"";
+  // Repos multi-select (checkboxes); initialize from open draft if present, else from saved data
+  const _draftRepos=r&&rmOpenEdits.has(r.id)&&rmOpenEdits.get(r.id).repos;
+  let selRepos=new Set(_draftRepos||(r&&r.repos)||[]);
+  const repoWrap=document.createElement("div");repoWrap.style.cssText="display:flex;flex-wrap:wrap;gap:4px 10px;";
+  const allFormRepos=knownRepos();
+  if(allFormRepos.length){allFormRepos.forEach(u=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=selRepos.has(u);const rc=repoColor(u);if(rc){const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+rc+";margin:0 4px 0 2px;";l.append(cb,sw);}else{l.appendChild(cb);}l.appendChild(document.createTextNode(" "+repoLabel(u)));cb.onchange=()=>{cb.checked?selRepos.add(u):selRepos.delete(u);};repoWrap.appendChild(l);});}
+  else{const em=document.createElement("span");em.className="cmeta";em.style.fontSize="12px";em.textContent="No repos configured";repoWrap.appendChild(em);}
   // Restore unsaved values if this editor was open before a re-render, and keep the draft live so the next re-render restores it too.
   if(r){
     const draft=rmOpenEdits.get(r.id);
     if(draft){ti.value=draft.title;dt.value=draft.detail;ar.value=draft.area;hz.value=draft.phase;st.value=draft.start;tg.value=draft.target;}
-    const sync=()=>rmOpenEdits.set(r.id,{title:ti.value,detail:dt.value,area:ar.value,phase:hz.value,start:st.value,target:tg.value});
+    const sync=()=>rmOpenEdits.set(r.id,{title:ti.value,detail:dt.value,area:ar.value,phase:hz.value,start:st.value,target:tg.value,repos:[...selRepos]});
     [ti,dt].forEach(el=>el.addEventListener("input",sync));
     [ar,hz,st,tg].forEach(el=>el.addEventListener("change",sync));
+    repoWrap.addEventListener("change",sync);
   }
   const grid=document.createElement("div");grid.className="formgrid";grid.append(mk("Area",ar),mk("Phase",hz),mk("Start date",st));
   const grid2=document.createElement("div");grid2.className="formgrid";grid2.append(mk("Target date",tg),mk("",document.createElement("span")),mk("",document.createElement("span")));
@@ -3743,7 +3945,7 @@ function targetForm(r,onDone,onCancel){
   save.onclick=async()=>{
     if(!ti.value.trim()){banner("Give the target a title.","err");return;}
     if(st.value&&tg.value&&tg.value<st.value){banner("Target date is before the start date.","err");return;}
-    const patch={title:ti.value.trim(),detail:dt.value.trim(),area:ar.value,phase:hz.value,start:st.value,target:tg.value};
+    const patch={title:ti.value.trim(),detail:dt.value.trim(),area:ar.value,phase:hz.value,start:st.value,target:tg.value,repos:[...selRepos]};
     if(r){await setTarget(r.id,patch);rmOpenEdits.delete(r.id);banner("Target updated.","ok");}
     else{await addManualTarget(patch);ti.value="";dt.value="";st.value="";tg.value="";}
     if(onDone)onDone();
@@ -3751,7 +3953,7 @@ function targetForm(r,onDone,onCancel){
   const actRow=document.createElement("div");actRow.style.cssText="display:flex;gap:8px;align-items:center;";
   actRow.appendChild(save);
   if(onCancel){const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=()=>onCancel();actRow.appendChild(cancel);}
-  wrap.append(mk("Title",ti),mk("Detail",dt),grid,grid2,actRow);
+  wrap.append(mk("Title",ti),mk("Detail",dt),grid,grid2,mk("Repos",repoWrap),actRow);
   return wrap;
 }
 function targetCard(r,group){
@@ -3760,9 +3962,10 @@ function targetCard(r,group){
   const ac=areaColor(r.area);
   const pn=phaseOf(r);const phc=pn?phaseColor(pn):"#5a6069";
   const dates=(r.start||r.target)?('<span class="chip" style="background:#eef0f4;color:#5a6069">'+(r.start||"?")+" → "+(r.target||"?")+'</span>'):'';
+  const repoChips=(r.repos&&r.repos.length)?r.repos.map(u=>{const rc=repoColor(u)||"#5a6069";return '<span class="chip" style="background:'+rc+'22;color:'+rc+'" title="'+esc(u)+'">'+esc(repoLabel(u))+'</span>';}).join(''):'';
   el.innerHTML='<div class="tt">'+esc(r.title)+'</div>'+(r.detail?'<div class="td">'+esc(r.detail)+'</div>':'')+
     '<div class="tf"><span class="chip" style="background:'+ac+'22;color:'+ac+'">'+esc(r.area)+'</span>'+
-    '<span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span>'+dates+
+    '<span class="chip" style="background:'+phc+'22;color:'+phc+'">'+esc(pn||"—")+'</span>'+dates+repoChips+
     (linked.length?'<span class="linkcount">'+done+'/'+linked.length+' tasks done</span>':'<span class="cmeta">no linked tasks</span>')+'</div>';
   // Click the title to open the item modal (area/phase + Go to task) — reachable for every target, dated or not.
   const ttEl=el.querySelector(".tt");if(ttEl){ttEl.style.cursor="pointer";ttEl.title="Open details";ttEl.onclick=()=>openRoadmapModal(r);}
@@ -3770,9 +3973,10 @@ function targetCard(r,group){
   const acts=document.createElement("div");acts.className="acts";acts.style.marginTop="8px";
   const editB=document.createElement("button");editB.textContent="Edit";
   const asgB=document.createElement("button");asgB.textContent="Assign";
+  const reposB=document.createElement("button");reposB.textContent="Repos";
   const taskB=document.createElement("button");taskB.textContent="Break into tasks";
   const delB=document.createElement("button");delB.className="rm";delB.textContent="Remove";
-  acts.append(editB,asgB,taskB);
+  acts.append(editB,asgB,reposB,taskB);
   // Direct "Go to task(s)" action when this target has linked tasks — jumps to them on the Tasks board.
   if(linked.length){const goB=document.createElement("button");goB.textContent=linked.length===1?"Go to task →":"Go to tasks ("+linked.length+") →";goB.title="Filter the Tasks board to this target's tasks";goB.onclick=()=>goToRoadmapTasks(r);acts.append(goB);}
   acts.append(delB);
@@ -3787,6 +3991,11 @@ function targetCard(r,group){
   aApply.onclick=()=>{setTarget(r.id,{assignees:Array.from(apop.querySelectorAll("input:checked")).map(x=>x.dataset.name)});apop.classList.remove("open");};
   apop.appendChild(aApply);el.appendChild(apop);
   asgB.onclick=()=>apop.classList.toggle("open");
+  // repos popover — pick which repos are associated with this target
+  const rpop=document.createElement("div");rpop.className="pop";
+  const buildReposPop=()=>{rpop.innerHTML="";const allR=knownRepos();if(!allR.length){const em=document.createElement("div");em.className="cmeta";em.textContent="No repos configured";rpop.appendChild(em);return;}allR.forEach(u=>{const l=document.createElement("label");l.className="opt";const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(r.repos&&r.repos.includes(u));cb.dataset.url=u;const rc=repoColor(u);if(rc){const sw=document.createElement("span");sw.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+rc+";margin:0 4px 0 2px;";l.append(cb,sw);}else l.appendChild(cb);l.appendChild(document.createTextNode(" "+repoLabel(u)));rpop.appendChild(l);});const rApply=document.createElement("button");rApply.className="btn primary sm";rApply.style.alignSelf="flex-start";rApply.textContent="Apply";rApply.onclick=()=>{setTarget(r.id,{repos:Array.from(rpop.querySelectorAll("input:checked")).map(x=>x.dataset.url)});rpop.classList.remove("open");};rpop.appendChild(rApply);};
+  buildReposPop();el.appendChild(rpop);
+  reposB.onclick=()=>{buildReposPop();rpop.classList.toggle("open");};
   const ep=document.createElement("div");ep.className="pop";ep.appendChild(targetForm(r,()=>{ep.classList.remove("open");rmOpenEdits.delete(r.id);}));el.appendChild(ep);
   if(rmOpenEdits.has(r.id))ep.classList.add("open");
   editB.onclick=()=>{
@@ -3805,10 +4014,11 @@ function targetCard(r,group){
   // Drag-and-drop reorder. The whole card is draggable, but not while an editor is open (so its inputs stay usable).
   if(canDrag){
     el.classList.add("draggable");
-    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open")&&!apop.classList.contains("open");};
+    const syncDrag=()=>{el.draggable=!ep.classList.contains("open")&&!bp.classList.contains("open")&&!apop.classList.contains("open")&&!rpop.classList.contains("open");};
     syncDrag();
     editB.addEventListener("click",()=>setTimeout(syncDrag,0));
     asgB.addEventListener("click",()=>setTimeout(syncDrag,0));
+    reposB.addEventListener("click",()=>setTimeout(syncDrag,0));
     taskB.addEventListener("click",()=>setTimeout(syncDrag,0));
     const clearMark=()=>document.querySelectorAll(".target.drop-before,.target.drop-after").forEach(n=>n.classList.remove("drop-before","drop-after"));
     el.addEventListener("dragstart",e=>{if(!el.draggable){e.preventDefault();return;}rmDragId=r.id;e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",r.id);}catch(_){}el.classList.add("dragging");});
@@ -4879,13 +5089,21 @@ function runApprovalModal(t,onApprove){
     const lvlSel=document.createElement("select");lvlSel.className="ctrl";lvlSel.style.cssText="width:100%;font-size:13px;";
     [["standard","◆ Standard — Sonnet (default)"],["quick","⚡ Quick — Haiku (fastest / cheapest)"],["deep","★ Deep — Opus (hardest tasks)"]].forEach(([val,lab])=>{const o=document.createElement("option");o.value=val;o.textContent=lab;if(String(t.runLevel||"standard").toLowerCase()===val)o.selected=true;lvlSel.appendChild(o);});
     lvlCell.appendChild(lvlSel);card.appendChild(lvlWrap);
+    // Mode selector — Auto runs hands-free (current default), Interactive relays Claude's prompts back here for user input, Detach opens a local Claude Code session.
+    const modeWrap=document.createElement("div");modeWrap.innerHTML=row("Mode","");
+    const modeCell=modeWrap.querySelector("div:last-child");
+    const modeSel=document.createElement("select");modeSel.className="ctrl";modeSel.style.cssText="width:100%;font-size:13px;";
+    [["auto","▶ Auto — runs fully on its own"],["interactive","💬 Interactive — two-way prompting, step controls, and mid-run input"],["detach","⎗ Detach — opens Claude Code locally"]].forEach(([val,lab])=>{const o=document.createElement("option");o.value=val;o.textContent=lab;if(String(t.runMode||(t.runInteractive?"interactive":"auto")).toLowerCase()===val)o.selected=true;modeSel.appendChild(o);});
+    modeCell.appendChild(modeSel);card.appendChild(modeWrap);
+    const modeNotes={auto:"The local runner will pick this up, work the task, and report status + a summary back here.",interactive:"The runner will run Claude interactively — Claude can ask you questions during the run and you can pause or abort at any step.",detach:"The runner will open a detached Claude Code session in the repo on the local machine for you to work in directly."};
     const note=document.createElement("p");note.className="pagesub";note.style.cssText="margin:4px 0 14px;";
-    note.textContent="The local runner will pick this up, work the task, and report status + a summary back here.";
+    note.textContent=modeNotes[modeSel.value]||modeNotes.auto;
+    modeSel.onchange=()=>{note.textContent=modeNotes[modeSel.value]||modeNotes.auto;};
     card.appendChild(note);
     const acts=document.createElement("div");acts.style.cssText="display:flex;gap:8px;justify-content:flex-end;";
     const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
     const go=document.createElement("button");go.className="btn primary";go.textContent="▶ Approve & Run";
-    go.onclick=()=>{close();onApprove(lvlSel.value);};
+    go.onclick=()=>{close();onApprove(lvlSel.value,modeSel.value);};
     acts.append(cancel,go);card.appendChild(acts);
   });
 }
@@ -5207,6 +5425,8 @@ const AGENT_TYPES=["connector","etl","analysis","automation","other"];
 const AGENT_STATUSES=["draft","active","archived"];
 const AGENT_MODELS=["claude-opus-4-8","claude-sonnet-4-6","claude-haiku-4-5-20251001"];
 const agentsSorted=()=>DB.agents.slice().sort((a,b)=>(b.updatedAt||b.createdAt||"").localeCompare(a.updatedAt||a.createdAt||""));
+// Display name for an agent: stored name → filename from repoPath → Firestore id → "Untitled"
+const agentDisplayName=a=>{if(!a)return"Untitled";if(a.name)return a.name;if(a.repoPath){const f=a.repoPath.split("/").pop().replace(/\.md$/i,"");if(f)return f;}return a.id||"Untitled";};
 // Stable, immutable identity for an agent, written into the spec frontmatter so a file's link to its local
 // record survives a move/rename in the repo. Sync reconciles on agentId (not repoPath), so relocating a spec
 // file in the repo no longer reads as a brand-new agent. Distinct from the Firestore doc id (which is per-store).
@@ -5395,10 +5615,10 @@ async function moveAgent(a,destFolderRaw,opts){
   }catch(e){/* a read failure shouldn't block the move; the write below surfaces real errors */}
   const ts=nowTs();
   const spec=Object.assign({},a,{repoUrl:a.repoUrl,repoPath:newPath,agentId:aid,updatedAt:ts});
-  const wr=await githubSync({op:"write",repoUrl:a.repoUrl,path:newPath,spec,message:"Move agent "+(a.name||filename)+" → "+newPath});
+  const wr=await githubSync({op:"write",repoUrl:a.repoUrl,path:newPath,spec,message:"Move agent "+(agentDisplayName(a)||filename)+" → "+newPath});
   // New file is written; now remove the old one. Best-effort — if it fails the agent already lives at newPath.
   let delMsg="";
-  try{await githubSync({op:"delete",repoUrl:a.repoUrl,path:a.repoPath,message:"Move agent "+(a.name||filename)+": remove old "+a.repoPath});}
+  try{await githubSync({op:"delete",repoUrl:a.repoUrl,path:a.repoPath,message:"Move agent "+(agentDisplayName(a)||filename)+": remove old "+a.repoPath});}
   catch(e){delMsg=" (old file not removed — delete it manually: "+a.repoPath+")";}
   await fbUpdate("agents",a.id,{repoPath:newPath,agentId:aid,lastCommitSha:wr.sha||(wr.commit&&wr.commit.sha)||"",lastSyncedAt:today(),updatedAt:ts});
   return{ok:true,msg:"Moved to "+folder+delMsg};
@@ -5518,7 +5738,7 @@ function agentModal(existing){
 // Run panel (Phase 3a): give the agent a data-source description (+ optional secrets), run the server-side
 // tool-use loop, show the transcript + emitted connector spec, and save the run to agentRuns (secrets excluded).
 function agentRunModal(a){
-  openModal("Run: "+(a.name||"agent"),(card,close)=>{
+  openModal("Run: "+agentDisplayName(a),(card,close)=>{
     const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:6px;";
     const lab=t=>{const l=document.createElement("div");l.className="cmeta";l.style.cssText="font-weight:600;margin-top:6px;";l.textContent=t;wrap.appendChild(l);};
     lab(a.inputs?("Input — "+a.inputs):"Data source description");
@@ -5572,7 +5792,7 @@ function agentRunModal(a){
 // Pick a destination folder and move the agent's spec file there (commits to the repo). Suggests existing
 // folders via a datalist; the file keeps its name and only its folder changes.
 function agentMoveModal(a){
-  openModal("Move agent: "+(a.name||"agent"),(card,close)=>{
+  openModal("Move agent: "+agentDisplayName(a),(card,close)=>{
     const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:8px;";
     const pend=agentPendingMoves[a.id];
     wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">Current path: '+esc(a.repoPath||"(unfiled)")+(pend?' · staged → '+esc(pend.newPath):'')+'</div>');
@@ -5640,7 +5860,7 @@ function mdToHtml(src){
 // Reconstruct the agent's Markdown body (mirrors api/github.js serializeSpec) from the in-app spec, skipping
 // empty sections so the rendered view stays clean.
 function agentSpecToMarkdown(a){
-  const parts=["# "+(a.name||"Untitled agent")];
+  const parts=["# "+agentDisplayName(a)];
   if(a.summary&&a.summary.trim())parts.push("",a.summary);
   const sec=(h,v)=>{if(v&&String(v).trim())parts.push("","## "+h,"",String(v));};
   sec("System prompt",a.systemPrompt);
@@ -5661,7 +5881,7 @@ function mdStripFrontmatter(raw){
 // frontmatter into a metadata header. Falls back to the saved in-app spec if there's no repo link, no file yet,
 // or the fetch fails.
 function agentViewModal(a){
-  openModal(a.name||"Agent",(card,close)=>{
+  openModal(agentDisplayName(a),(card,close)=>{
     // Roomier than the default modal — this view renders a full agent spec, so open big and tall by default.
     // The user can size it themselves three ways, and whatever they pick STICKS across opens (localStorage):
     //   • drag the bottom-right corner (resize handle)  • hit the ⤢ toggle for near-fullscreen.
@@ -5711,7 +5931,7 @@ function agentViewModal(a){
 // The agent action menu — opened by clicking an agent node in the directory diagram. Consolidates the card's
 // actions (Run / Edit / Move / Open repo / Delete) so a node click reaches the same operations.
 function agentMenuModal(a){
-  openModal(a.name||"Agent",(card,close)=>{
+  openModal(agentDisplayName(a),(card,close)=>{
     const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:6px;";
     wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(a.type||"other")+' · '+esc(a.status||"draft")+(a.model?' · '+esc(a.model):'')+'</div>');
     if(a.repoPath)wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">'+esc(a.repoPath)+'</div>');
@@ -5774,7 +5994,7 @@ function renderAgentsDiagram(m){
   // A container node's children: sub-folders (alphabetical) first, then its own agents (by name) as leaves.
   const kidsOf=node=>{
     const folders=Array.from((node.children||new Map()).values()).sort(byLabel);
-    const agents=(node.agents||[]).slice().sort((a,b)=>(a.name||"").toLowerCase().localeCompare((b.name||"").toLowerCase())).map(a=>({label:a.name||"Untitled",agent:a}));
+    const agents=(node.agents||[]).slice().sort((a,b)=>agentDisplayName(a).toLowerCase().localeCompare(agentDisplayName(b).toLowerCase())).map(a=>({label:agentDisplayName(a),agent:a}));
     return folders.concat(agents);
   };
   const renderNode=(node,key,icon,parentEl)=>{
@@ -5788,7 +6008,7 @@ function renderAgentsDiagram(m){
         '<span class="tspacer"></span>';
       // Description icon: DOM element so .title is set safely (esc() doesn't escape double-quotes in attributes).
       if(ag.summary){const info=document.createElement("span");info.style.cssText="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--soft,#f0f0ee);color:var(--muted,#888);font-size:10px;flex:none;cursor:default;margin-left:3px;font-style:italic;font-weight:700;";info.textContent="i";info.title=ag.summary;const ref=row.querySelector(".chip")||row.querySelector(".tspacer");if(ref)row.insertBefore(info,ref);else row.appendChild(info);}
-      row.title=(ag.name||"Untitled")+(ag.summary?" — "+ag.summary:"")+(ag.repoPath?"\n"+ag.repoPath:"")+(pend?"  (staged move — not yet committed)":(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":""));
+      row.title=agentDisplayName(ag)+(ag.summary?" — "+ag.summary:"")+(ag.repoPath?"\n"+ag.repoPath:"")+(pend?"  (staged move — not yet committed)":(ag.repoUrl&&ag.repoPath?"  (drag onto a folder to move)":""));
       row.onclick=()=>agentMenuModal(ag);
       // Inline display button: render the formatted agent file directly, skipping the action menu.
       const viewBtn=document.createElement("button");viewBtn.type="button";viewBtn.className="tview";
@@ -6080,6 +6300,7 @@ function openTaskBranchPicker(anchor,t){
     if(t.feature_branch_id)add('✕ Unassign branch',async()=>{try{await setTask(t.id,{feature_branch_id:null,task_branch_name:null});}catch(e){banner(e.message,"err");}},true);
     open.forEach(b=>{const sel=b.id===t.feature_branch_id;add('<span style="display:inline-flex;align-items:center;gap:6px;'+(sel?"font-weight:600;":"")+'"><span style="color:#1d9e75;">⎇</span>'+esc(b.name)+'</span>',async()=>{const err=assignBranchError(t,b);if(err){banner(err,"err");return;}try{await setTask(t.id,{feature_branch_id:b.id});}catch(e){banner(e.message,"err");}});});
     if(!open.length&&!t.feature_branch_id){const m=document.createElement("div");m.style.cssText="color:var(--muted);padding:6px 8px;";m.textContent="No open branches in this repo.";pop.appendChild(m);}
+    if(!t.feature_branch_id){const abn=featureBranchName(t.title);if(abn){const xb=DB.featureBranches.find(b=>b.status!=="merged"&&normRepo(b.repo_id||b.repoUrl||"")===normRepo(t.repoUrl)&&b.branch_name===abn);add("⚡ Auto-assign: "+esc(abn),async()=>{try{let id;if(xb){id=xb.id;banner("Existing branch "+abn+" assigned.","ok");}else{id=await createFeatureBranch({name:t.title,repoUrl:t.repoUrl});banner("Branch "+abn+" created and assigned.","ok");}await setTask(t.id,{feature_branch_id:id});}catch(e){banner(e.message,"err");}});}}
     add('<span style="color:#1d9e75;">+ Create new branch…</span>',()=>createBranchModal(t.repoUrl,id=>{setTask(t.id,{feature_branch_id:id}).catch(e=>banner(e.message,"err"));}));
   }
   place();
@@ -6114,7 +6335,7 @@ function renderBranches(m){
     chips.append(chipEl(b.status||"ready",FB_STATUS_COLOR[b.status]||FB_STATUS_COLOR.ready),chipEl(tasks.length+" task"+(tasks.length!==1?"s":""),["#eef4fb","#2c6cb0"]));
     if(b.checks_status&&b.checks_status!=="unknown")chips.appendChild(chipEl("checks: "+b.checks_status,FB_CHECKS_COLOR[b.checks_status]||FB_CHECKS_COLOR.unknown));
     if(b.status==="merged"){const rb=document.createElement("button");rb.className="btn sm";rb.textContent="↩ Reuse";rb.title="Create a fresh branch with the same name for new tasks";rb.style.flexShrink="0";rb.onclick=e=>{e.stopPropagation();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};chips.appendChild(rb);}
-    if(tasks.length>0){const vt=document.createElement("button");vt.className="btn sm";vt.textContent="Completed tasks";vt.title="Show completed tasks in this branch";vt.style.flexShrink="0";vt.onclick=e=>{e.stopPropagation();goToBranchTasks(b.id);};chips.appendChild(vt);}
+    if(tasks.length>0){const vt=document.createElement("button");vt.className="btn sm";vt.textContent="Go to all tasks";vt.title="Show all tasks in this branch";vt.style.flexShrink="0";vt.onclick=e=>{e.stopPropagation();goToBranchTasks(b.id);};chips.appendChild(vt);}
     row.append(left,chips);
     const go=()=>branchModal(b.id);row.onclick=go;row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
     return row;

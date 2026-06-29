@@ -94,18 +94,18 @@ function parseSpec(text){
       fm[k] = v;
     });
   }
-  const sec = {}; let cur = "summary", buf = [];
+  const sec = {}; let cur = "summary", buf = []; let h1title = "";
   const flush = () => { sec[cur] = buf.join("\n").trim(); buf = []; };
   body.split("\n").forEach(ln=>{
     const h2 = ln.match(/^##\s+(.*)/);
     if(h2){ flush(); const t = h2[1].trim().toLowerCase(); cur = t==="system prompt" ? "systemPrompt" : t; }
-    else if(/^#\s+/.test(ln)){ /* title line — skip */ }
+    else if(/^#\s+/.test(ln)){ if(!h1title){ h1title = ln.replace(/^#\s+/,"").trim(); } }
     else buf.push(ln);
   });
   flush();
   return {
     agentId: fm.agentId||"",
-    name: fm.name||"", type: fm.type||"other", status: fm.status||"draft", model: fm.model||"",
+    name: fm.name||h1title||"", type: fm.type||"other", status: fm.status||"draft", model: fm.model||"",
     repoUrl: fm.repoUrl||"", repoPath: fm.repoPath||"",
     createdBy: fm.createdBy||"", createdAt: fm.createdAt||"", updatedAt: fm.updatedAt||"",
     tools: Array.isArray(fm.tools) ? fm.tools : [],
