@@ -6115,7 +6115,7 @@ function runnerStateDoc(){return (DB.runnerControl||[]).find(x=>x.id==="state")|
 // Online when the runner has heart-beaten within the last 90s. The runner writes runnerControl/state.heartbeatAt;
 // until that integration ships the indicator reads as offline (which correctly gates merges, the only git-dependent action).
 function runnerOnline(){const s=runnerStateDoc();if(!s.heartbeatAt)return false;const age=Date.now()-Date.parse(s.heartbeatAt);return age>=0&&age<90000;}
-function knownRepos(){return [...new Set([...DB.repoNames.map(r=>r.repoUrl),...DB.tasks.map(t=>t.repoUrl)].filter(Boolean))];}
+function knownRepos(){return [...new Set([...DB.repoNames.map(r=>r.repoUrl),...DB.tasks.map(t=>t.repoUrl),...(ghRepos||[]).map(r=>r.url)].filter(Boolean))];}
 function branchTasks(b){return DB.tasks.filter(t=>t.feature_branch_id===b.id);}
 function chipEl(text,colors){const c=colors||["#eeeeec","#646b78"];const s=document.createElement("span");s.className="chip";s.style.cssText="background:"+c[0]+";color:"+c[1]+";";s.textContent=text;return s;}
 function runnerStatusBadge(){
