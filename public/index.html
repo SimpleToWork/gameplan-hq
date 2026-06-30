@@ -6597,7 +6597,9 @@ function branchModal(branchId){
       tasks.forEach(t=>{
         const row=document.createElement("div");row.style.cssText="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);";
         const ttl=document.createElement("button");ttl.style.cssText="flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:none;padding:0;text-align:left;cursor:pointer;color:inherit;";ttl.textContent=t.title;ttl.title="Open task: "+t.title;ttl.onclick=e=>{e.stopPropagation();openTaskPopout(t);};
-        const bs=taskBuildState(t);row.append(ttl,chipEl(bs,BUILD_COLOR[bs]||BUILD_COLOR.idle));
+        const bs=taskBuildState(t);
+        const goBtn=document.createElement("button");goBtn.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;color:#1d9e75;white-space:nowrap;flex-shrink:0;padding:0;";goBtn.textContent="Go to task →";goBtn.title="Navigate to this task on the Tasks page";goBtn.onclick=e=>{e.stopPropagation();close();goToTask(t.id);};
+        row.append(ttl,chipEl(bs,BUILD_COLOR[bs]||BUILD_COLOR.idle),goBtn);
         if(!readOnly){const x=document.createElement("button");x.className="rm";x.textContent="remove";x.setAttribute("aria-label","Unassign task "+t.title);x.style.cssText="border:none;background:none;cursor:pointer;font-size:11px;";x.onclick=async()=>{try{await setTask(t.id,{feature_branch_id:null,task_branch_name:null});paint();}catch(e){banner(e.message,"err");}};row.appendChild(x);}
         body.appendChild(row);
       });
