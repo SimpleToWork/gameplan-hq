@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" href="/mbi-logo.png">
 <link rel="apple-touch-icon" href="/mbi-logo.png">
-<title>MerchantsBi</title>
+<title>MerchantsBI</title>
 <!--
   ============================================================
   GAMEPLAN HQ — hosted build (Firebase storage + Claude API)
@@ -61,11 +62,11 @@
 
   .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
   .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:wrap;}
-  .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;will-change:background,color;}
+  .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;}
   .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06);}
   select.ctrl,input.ctrl{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:7px 10px;font-size:13px;cursor:pointer;}
   .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 14px;font-size:13.5px;font-weight:500;cursor:pointer;transition:background .15s,transform .05s;display:inline-flex;align-items:center;gap:7px;}
-  .btn:hover{background:#f1f1f0;will-change:transform;} .btn:active{transform:scale(.99);}
+  .btn:hover{background:#f1f1f0;} .btn:active{transform:scale(.99);}
   .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;} .btn.primary:hover{background:#3a3ab0;}
   .btn.sm{padding:5px 10px;font-size:12px;}
   .btn:disabled{opacity:.5;cursor:default;}
@@ -199,7 +200,7 @@
   @media(max-width:480px){.grid.taskgrid{grid-template-columns:1fr;}}
   /* On mobile, header tabs fill the same width as a task card (full content area with app padding). */
   @media(max-width:480px){.tabs{width:100%;box-sizing:border-box;}.tabs button{flex:1;text-align:center;padding:7px 8px;}}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;position:relative;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;position:relative;contain:layout style;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;touch-action:manipulation;}
   .card[data-task-id]:hover{border-color:#9d9dde;border-color:color-mix(in srgb,var(--accent,#4646c8) 55%,#fff);}
@@ -1061,7 +1062,12 @@ function liveStreamOnly(prev,next){
     const pt=pm.get(nt.id);if(!pt)return null;
     let diff=false;
     for(const key of new Set([...Object.keys(pt),...Object.keys(nt)])){
-      if(JSON.stringify(pt[key])===JSON.stringify(nt[key]))continue;
+      const pv=pt[key],nv=nt[key];
+      // Fast path: identical primitives or same reference
+      if(pv===nv)continue;
+      // For arrays, check length before serializing
+      if(Array.isArray(pv)&&Array.isArray(nv)&&pv.length!==nv.length){/* lengths differ, skip to stringify */}
+      else if(JSON.stringify(pv)===JSON.stringify(nv))continue;
       if(!RUN_STREAM_FIELDS.has(key))return null;   // a non-stream field changed → needs a full render
       diff=true;
     }
@@ -1155,6 +1161,12 @@ function subscribeAll(){
       if(k==="agendas"&&page!=="agendas")return;
       // domains is only consumed by renderTeam (Settings page); skip re-renders elsewhere.
       if(k==="domains"&&page!=="team")return;
+      // repoNames feeds the Capture repo picker and Agents page; irrelevant elsewhere.
+      if(k==="repoNames"&&page!=="capture"&&page!=="agents")return;
+      // phases feed Roadmap and Agendas only; skip full re-renders on other pages.
+      if(k==="phases"&&page!=="roadmap"&&page!=="agendas"&&page!=="team")return;
+      // areas feed Roadmap, Settings, and Capture only; task/agenda/branch pages don't use area data in their render.
+      if(k==="areas"&&page!=="roadmap"&&page!=="team"&&page!=="capture")return;
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       let catsRebuilt=false;   // did this snapshot replace the fallback CATS literals with the real team disciplines?
@@ -4439,9 +4451,11 @@ function showLaneTip(label,color,laneItems,track,e){
           '<span class="pt-when">'+esc(r.target)+(linked.length?" · "+done+"/"+linked.length:"")+'</span></div>';
       }).join('')+'</div>';
   }
+  _plotTipSzW=0;_plotTipSzH=0; // content changed — invalidate cached dimensions
   t.style.display="block";movePlotTip(e);
 }
-function movePlotTip(e){const t=document.getElementById("plotTip");if(!t||t.style.display==="none")return;const pad=14;const w=t.offsetWidth,h=t.offsetHeight;let x=e.clientX+pad,y=e.clientY+pad;if(x+w>window.innerWidth-8)x=e.clientX-w-pad;if(y+h>window.innerHeight-8)y=e.clientY-h-pad;t.style.left=Math.max(8,x)+"px";t.style.top=Math.max(8,y)+"px";}
+let _plotTipSzW=0,_plotTipSzH=0; // cached tooltip dimensions; reset when content changes so first movePlotTip re-reads
+function movePlotTip(e){const t=plotTipEl();if(!t||t.style.display==="none")return;const pad=14;const w=_plotTipSzW||(_plotTipSzW=t.offsetWidth),h=_plotTipSzH||(_plotTipSzH=t.offsetHeight);let x=e.clientX+pad,y=e.clientY+pad;if(x+w>window.innerWidth-8)x=e.clientX-w-pad;if(y+h>window.innerHeight-8)y=e.clientY-h-pad;t.style.left=Math.max(8,x)+"px";t.style.top=Math.max(8,y)+"px";}
 function hidePlotTip(){const t=document.getElementById("plotTip");if(t)t.style.display="none";}
 // Scatter plot: horizontal time axis (by target/deadline date), one lane per area. A faint whisker shows start→target when a start date exists. Basic first pass.
 function renderPlot(m){
@@ -4477,8 +4491,8 @@ function renderPlot(m){
       track.appendChild(dot);
       laneItems.push({r,tx,dot});
     });
-    track.addEventListener("mousemove",e=>showLaneTip(L.label,L.color,laneItems,track,e));
-    track.addEventListener("mouseleave",()=>{hidePlotTip();laneItems.forEach(it=>it.dot.classList.remove("near"));});
+    let _laneRaf=null;track.addEventListener("mousemove",e=>{if(_laneRaf)return;_laneRaf=requestAnimationFrame(()=>{_laneRaf=null;showLaneTip(L.label,L.color,laneItems,track,e);});});
+    track.addEventListener("mouseleave",()=>{if(_laneRaf){cancelAnimationFrame(_laneRaf);_laneRaf=null;}hidePlotTip();laneItems.forEach(it=>it.dot.classList.remove("near"));});
     // Click resolves the cluster at the cursor (same logic as the hover tooltip): one target → its editor,
     // several → a picker so every overlapping target in the segment stays reachable.
     track.addEventListener("click",e=>{const near=nearItems(laneItems,track,e);if(!near.length)return;
@@ -4536,9 +4550,9 @@ function appendTimeline(m,targets,compactEmpty){
       const span2=r.start?(r.start+" → "+r.target):("by "+r.target);
       bar.textContent=span2+(linked.length?"  ("+done+"/"+linked.length+")":"");
       // Same rich hover card as the Plot view, plus the multi-colour segment legend when a task-based Colour-by is active.
-      bar.addEventListener("mouseenter",e=>{const t=plotTipEl();t.innerHTML=singleTipHTML(r)+rmBarBreakdownHTML(r);t.style.display="block";movePlotTip(e);});
-      bar.addEventListener("mousemove",movePlotTip);
-      bar.addEventListener("mouseleave",hidePlotTip);
+      bar.addEventListener("mouseenter",e=>{const t=plotTipEl();t.innerHTML=singleTipHTML(r)+rmBarBreakdownHTML(r);_plotTipSzW=0;_plotTipSzH=0;t.style.display="block";movePlotTip(e);});
+      let _barRaf=null;bar.addEventListener("mousemove",e=>{if(_barRaf)return;_barRaf=requestAnimationFrame(()=>{_barRaf=null;movePlotTip(e);});});
+      bar.addEventListener("mouseleave",()=>{if(_barRaf){cancelAnimationFrame(_barRaf);_barRaf=null;}hidePlotTip();});
       track.appendChild(bar);row.append(lbl,handle,track);tl.appendChild(row);
     });
     m.appendChild(tl);
