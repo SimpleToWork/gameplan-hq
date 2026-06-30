@@ -2617,7 +2617,11 @@ function openTaskReposPop(anchor,t){
   const hd=document.createElement("div");hd.style.cssText="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;";hd.textContent="Associated repos";pop.appendChild(hd);
   const repos=ghRepos||[];
   if(!repos.length){const nm=document.createElement("div");nm.className="cmeta";nm.textContent=ghReposErr||"No connected repos — configure in Settings";pop.appendChild(nm);place();return;}
-  const cur=new Set(Array.isArray(t.repos)?t.repos.filter(Boolean):[]);
+  // Seed cur with normalized URLs from t.repos (full URLs) + t.repoUrl (capture-assigned, normalized).
+  // t.repos is saved as full URLs by this picker; normalize before storing in cur so cur.has(normRepo(x.url)) works.
+  const _rawRepos=Array.isArray(t.repos)?t.repos.filter(Boolean):[];
+  if(t.repoUrl&&!_rawRepos.some(u=>normRepo(u)===normRepo(t.repoUrl)))_rawRepos.push(t.repoUrl);
+  const cur=new Set(_rawRepos.map(normRepo));
   repos.forEach(r=>{
     const row=document.createElement("label");row.style.cssText="display:flex;align-items:center;gap:7px;cursor:pointer;padding:3px 0;";
     const cb=document.createElement("input");cb.type="checkbox";cb.checked=cur.has(normRepo(r.url));
