@@ -188,7 +188,7 @@
   .caphead .capttl{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;}
   .caphead .capchev{transition:transform .15s;color:var(--muted);}
   .caphead.closed .capchev{transform:rotate(-90deg);}
-  .cat{margin-bottom:22px;}
+  .cat{margin-bottom:22px;content-visibility:auto;contain-intrinsic-block-size:350px;}
   .cat-head{display:flex;align-items:center;gap:9px;margin:0 0 9px;}
   .dot{width:9px;height:9px;border-radius:50%;flex:none;}
   .cat-name{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;}
@@ -548,6 +548,7 @@
       <button data-page="agendas">Agendas</button>
       <button data-page="agents">Agents</button>
       <button data-page="branches">Branches</button>
+      <button data-page="deploy">Deploy</button>
       <button data-page="team">Settings</button>
     </div>
   </header>
@@ -582,6 +583,7 @@ const AGENT_RUN_ENDPOINT = "/api/agent-run"; // co-located Vercel function that 
 const MEET_ENDPOINT = "/api/calendar"; // co-located Vercel function — creates Calendar events w/ Meet links
 const TRANSCRIBE_ENDPOINT = "/api/transcribe"; // Vercel function — transcribes recorded audio (Capture voice-to-text)
 const FF_ENDPOINT = "/api/fireflies";  // co-located Vercel function — pulls a meeting transcript from Fireflies
+const DEPLOY_ENDPOINT = "/api/deploy"; // co-located Vercel function — Vercel + GitHub deployment status
 // Only Google accounts on this Workspace domain may sign in. To use an explicit
 // email allowlist instead, set this to "" and edit the check in onAuthStateChanged.
 const ALLOWED_DOMAIN = "merchantsbi.com";
@@ -1646,7 +1648,9 @@ function askDoneUI(t,onDone){
 function setPage(p){if(speechRec)stopSpeech();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));
   // Defer the heavy DOM rebuild to the next animation frame so the tab highlight paints first,
   // giving immediate visual feedback before the CPU-intensive render runs.
-  requestAnimationFrame(render);}
+  // Suppress any coalesced snapshot render already queued — our fresh render covers it.
+  _renderQueued=true;
+  requestAnimationFrame(()=>{_renderQueued=false;render();});}
 // Stop any active voice recording (its onstop handler transcribes + cleans up). Safe to call anytime.
 function stopSpeech(){
   if(speechRec){try{speechRec.stop();}catch(e){}}
@@ -1656,6 +1660,7 @@ function render(){const m=document.getElementById("main");
   else if(page==="roadmap")renderRoadmap(m);else if(page==="agendas")renderAgendas(m);
   else if(page==="agents")renderAgents(m);
   else if(page==="branches")renderBranches(m);
+  else if(page==="deploy")renderDeploy(m);
   else renderTeam(m);}
 
 function renderCapture(m){m=m||document.getElementById("main");
@@ -2136,7 +2141,7 @@ function updateRunPanel(t){
     // Re-run reset: visible after a completed run so the task can be cleanly re-run
     const hasCompletedRun=!runLive&&(t.runEndedAt||t.runResult||(t.runError&&!/^(runner )?reset by /.test(t.runError)));
     const existRerunReset=erRight.querySelector("[data-runrereset]");
-    if(hasCompletedRun&&!existRerunReset){const rr=document.createElement("button");rr.className="rm";rr.dataset.runrereset="1";rr.textContent="⟲ re-run";rr.title="Clear all run history so this task can be re-run cleanly — wipes logs, result, cost, and git info.";rr.onclick=e=>{e.stopPropagation();if(!confirm('Reset run history for "'+t.title+'"?\n\nClears all run logs, results, cost, and history. The task will be ready for a clean re-run.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null});banner("Run history cleared — ready for a clean re-run.","ok");};erRight.appendChild(rr);}
+    if(hasCompletedRun&&!existRerunReset){const rr=document.createElement("button");rr.className="rm";rr.dataset.runrereset="1";rr.textContent="⟲ Reset";rr.title="Reset this task — clears all run history (logs, result, cost, git info, branch, and notes) so it can be re-run cleanly.";rr.onclick=e=>{e.stopPropagation();if(!confirm('Reset "'+t.title+'"?\n\nClears all run logs, results, cost, branch, and notes. The task will be ready for a clean re-run.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null,notes:[]});banner("Task reset — ready for a clean re-run.","ok");};erRight.appendChild(rr);}
     else if(!hasCompletedRun&&existRerunReset)existRerunReset.remove();
   }
 }
@@ -2323,12 +2328,12 @@ function taskCard(t){
   // Shown only when not live and a prior run exists (runEndedAt, runResult, or a real error — not a manual reset).
   const hasCompletedRun=!runLive&&(t.runEndedAt||t.runResult||(t.runError&&!/^(runner )?reset by /.test(t.runError)));
   const rerunReset=hasCompletedRun?document.createElement("button"):null;
-  if(rerunReset){rerunReset.className="rm";rerunReset.dataset.runrereset="1";rerunReset.textContent="⟲ re-run";
-    rerunReset.title="Clear all run history so this task can be re-run cleanly — wipes logs, result, cost, and git info.";
+  if(rerunReset){rerunReset.className="rm";rerunReset.dataset.runrereset="1";rerunReset.textContent="⟲ Reset";
+    rerunReset.title="Reset this task — clears all run history (logs, result, cost, git info, branch, and notes) so it can be re-run cleanly.";
     rerunReset.onclick=e=>{e.stopPropagation();
-      if(!confirm('Reset run history for "'+t.title+'"?\n\nClears all run logs, results, cost, and history. The task will be ready for a clean re-run.'))return;
-      setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null});
-      banner("Run history cleared — ready for a clean re-run.","ok");};}
+      if(!confirm('Reset "'+t.title+'"?\n\nClears all run logs, results, cost, branch, and notes. The task will be ready for a clean re-run.'))return;
+      setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null,notes:[]});
+      banner("Task reset — ready for a clean re-run.","ok");};}
   const dotWrap=document.createElement("div");dotWrap.className="dots-wrap";dotWrap.style.cssText="position:absolute;top:6px;right:6px;z-index:2;";
   const dot=document.createElement("button");dot.textContent="⋯";dot.title="More options";dot.style.cssText="border:none;background:none;cursor:pointer;font-size:16px;color:var(--muted);padding:0 2px;line-height:1;";
   const dotDrop=document.createElement("div");dotDrop.className="dots-drop";
@@ -3569,8 +3574,6 @@ function renderTasks(m){
   // Sticky toolbar parked just below the sticky page header, so the filter toggles + collapse control stay in reach while scrolling.
   trow.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:nowrap;overflow-x:auto;margin:0 0 10px;position:sticky;z-index:5;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   const hdr=document.querySelector("header");const hh=hdr?hdr.offsetHeight:0;
-  vb.style.top=(hh-1)+"px";                       // first sticky bar: directly under the page header
-  trow.style.top=(hh+vb.offsetHeight-1)+"px";     // second sticky bar: stacked below the (now-measured) Group/Sort row
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
   const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskBranchFilter||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
@@ -3657,7 +3660,10 @@ function renderTasks(m){
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf,rf);
   panelWrap.style.cssText="position:sticky;z-index:4;background:var(--canvas);box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   m.append(trow,panelWrap);
-  panelWrap.style.top=(hh+vb.offsetHeight+trow.offsetHeight-1)+"px"; // stacked below trow, now that trow's height is known
+  // Batch all offsetHeight reads in one pass (no DOM mutations between reads), then write all sticky tops.
+  // Reading and writing interleaved forces repeated layout recalculations (thrashing); batching avoids that.
+  const vbH=vb.offsetHeight,trowH=trow.offsetHeight,panelH=panelWrap.offsetHeight;
+  vb.style.top=(hh-1)+"px";trow.style.top=(hh+vbH-1)+"px";panelWrap.style.top=(hh+vbH+trowH-1)+"px";
   // Float the open filter group's options in a dropdown popover anchored under its toggle (the inline panel
   // rows are always hidden — see mkGroup). This runs every render, so toggling an option (which re-renders)
   // keeps the dropdown open and re-anchored to the freshly-built toggle. An outside-click clears the group's open
@@ -3701,7 +3707,7 @@ function renderTasks(m){
       chip.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+pair[1]+';"></span>'+esc(st)+' '+n;
       chip.onclick=()=>{taskStage=active?null:new Set([st]);renderTasks();};sum.appendChild(chip);});
     m.appendChild(sum);
-    sum.style.top=(hh+vb.offsetHeight+trow.offsetHeight+panelWrap.offsetHeight-1)+"px";
+    sum.style.top=(hh+vbH+trowH+panelH-1)+"px";
   }
   // Section expand/collapse-all — icon toggle above the sections (>< collapse all · <> expand all). Header-section
   // collapse is separate from the per-card collapse (which resizes cards); state lives in taskSecExpanded.
@@ -6203,6 +6209,190 @@ function renderAgentsDiagram(m){
    Pure helpers (slugifyBranch / featureBranchName / branchNameExists / assignBranchError / mergePreconditions /
    taskBuildState) are also unit-tested in tests/branch-logic.test.mjs — keep the two in sync.
 ============================================================================ */
+/* ============================================================================
+   DEPLOY PAGE — shows Vercel deployment status + GitHub CI for all apps.
+   Data is fetched on demand (not subscribed) and cached in deployCache.
+============================================================================ */
+let deployCache=null;       // { projects, loadedAt } — last fetched data
+let deployGhCache={};       // keyed by "owner/repo" → { runs, loadedAt }
+let deployLoading=false;    // true while a fetch is in flight
+
+// Fetch fresh data from /api/deploy and re-render.
+async function loadDeployData(force){
+  if(deployLoading)return;
+  const now=Date.now();
+  if(!force&&deployCache&&(now-deployCache.loadedAt)<60000)return; // 60 s cache
+  deployLoading=true;
+  renderDeploy();
+  try{
+    const r=await fetch(DEPLOY_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({op:"projects"})});
+    const j=await r.json();
+    if(j.error)throw new Error(j.error);
+    deployCache={projects:j.projects||[],loadedAt:Date.now()};
+  }catch(e){deployCache={projects:[],error:e.message,loadedAt:Date.now()};}
+  deployLoading=false;
+  renderDeploy();
+}
+
+// Fetch GitHub CI runs for a single project and refresh the card.
+async function loadDeployGh(owner,repo){
+  const key=owner+"/"+repo;
+  const now=Date.now();
+  if(deployGhCache[key]&&(now-deployGhCache[key].loadedAt)<60000)return;
+  deployGhCache[key]={runs:null,loading:true,loadedAt:now};
+  renderDeploy(); // show spinner in card
+  try{
+    const r=await fetch(DEPLOY_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({op:"githubRuns",owner,repo,limit:5})});
+    const j=await r.json();
+    deployGhCache[key]={runs:j.runs||[],error:j.error||null,loadedAt:Date.now()};
+  }catch(e){deployGhCache[key]={runs:[],error:e.message,loadedAt:Date.now()};}
+  renderDeploy();
+}
+
+// State colour for a Vercel deployment.
+function deplStateStyle(state){
+  if(!state)return{bg:"#f1f2f5",fg:"#646b78",label:"unknown"};
+  const s=state.toUpperCase();
+  if(s==="READY")return{bg:"#eafaf1",fg:"#1d6b45",label:"ready"};
+  if(s==="ERROR"||s==="FAILED")return{bg:"#fcecec",fg:"#8a2020",label:"error"};
+  if(s==="BUILDING"||s==="INITIALIZING")return{bg:"#fff7e6",fg:"#92400e",label:"building"};
+  if(s==="QUEUED")return{bg:"#eff6ff",fg:"#1e40af",label:"queued"};
+  if(s==="CANCELED")return{bg:"#f1f2f5",fg:"#646b78",label:"canceled"};
+  return{bg:"#f1f2f5",fg:"#646b78",label:s.toLowerCase()};
+}
+
+// Colour for a GitHub Actions conclusion.
+function ghRunStyle(run){
+  if(!run)return{bg:"#f1f2f5",fg:"#646b78",label:"—"};
+  if(run.status==="in_progress"||run.status==="queued")return{bg:"#fff7e6",fg:"#92400e",label:run.status.replace("_"," ")};
+  const c=run.conclusion||"";
+  if(c==="success")return{bg:"#eafaf1",fg:"#1d6b45",label:"passed"};
+  if(c==="failure")return{bg:"#fcecec",fg:"#8a2020",label:"failed"};
+  if(c==="cancelled")return{bg:"#f1f2f5",fg:"#646b78",label:"cancelled"};
+  if(c==="skipped")return{bg:"#f1f2f5",fg:"#9aa0a8",label:"skipped"};
+  return{bg:"#f1f2f5",fg:"#646b78",label:c||"unknown"};
+}
+
+function deplBadge(label,bg,fg){
+  const s=document.createElement("span");
+  s.style.cssText="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:"+bg+";color:"+fg+";white-space:nowrap;";
+  s.textContent=label;return s;
+}
+
+function timeAgo(ts){
+  if(!ts)return"—";
+  const d=typeof ts==="number"?ts:new Date(ts).getTime();
+  const diff=Math.floor((Date.now()-d)/1000);
+  if(diff<60)return"just now";
+  if(diff<3600)return Math.floor(diff/60)+"m ago";
+  if(diff<86400)return Math.floor(diff/3600)+"h ago";
+  return Math.floor(diff/86400)+"d ago";
+}
+
+function renderDeploy(m){
+  m=m||document.getElementById("main");m.innerHTML="";
+  m.insertAdjacentHTML("beforeend",'<div class="pagehead">Deploy</div><p class="pagesub">Live deployment status for all Vercel apps. Production and preview environments, with linked GitHub CI status where available.</p>');
+
+  // Controls bar: refresh + last-loaded time
+  const bar=document.createElement("div");bar.style.cssText="display:flex;align-items:center;gap:10px;margin:0 0 14px;flex-wrap:wrap;";
+  const refBtn=document.createElement("button");refBtn.className="btn sm";
+  if(deployLoading){refBtn.innerHTML='<span class="spin"></span> Loading';refBtn.disabled=true;}
+  else{refBtn.textContent="↻ Refresh";refBtn.onclick=()=>loadDeployData(true);}
+  bar.appendChild(refBtn);
+  if(deployCache&&deployCache.loadedAt&&!deployLoading){
+    const ts=document.createElement("span");ts.className="cmeta";ts.textContent="Updated "+timeAgo(deployCache.loadedAt);bar.appendChild(ts);
+  }
+  if(!deployCache&&!deployLoading){
+    const hint=document.createElement("span");hint.className="cmeta";hint.textContent="Click Refresh to load deployment data.";bar.appendChild(hint);
+  }
+  m.appendChild(bar);
+
+  if(deployCache&&deployCache.error){
+    m.insertAdjacentHTML("beforeend",'<div class="banner err show">'+esc(deployCache.error)+'</div>');
+  }
+
+  if(!deployCache||!deployCache.projects||!deployCache.projects.length){
+    if(!deployLoading)m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No projects loaded yet</div>Click Refresh to pull Vercel deployment data. Make sure VERCEL_TOKEN is set in environment variables.</div>');
+    return;
+  }
+
+  deployCache.projects.forEach(proj=>{
+    const card=document.createElement("div");card.className="card";card.style.cssText="margin-bottom:12px;display:flex;flex-direction:column;gap:10px;";
+
+    // Header row: app name + framework badge + Vercel link
+    const hrow=document.createElement("div");hrow.style.cssText="display:flex;align-items:center;gap:10px;flex-wrap:wrap;";
+    const name=document.createElement("span");name.style.cssText="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;";name.textContent=proj.name;
+    hrow.appendChild(name);
+    if(proj.framework){const fw=document.createElement("span");fw.style.cssText="font-size:11px;background:#f1f2f5;color:#646b78;padding:1px 7px;border-radius:6px;";fw.textContent=proj.framework;hrow.appendChild(fw);}
+    if(proj.alias){const a=document.createElement("a");a.href=proj.alias;a.target="_blank";a.rel="noopener noreferrer";a.style.cssText="font-size:12px;color:var(--accent);margin-left:auto;text-decoration:none;white-space:nowrap;";a.textContent="↗ "+proj.alias.replace("https://","");hrow.appendChild(a);}
+    card.appendChild(hrow);
+
+    // GitHub link row
+    if(proj.github){
+      const gh=document.createElement("div");gh.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);";
+      const ghLink=document.createElement("a");ghLink.href="https://github.com/"+proj.github.owner+"/"+proj.github.repo;ghLink.target="_blank";ghLink.rel="noopener noreferrer";ghLink.style.cssText="color:var(--accent);text-decoration:none;";ghLink.textContent="⎇ "+proj.github.owner+"/"+proj.github.repo;
+      gh.appendChild(ghLink);
+      // GitHub CI status
+      const ghKey=proj.github.owner+"/"+proj.github.repo;
+      const ghData=deployGhCache[ghKey];
+      if(ghData&&ghData.loading){gh.appendChild(deplBadge("CI loading…","#eff6ff","#1e40af"));}
+      else if(ghData&&ghData.runs&&ghData.runs.length){
+        const latest=ghData.runs[0];const sty=ghRunStyle(latest);
+        const b=deplBadge("CI: "+sty.label,sty.bg,sty.fg);b.title=(latest.name||"")+(latest.sha?" · "+latest.sha:"")+(latest.commitMsg?" · "+latest.commitMsg:"");
+        const wrap=document.createElement("a");wrap.href=latest.url;wrap.target="_blank";wrap.rel="noopener noreferrer";wrap.style.textDecoration="none";wrap.appendChild(b);gh.appendChild(wrap);
+      }else if(ghData&&ghData.error){gh.appendChild(deplBadge("CI: error","#fcecec","#8a2020"));}
+      else{
+        const loadCI=document.createElement("button");loadCI.className="btn sm";loadCI.style.cssText="font-size:11px;padding:1px 7px;";loadCI.textContent="Load CI";
+        loadCI.onclick=()=>loadDeployGh(proj.github.owner,proj.github.repo);gh.appendChild(loadCI);
+      }
+      card.appendChild(gh);
+    }
+
+    // Deployments table
+    if(proj.deployments&&proj.deployments.length){
+      const tbl=document.createElement("div");tbl.style.cssText="border:1px solid var(--line);border-radius:9px;overflow:hidden;";
+      // Header
+      const thead=document.createElement("div");thead.style.cssText="display:grid;grid-template-columns:90px 90px 1fr 80px 90px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#c7ccd6;background:#1f2330;padding:6px 12px;gap:8px;";
+      ["Target","Status","Branch / Commit","Age",""].forEach(h=>{const c=document.createElement("span");c.textContent=h;thead.appendChild(c);});
+      tbl.appendChild(thead);
+
+      proj.deployments.forEach((dep,i)=>{
+        const st=deplStateStyle(dep.state);
+        const row=document.createElement("div");row.style.cssText="display:grid;grid-template-columns:90px 90px 1fr 80px 90px;align-items:center;padding:7px 12px;gap:8px;font-size:12.5px;"+(i%2===1?"background:#fafafa;":"");
+        if(i>0){row.style.borderTop="1px solid var(--line)";}
+
+        // Target
+        const tgt=document.createElement("span");tgt.style.cssText="font-size:11px;font-weight:600;color:"+(dep.target==="production"?"#1d6b45":"#1e40af")+";";tgt.textContent=dep.target||"preview";row.appendChild(tgt);
+
+        // Status badge
+        const sb=deplBadge(st.label,st.bg,st.fg);row.appendChild(sb);
+
+        // Branch + commit
+        const bc=document.createElement("div");bc.style.cssText="min-width:0;display:flex;flex-direction:column;gap:1px;";
+        if(dep.branch){const br=document.createElement("span");br.style.cssText="font-size:12px;font-family:ui-monospace,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";br.textContent=(dep.sha?dep.sha+" · ":"")+dep.branch;bc.appendChild(br);}
+        if(dep.commitMsg){const cm=document.createElement("span");cm.style.cssText="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";cm.textContent=dep.commitMsg;bc.appendChild(cm);}
+        row.appendChild(bc);
+
+        // Age
+        const age=document.createElement("span");age.style.cssText="color:var(--muted);font-size:11.5px;white-space:nowrap;";age.textContent=timeAgo(dep.readyAt||dep.createdAt);row.appendChild(age);
+
+        // Link
+        const lnk=document.createElement("div");lnk.style.cssText="display:flex;gap:5px;";
+        if(dep.url){const a=document.createElement("a");a.href=dep.url;a.target="_blank";a.rel="noopener noreferrer";a.style.cssText="font-size:11.5px;color:var(--accent);text-decoration:none;white-space:nowrap;";a.textContent="↗ Visit";lnk.appendChild(a);}
+        if(dep.inspectUrl){const a=document.createElement("a");a.href=dep.inspectUrl;a.target="_blank";a.rel="noopener noreferrer";a.style.cssText="font-size:11.5px;color:var(--muted);text-decoration:none;white-space:nowrap;margin-left:6px;";a.textContent="Logs";lnk.appendChild(a);}
+        row.appendChild(lnk);
+
+        tbl.appendChild(row);
+      });
+      card.appendChild(tbl);
+    }else{
+      const empty=document.createElement("div");empty.style.cssText="font-size:12.5px;color:var(--muted);";empty.textContent="No recent deployments found for this project.";card.appendChild(empty);
+    }
+
+    m.appendChild(card);
+  });
+}
+
 let branchSearch="";            // free-text filter on the Branches page
 let branchSearchTimer=null;     // debounce handle for search oninput → renderBranches
 let branchGroupCollapsed={open:false,merged:true}; // collapse state for Open/Merged branch groups
@@ -6587,7 +6777,7 @@ function init(){
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
   {const sb=document.getElementById("syncBtn");if(sb)sb.onclick=resyncNow;}
   // Restore the last-visited page across refreshes (falls back to the default for unknown/blocked storage).
-  try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","branches","team"].includes(sp))page=sp;}catch(e){}
+  try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","branches","deploy","team"].includes(sp))page=sp;}catch(e){}
   restoreTaskState(); // restore the Tasks-tab filters/view/sort/column-filters the user last had
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
   applyAppVariant(currentApp);
