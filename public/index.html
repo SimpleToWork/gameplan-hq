@@ -1138,7 +1138,14 @@ function subscribeAll(){
   ["tasks","roadmap","agendas","areas","members","domains","phases","disciplines","agents","agentRuns","repoNames","featureBranches","runnerControl"].forEach(k=>{
     subUnsubs.push(onSnapshot(col(k),snap=>{
       const prevTasks=k==="tasks"?DB.tasks:null;   // keep the pre-update tasks so we can spot live→finished run transitions
+      const prevBranches=k==="featureBranches"?DB.featureBranches:null;
       DB[k]=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
+      if(k==="featureBranches"&&prevBranches){
+        const justMerged=DB.featureBranches.some(b=>b.status==="merged"&&prevBranches.find(p=>p.id===b.id&&p.status!=="merged"));
+        if(justMerged){deployCache=null;try{localStorage.removeItem("gp_deployCache");}catch(e){}
+          if(page==="deploy")setTimeout(()=>loadDeployData(true),2000);
+        }
+      }
       if(k==="tasks"){
         recordRunDurations(prevTasks,DB.tasks);
         // A run streams its logs as frequent runProgress writes, and also updates runStatus / runError / etc. during
@@ -1651,7 +1658,7 @@ function askDoneUI(t,onDone){
 }
 
 /* ---------- Render ---------- */
-function setPage(p){if(speechRec)stopSpeech();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));
+function setPage(p){if(speechRec)stopSpeech();if(p!=="deploy")stopDeployPoll();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));
   // Defer the heavy DOM rebuild to the next animation frame so the tab highlight paints first,
   // giving immediate visual feedback before the CPU-intensive render runs.
   // Suppress any coalesced snapshot render already queued — our fresh render covers it.
@@ -6236,14 +6243,26 @@ function renderAgentsDiagram(m){
 let deployCache=null;       // { projects, loadedAt } — last fetched data
 let deployGhCache={};       // keyed by "owner/repo" → { runs, loadedAt }
 let deployLoading=false;    // true while a fetch is in flight
+let deployPollTimer=null;   // setInterval handle while auto-polling for building state
 try{const _dc=localStorage.getItem("gp_deployCache");if(_dc)deployCache=JSON.parse(_dc);}catch(e){}
 try{const _dg=localStorage.getItem("gp_deployGhCache");if(_dg)deployGhCache=JSON.parse(_dg);}catch(e){}
+
+function deployHasBuilding(){
+  if(!deployCache||!deployCache.projects)return false;
+  return deployCache.projects.some(p=>p.deployments&&p.deployments.some(d=>{const s=(d.state||"").toUpperCase();return s==="BUILDING"||s==="INITIALIZING"||s==="QUEUED";}));
+}
+function stopDeployPoll(){if(deployPollTimer){clearInterval(deployPollTimer);deployPollTimer=null;}}
+function startDeployPoll(){
+  if(deployPollTimer)return; // already running
+  deployPollTimer=setInterval(()=>{if(page!=="deploy"){stopDeployPoll();return;}loadDeployData(true);},5000);
+}
 
 // Fetch fresh data from /api/deploy and re-render.
 async function loadDeployData(force){
   if(deployLoading)return;
   const now=Date.now();
   if(!force&&deployCache&&(now-deployCache.loadedAt)<60000)return; // 60 s cache
+  if(deployPollTimer){clearTimeout(deployPollTimer);deployPollTimer=null;}
   deployLoading=true;
   renderDeploy();
   try{
@@ -6255,6 +6274,7 @@ async function loadDeployData(force){
   }catch(e){deployCache={projects:[],error:e.message,loadedAt:Date.now()};}
   deployLoading=false;
   renderDeploy();
+  if(deployHasBuilding())startDeployPoll();else stopDeployPoll();
 }
 
 // Fetch GitHub CI runs for a single project and refresh the card.
@@ -6329,6 +6349,7 @@ function renderDeploy(m){
   if(!deployCache&&!deployLoading){
     const hint=document.createElement("span");hint.className="cmeta";hint.textContent="Click Refresh to load deployment data.";bar.appendChild(hint);
   }
+  if(deployPollTimer){const pi=document.createElement("span");pi.className="cmeta";pi.innerHTML='<span class="spin" style="width:9px;height:9px;border-width:2px;vertical-align:-1px;margin-right:4px;"></span>auto-polling every 5s';bar.appendChild(pi);}
   m.appendChild(bar);
 
   if(deployCache&&deployCache.error){
