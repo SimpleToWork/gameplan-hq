@@ -1651,6 +1651,7 @@ function renderCapture(m){m=m||document.getElementById("main");
     '<p>Write it however it comes out. Claude drafts tasks — filed under the right category and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
     '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button>'+
+    '<button class="btn" id="capClear" style="display:none">Clear</button>'+
     '<span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
   document.getElementById("capBtn").onclick=captureTasks;
@@ -1843,7 +1844,14 @@ function renderCapture(m){m=m||document.getElementById("main");
   };
   cr.parentNode.insertBefore(agRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
-  const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});
+  const cta=document.getElementById("capText");cta.value=captureText;
+  // Clear button: visible when textarea has text or capResult has content.
+  const cclr=document.getElementById("capClear");
+  const syncClear=()=>{const cr=document.getElementById("capResult");cclr.style.display=(captureText.trim()||(cr&&cr.innerHTML.trim()))?"":"none";};
+  cclr.onclick=()=>{captureText="";cta.value="";const cr=document.getElementById("capResult");if(cr)cr.innerHTML="";document.getElementById("capHint").textContent="";syncClear();};
+  new MutationObserver(syncClear).observe(document.getElementById("capResult"),{childList:true,subtree:true});
+  syncClear();
+  cta.addEventListener("input",()=>{captureText=cta.value;syncClear();});
   // Restore the pending draft review panel if the user navigated away before approving/discarding.
   if(captureDraft&&captureDraft.added&&captureDraft.added.length){
     const{added,skipped,captureId}=captureDraft;
