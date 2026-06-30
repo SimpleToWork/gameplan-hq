@@ -538,7 +538,7 @@
 <div class="app">
   <header>
     <div class="brandrow">
-      <div class="brand"><img class="brandlogo" id="brandlogo" src="/mbi-logo.png" alt="Gameplan HQ"><span class="brandtext"><b>Gameplan HQ</b></span></div>
+      <div class="brand"><img class="brandlogo" id="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>MerchantsBI</b></span></div>
       <div class="hctrl"><button id="syncBtn" class="btn sm" title="Re-sync live data — recover a stalled connection and fetch the latest">↻ Sync</button> You are <span id="identity" style="font-weight:600;"></span></div>
     </div>
     <div class="tabs" id="tabs">
@@ -622,7 +622,7 @@ const AREA_POOL=["#378ADD","#7F77DD","#1D9E75","#C9A227","#E24B4A","#D85A30","#D
 // App color variants — each app/product gets a distinct accent color; logoFilter uses grayscale→sepia→hue-rotate
 // to reliably colorize the logo PNG regardless of its original colors.
 const APP_VARIANTS={
-  gameplan: {label:"Gameplan HQ", color:"#4646c8", soft:"#ecebfb", logoFilter:"grayscale(1) sepia(1) hue-rotate(210deg) saturate(2)"},
+  gameplan: {label:"MerchantsBI", color:"#4646c8", soft:"#ecebfb", logoFilter:"grayscale(1) sepia(1) hue-rotate(210deg) saturate(2)"},
   crm:      {label:"CRM",         color:"#1D9E75", soft:"#e0f5ee", logoFilter:"grayscale(1) sepia(1) hue-rotate(131deg) saturate(2) brightness(.85)"},
   analytics:{label:"Analytics",   color:"#C9A227", soft:"#faf0db", logoFilter:"grayscale(1) sepia(1) hue-rotate(13deg) saturate(2) brightness(.95)"},
   portal:   {label:"Portal",      color:"#D4537E", soft:"#fce8ef", logoFilter:"grayscale(1) sepia(1) hue-rotate(309deg) saturate(1.8)"},
@@ -1237,7 +1237,7 @@ function playBell(){try{const c=new (window.AudioContext||window.webkitAudioCont
 function notifyRunComplete(title){
   if(notifyPrefs.audio)playBell();
   if(notifyPrefs.browser&&typeof Notification!=="undefined"&&Notification.permission==="granted"){try{new Notification("Runner complete",{body:title+" finished.",icon:"/favicon.ico"});}catch(e){}}
-  if(notifyPrefs.ntfyTopic){fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:notifyPrefs.ntfyTopic,title:"Runner complete — "+title,message:title+" finished on Gameplan HQ."})}).catch(()=>{});}
+  if(notifyPrefs.ntfyTopic){fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:notifyPrefs.ntfyTopic,title:"Runner complete — "+title,message:title+" finished on MerchantsBI."})}).catch(()=>{});}
 }
 // Compact human duration: "8s", "2m 5s", "1h 3m". Drops the trailing unit once it's zero. Empty for non-positive input.
 function fmtDur(ms){
@@ -1666,7 +1666,7 @@ function render(){const m=document.getElementById("main");
   else if(page==="roadmap")renderRoadmap(m);else if(page==="agendas")renderAgendas(m);
   else if(page==="agents")renderAgents(m);
   else if(page==="branches")renderBranches(m);
-  else if(page==="deploy")renderDeploy(m);
+  else if(page==="deploy"){renderDeploy(m);loadDeployData();}
   else renderTeam(m);}
 
 function renderCapture(m){m=m||document.getElementById("main");
@@ -5065,7 +5065,7 @@ async function setRsvp(a,name,patch){
 function meetPayload(a,extra){
   const emails=(a.attendees||[]).map(memberEmail).filter(Boolean);
   const items=(a.roadmapIds||[]).map(id=>DB.roadmap.find(r=>r.id===id)).filter(Boolean);
-  const desc=(items.length?"Agenda:\n"+items.map(r=>"• "+r.title+(r.area?" ("+r.area+")":"")).join("\n"):"Planned in Gameplan HQ.")+"\n\nGameplan HQ";
+  const desc=(items.length?"Agenda:\n"+items.map(r=>"• "+r.title+(r.area?" ("+r.area+")":"")).join("\n"):"Planned in MerchantsBI.")+"\n\nMerchantsBI";
   return Object.assign({title:a.title||"Meeting",date:a.date||today(),time:a.time||"",tz:a.tz||"",attendees:emails,description:desc},extra||{});
 }
 async function callMeet(payload){
@@ -5558,7 +5558,7 @@ function renderTeam(m){
   const ntfySave=document.createElement("button");ntfySave.className="btn sm primary";ntfySave.textContent="Save topic";
   ntfySave.onclick=()=>{const v=ntfyIn.value.trim();if(v&&!/^[\w-]{1,64}$/.test(v)){banner("Topic must be 1–64 letters, numbers, or hyphens (no spaces).","err");return;}notifyPrefs.ntfyTopic=v||null;saveNotifyPrefs();banner(v?"ntfy.sh topic saved.":"ntfy.sh topic cleared.","ok");};
   const ntfyTest=document.createElement("button");ntfyTest.className="btn sm";ntfyTest.textContent="Send test";
-  ntfyTest.onclick=async()=>{const v=ntfyIn.value.trim();if(!v){banner("Enter a topic first.","err");return;}ntfyTest.disabled=true;ntfyTest.textContent="Sending…";try{const r=await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:v,title:"Gameplan HQ test",message:"If you see this, phone push notifications are working! 🎉"})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||"HTTP "+r.status);banner("Test sent — check the ntfy app on your phone!","ok");}catch(e){banner("Test failed: "+e.message,"err");}ntfyTest.disabled=false;ntfyTest.textContent="Send test";};
+  ntfyTest.onclick=async()=>{const v=ntfyIn.value.trim();if(!v){banner("Enter a topic first.","err");return;}ntfyTest.disabled=true;ntfyTest.textContent="Sending…";try{const r=await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:v,title:"MerchantsBI test",message:"If you see this, phone push notifications are working! 🎉"})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||"HTTP "+r.status);banner("Test sent — check the ntfy app on your phone!","ok");}catch(e){banner("Test failed: "+e.message,"err");}ntfyTest.disabled=false;ntfyTest.textContent="Send test";};
   ntfyRow.append(ntfyIn,ntfySave,ntfyTest);ntBody.appendChild(ntfyRow);
   ntBody.insertAdjacentHTML("beforeend",'<div class="cmeta">Topic names are public on ntfy.sh — use something unguessable, e.g. <em>gameplan-ricky-7f3k</em>. Or self-host ntfy for privacy.</div>');
   refreshCollapseAllLabel();
@@ -6236,6 +6236,8 @@ function renderAgentsDiagram(m){
 let deployCache=null;       // { projects, loadedAt } — last fetched data
 let deployGhCache={};       // keyed by "owner/repo" → { runs, loadedAt }
 let deployLoading=false;    // true while a fetch is in flight
+try{const _dc=localStorage.getItem("gp_deployCache");if(_dc)deployCache=JSON.parse(_dc);}catch(e){}
+try{const _dg=localStorage.getItem("gp_deployGhCache");if(_dg)deployGhCache=JSON.parse(_dg);}catch(e){}
 
 // Fetch fresh data from /api/deploy and re-render.
 async function loadDeployData(force){
@@ -6249,6 +6251,7 @@ async function loadDeployData(force){
     const j=await r.json();
     if(j.error)throw new Error(j.error);
     deployCache={projects:j.projects||[],loadedAt:Date.now()};
+    try{localStorage.setItem("gp_deployCache",JSON.stringify(deployCache));}catch(e){}
   }catch(e){deployCache={projects:[],error:e.message,loadedAt:Date.now()};}
   deployLoading=false;
   renderDeploy();
@@ -6265,6 +6268,7 @@ async function loadDeployGh(owner,repo){
     const r=await fetch(DEPLOY_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({op:"githubRuns",owner,repo,limit:5})});
     const j=await r.json();
     deployGhCache[key]={runs:j.runs||[],error:j.error||null,loadedAt:Date.now()};
+    try{localStorage.setItem("gp_deployGhCache",JSON.stringify(deployGhCache));}catch(e){}
   }catch(e){deployGhCache[key]={runs:[],error:e.message,loadedAt:Date.now()};}
   renderDeploy();
 }
@@ -6750,7 +6754,7 @@ function renderSignIn(msg){
   document.getElementById("setupwarn").className="setupwarn";
   const m=document.getElementById("main");
   m.innerHTML='<div class="hero" style="max-width:420px;margin:48px auto;text-align:center;">'+
-    '<h2 style="font-size:20px;">Sign in to Gameplan HQ</h2>'+
+    '<h2 style="font-size:20px;">Sign in to MerchantsBI</h2>'+
     '<p style="margin:6px auto 16px;">Use your <b>@'+ALLOWED_DOMAIN+'</b> Google account.</p>'+
     (msg?'<div class="banner err show" style="margin:0 0 14px;text-align:left;">'+esc(msg)+'</div>':'')+
     '<button class="btn primary" id="signinBtn">Sign in with Google</button></div>';
