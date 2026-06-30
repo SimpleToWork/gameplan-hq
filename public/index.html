@@ -2671,10 +2671,13 @@ function openTaskReposPop(anchor,t){
     const lbl=document.createElement("span");lbl.style.cssText="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";lbl.textContent=repoLabel(r.url)||r.fullName||r.url;lbl.title=r.url;
     cb.onchange=()=>{if(cb.checked)cur.add(normRepo(r.url));else cur.delete(normRepo(r.url));
       const saved=repos.filter(x=>cur.has(normRepo(x.url))).map(x=>x.url);
-      setTask(t.id,{repos:saved.length?saved:[]});};
+      const patch={repos:saved.length?saved:[]};
+      // If t.repoUrl (set by Capture) is no longer checked, clear it so it doesn't keep re-appearing.
+      if(t.repoUrl&&!saved.some(u=>normRepo(u)===normRepo(t.repoUrl)))patch.repoUrl=null;
+      setTask(t.id,patch);};
     row.append(cb,ic,lbl);pop.appendChild(row);
   });
-  const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear all";clr.onclick=()=>{setTask(t.id,{repos:[]});pop.remove();};
+  const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear all";clr.onclick=()=>{setTask(t.id,{repos:[],repoUrl:null});pop.remove();};
   pop.appendChild(clr);place();
 }
 // Agents — checkbox list of all agents; toggles task.agentIds (array of agent doc IDs).
