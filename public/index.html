@@ -643,6 +643,7 @@ let page="capture";
 let currentApp=(()=>{const v=localStorage.getItem("gp_app");return APP_VARIANTS[v]?v:"gameplan";})();
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
 let captureOverride=false;   // when true, next captureTasks() skips duplicate-checking (one-shot flag)
+let captureSkipDupes=false;  // persistent toggle: when true, every captureTasks() skips duplicate-checking until toggled off
 let captureDraft=(()=>{try{const o=JSON.parse(localStorage.getItem("gp_captureDraft"));return(o&&Array.isArray(o.added))?o:null;}catch(e){return null;}})(); // pending drafted tasks awaiting review; null = no pending draft
 let speechRec=null;          // active Web Speech recognition while dictating in Capture; null when idle
 // Capture picker selections persist across page refreshes via localStorage (gp_capturePrefs). Seeded from the
@@ -1311,7 +1312,7 @@ function appendSkip(host,s){
 async function captureTasks(){
   const ta=document.getElementById("capText");const txt=ta.value.trim();
   if(!txt){banner("Write what you're working on first.","err");return;}
-  const forceNew=captureOverride;captureOverride=false; // consume one-shot override flag
+  const forceNew=captureSkipDupes||captureOverride;captureOverride=false; // consume one-shot flag; captureSkipDupes persists
   const btn=document.getElementById("capBtn");btn.disabled=true;btn.innerHTML='<span class="spin"></span> Reading your plan';
   const hint=document.getElementById("capHint");hint.textContent=forceNew?"Creating tasks (override — skipping duplicate check)…":"Turning it into tasks and checking for duplicates…";
   const out=document.getElementById("capResult");out.innerHTML="";
@@ -1673,10 +1674,15 @@ function renderCapture(m){m=m||document.getElementById("main");
     '<p>Write it however it comes out. Claude drafts tasks — filed under the right category and de-duped against the board — for you to review, edit, and approve before anything is saved.</p>'+
     '<textarea id="capText" placeholder="e.g. Validate the cache rollout on prod (high priority), fix the task-update bug in the connections app, and start scoping the new reporting pipeline."></textarea>'+
     '<div class="row"><button class="btn primary" id="capBtn">Draft tasks</button>'+
+    '<button class="btn" id="capSkipDupes" title="When on, skip checking the board for duplicates — every item in your input becomes a new task">Skip dupe check</button>'+
     '<button class="btn" id="capClear" style="display:none">Clear</button>'+
     '<span class="hint" id="capHint"></span></div>'+
     '<div class="capresult" id="capResult"></div></div>';
   document.getElementById("capBtn").onclick=captureTasks;
+  const skipBtn=document.getElementById("capSkipDupes");
+  const syncSkipBtn=()=>{skipBtn.style.cssText=captureSkipDupes?"background:#e8a000;border-color:#e8a000;color:#fff;":"";skipBtn.title=captureSkipDupes?"Duplicate check is OFF — click to re-enable":"When on, skip checking the board for duplicates — every item in your input becomes a new task";};
+  syncSkipBtn();
+  skipBtn.onclick=()=>{captureSkipDupes=!captureSkipDupes;syncSkipBtn();};
   // Discipline picker — a multi-select colour-toggle row (like the Tasks filters): the AI may assign drafted
   // tasks ONLY to the selected disciplines (one per task). "All disciplines" = no limit. Persists across tab switches.
   const dRow=document.createElement("div");dRow.className="views";dRow.style.margin="10px 0 0";
