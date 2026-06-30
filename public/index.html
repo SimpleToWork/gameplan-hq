@@ -642,6 +642,7 @@ let identityUnknown=false; // true when the signed-in account isn't in the roste
 let page="capture";
 let currentApp=(()=>{const v=localStorage.getItem("gp_app");return APP_VARIANTS[v]?v:"gameplan";})();
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
+let captureOverride=false;   // when true, next captureTasks() skips duplicate-checking (one-shot flag)
 let captureDraft=(()=>{try{const o=JSON.parse(localStorage.getItem("gp_captureDraft"));return(o&&Array.isArray(o.added))?o:null;}catch(e){return null;}})(); // pending drafted tasks awaiting review; null = no pending draft
 let speechRec=null;          // active Web Speech recognition while dictating in Capture; null when idle
 // Capture picker selections persist across page refreshes via localStorage (gp_capturePrefs). Seeded from the
@@ -666,6 +667,7 @@ let taskStage=null;          // Set of active stages (statuses) to filter tasks 
 let taskRoadmap=null;        // Roadmap filter: {area, targetId} cascade (area=parent, targetId=child or "__none__" for unlinked); null = off
 let taskFromRoadmap=null;    // Roadmap item {id,title,area} we navigated from via "Go to tasks"; null = not a roadmap-driven nav. Cleared on manual filter change.
 let taskBranchFilter=null;   // feature branch id to filter tasks by; null = off. Set by goToBranchTasks().
+let taskSingleId=null;       // when set, only the task with this id is shown (isolated view); null = off. Set by goToTask().
 let taskCaptureId=null;      // captureId shared across tasks from one Capture session; null = no capture filter. Set by goToCaptureTasks().
 let taskCaptureExtraIds=null; // Set of existing task IDs that were skipped (duplicates) in the same Capture session; shown alongside taskCaptureId tasks.
 let taskSearch="";           // free-text search over task title/context/assignees; "" = off
@@ -792,7 +794,7 @@ function applyCaptureCatsDefault(){
 function resetTaskFiltersToDefault(){
   taskView=identityUnknown?"all":"mine";
   taskTime="today";taskDateField="due";
-  taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";taskCaptureId=null;taskCaptureExtraIds=null;
+  taskPerson=null;taskStage=null;taskRoadmap=null;taskSearch="";taskCaptureId=null;taskCaptureExtraIds=null;taskSingleId=null;
   taskCategory=null;taskCatDefaulted=true; // clear disciplines and keep them cleared — no domain re-seed on reset
   tableColFilters.tasks={};                 // also drop any table column-header filters
   renderTasks();
@@ -1309,8 +1311,9 @@ function appendSkip(host,s){
 async function captureTasks(){
   const ta=document.getElementById("capText");const txt=ta.value.trim();
   if(!txt){banner("Write what you're working on first.","err");return;}
+  const forceNew=captureOverride;captureOverride=false; // consume one-shot override flag
   const btn=document.getElementById("capBtn");btn.disabled=true;btn.innerHTML='<span class="spin"></span> Reading your plan';
-  const hint=document.getElementById("capHint");hint.textContent="Turning it into tasks and checking for duplicates…";
+  const hint=document.getElementById("capHint");hint.textContent=forceNew?"Creating tasks (override — skipping duplicate check)…":"Turning it into tasks and checking for duplicates…";
   const out=document.getElementById("capResult");out.innerHTML="";
   try{
     // Disciplines the AI may choose from: the user-selected subset, or all when nothing is selected.
@@ -1318,7 +1321,8 @@ async function captureTasks(){
     const catFallback=(captureCats&&captureCats.size)?cats[0]:"Admin";
     const selRepoUrls=captureRepos&&captureRepos.size?[...captureRepos]:[];
     // When repos are selected, scope duplicate-checking to tasks in those repos so cross-repo tasks don't block new ones.
-    const existing=(selRepoUrls.length?DB.tasks.filter(t=>t.repoUrl&&selRepoUrls.includes(normRepo(t.repoUrl))):DB.tasks).map(t=>({id:t.id,title:t.title}));
+    // forceNew: pass empty existing list so Claude creates all tasks without skipping any as duplicates.
+    const existing=forceNew?[]:(selRepoUrls.length?DB.tasks.filter(t=>t.repoUrl&&selRepoUrls.includes(normRepo(t.repoUrl))):DB.tasks).map(t=>({id:t.id,title:t.title}));
     const selRepoNames=selRepoUrls.map(u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;});
     const selAgents=captureAgentIds&&captureAgentIds.size?DB.agents.filter(a=>captureAgentIds.has(a.id)):[];
     const repoCtxStr=selRepoNames.length?" The team member is working in these repos: "+selRepoNames.join(", ")+".":"";
@@ -1343,13 +1347,14 @@ async function captureTasks(){
     if(!added.length){
       out.innerHTML='<div class="cmeta">Claude didn’t find any new tasks'+(skipped.length?' — all '+skipped.length+' matched tasks already on the board.':'. Try adding more detail.')+'</div>';
       skipped.forEach(s=>{const d=document.createElement("div");d.className="cmeta";d.style.margin="3px 0";d.appendChild(document.createTextNode("Already there: "));appendSkip(d,s);out.appendChild(d);});
+      if(skipped.length&&!forceNew){const ov=document.createElement("button");ov.className="btn";ov.style.marginTop="8px";ov.textContent="Override — create new tasks anyway";ov.title="Bypass duplicate check and force-create new tasks";ov.onclick=()=>{captureOverride=true;captureTasks();};out.appendChild(ov);}
       banner("No new tasks to add.","ok");return;
     }
     // Review step — nothing is saved until the user approves. Shared panel (also used by the Roadmap breakdown).
     // Persist draft so navigating away and back restores the review panel.
     captureDraft={added,skipped,captureId};try{localStorage.setItem("gp_captureDraft",JSON.stringify(captureDraft));}catch(e){}
     const clearDraft=()=>{captureDraft=null;try{localStorage.removeItem("gp_captureDraft");}catch(e){}};
-    buildReviewPanel(added,skipped,out,{onDiscard:()=>{clearDraft();out.innerHTML="";},afterApprove:(chosen,c)=>{
+    buildReviewPanel(added,skipped,out,{onDiscard:()=>{clearDraft();out.innerHTML="";},onOverride:skipped.length&&!forceNew?()=>{captureOverride=true;captureTasks();}:null,afterApprove:(chosen,c)=>{
       clearDraft();ta.value="";captureText="";
       const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="Go to generated tasks →";go.onclick=()=>goToCaptureTasks(captureId,skipped.map(s=>s.id).filter(Boolean));c.appendChild(go);
     }});
@@ -1371,7 +1376,7 @@ function buildReviewPanel(added,skipped,container,opts){
   const refresh=()=>{const n=added.filter(x=>x._include).length;approve.textContent="Approve & add "+n+" task"+(n!==1?"s":"");approve.disabled=!n;};
   added.forEach(t=>list.appendChild(proposalCard(t,refresh,!opts.hideRoadmap)));
   panel.appendChild(list);
-  if(skipped.length){const sk=document.createElement("div");sk.className="review-skip";sk.appendChild(document.createTextNode("Skipped (already on the board): "));skipped.forEach((s,i)=>{if(i)sk.appendChild(document.createTextNode(", "));appendSkip(sk,s);});panel.appendChild(sk);}
+  if(skipped.length){const sk=document.createElement("div");sk.className="review-skip";sk.appendChild(document.createTextNode("Skipped (already on the board): "));skipped.forEach((s,i)=>{if(i)sk.appendChild(document.createTextNode(", "));appendSkip(sk,s);});if(opts.onOverride){const ov=document.createElement("button");ov.className="btn";ov.style.cssText="margin-left:8px;font-size:12px;padding:2px 7px;";ov.textContent="Override";ov.title="Force-create these as new tasks too";ov.onclick=opts.onOverride;sk.appendChild(ov);}panel.appendChild(sk);}
   const discard=document.createElement("button");discard.className="btn";discard.textContent="Discard";discard.onclick=()=>{opts.onDiscard?opts.onDiscard():container.innerHTML="";};
   approve.onclick=async()=>{
     const chosen=added.filter(t=>t._include);
@@ -3204,6 +3209,7 @@ function taskTextMatch(t,q){
 function taskSearchMatch(t){return taskTextMatch(t,taskSearch);}
 function taskFilter(t){
   if(t.trashed)return false;            // trashed tasks only appear in the Trash view
+  if(taskSingleId)return t.id===taskSingleId; // isolated view: only the navigated-to task
   if(taskCaptureId&&t.captureId!==taskCaptureId&&!(taskCaptureExtraIds&&taskCaptureExtraIds.has(t.id)))return false;
   return taskViewMatch(t)&&taskTimeMatch(t)&&taskPersonMatch(t)&&taskCategoryMatch(t)&&taskStageMatch(t)&&taskRoadmapMatch(t)&&taskBranchMatch(t)&&taskSearchMatch(t);
 }
@@ -3215,7 +3221,7 @@ function goToTask(id){
   // Pick a taskView that includes the target task's status — "all" only shows open tasks (not Done/Archived).
   const tgt=DB.tasks.find(t=>t.id===id);
   const v=tgt&&tgt.status==="Archived"?"archived":tgt&&tgt.status==="Done"?"viewall":"all";
-  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskBranchFilter=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;taskCaptureExtraIds=null;taskCollapsed.delete(id);
+  taskCatDefaulted=true;taskView=v;taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskBranchFilter=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;taskCaptureExtraIds=null;taskSingleId=id;taskCollapsed.delete(id);
   setPage("tasks");
 }
 // Active-task selection: clicking a task card/row makes it the "working in" task; clicking anywhere else on the
@@ -3242,21 +3248,21 @@ function goToRoadmapTasks(r){
   taskCatDefaulted=true;
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap={area:r.area,targetId:r.id};taskRmOpen=true;focusTaskId=null;
-  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;taskCaptureExtraIds=null;taskBranchFilter=null;
+  taskFromRoadmap={id:r.id,title:r.title,area:r.area};taskCaptureId=null;taskCaptureExtraIds=null;taskBranchFilter=null;taskSingleId=null;
   setPage("tasks");
 }
 function goToCaptureTasks(captureId,extraIds){
   taskCatDefaulted=true;
   taskView="viewall";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
   taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};
-  taskCaptureId=captureId;taskBranchFilter=null;
+  taskCaptureId=captureId;taskBranchFilter=null;taskSingleId=null;
   taskCaptureExtraIds=(extraIds&&extraIds.length)?new Set(extraIds):null;
   setPage("tasks");
 }
 function goToBranchTasks(branchId){
   taskCatDefaulted=true;
   taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;
-  taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;taskCaptureExtraIds=null;
+  taskRoadmap=null;taskFromRoadmap=null;taskSearch="";tableColFilters.tasks={};taskCaptureId=null;taskCaptureExtraIds=null;taskSingleId=null;
   taskBranchFilter=branchId;
   setPage("tasks");
 }
@@ -3576,9 +3582,9 @@ function renderTasks(m){
   const hdr=document.querySelector("header");const hh=hdr?hdr.offsetHeight:0;
   // Clear all filters — resets every active filter (status view, timeframe, people, disciplines) to its most-open
   // state in one click. Shown only when something is active; display options (group-by, date type) are left alone.
-  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskBranchFilter||taskSearch.trim()||taskCaptureId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
+  const anyFilter=taskView!=="all"||taskTime!=="all"||taskPerson||taskCategory||taskStage||taskRoadmap||taskBranchFilter||taskSearch.trim()||taskCaptureId||taskSingleId||(taskLayout==="table"&&Object.keys(tableColFilters.tasks).length);
   const clearAll=document.createElement("button");clearAll.className="btn sm";clearAll.style.cssText="margin-left:0;flex-shrink:0;background:#D4537E;border-color:#D4537E;color:#fff;white-space:nowrap;";clearAll.textContent="Clear all filters";
-  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;taskCaptureExtraIds=null;taskBranchFilter=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
+  clearAll.onclick=()=>{taskCatDefaulted=true;taskView="all";taskTime="all";taskPerson=null;taskCategory=null;taskStage=null;taskRoadmap=null;taskFromRoadmap=null;taskSearch="";taskCaptureId=null;taskCaptureExtraIds=null;taskBranchFilter=null;taskSingleId=null;tableColFilters.tasks={};taskTableColSort={col:null,dir:"asc"};renderTasks()};
   // Reset to default — return to the fresh-page-load view (My tasks / Today / Due date + domain discipline default).
   // Anchors the right-hand button group; always available as a quick "take me home".
   const resetBtn=document.createElement("button");resetBtn.className="btn sm";resetBtn.style.cssText="margin-left:auto;flex-shrink:0;white-space:nowrap;";resetBtn.textContent="Reset to default";resetBtn.title="Return to the default view (My tasks · Today · Due date)";
@@ -3625,6 +3631,12 @@ function renderTasks(m){
   if(backBranch){backBranch.className="btn sm";backBranch.style.cssText="flex-shrink:0;background:#eef4fb;border-color:#2c6cb055;color:#2c6cb0;font-weight:600;";
     backBranch.textContent="\u2190 \u23b7 "+(activeBranchObj.name||activeBranchObj.branch_name);backBranch.title="Viewing all tasks in this branch \u2014 click to go back to Branches";
     backBranch.onclick=()=>{taskBranchFilter=null;setPage("branches");};}
+  // Isolated-task pill \u2014 shown when goToTask() has narrowed the board to a single task. Click exits isolation.
+  const singleTaskObj=taskSingleId?DB.tasks.find(t=>t.id===taskSingleId):null;
+  const isolatedPill=singleTaskObj?document.createElement("button"):null;
+  if(isolatedPill){isolatedPill.className="btn sm";isolatedPill.style.cssText="flex-shrink:0;background:#ecebfb;border-color:#4646c855;color:#4646c8;font-weight:600;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    isolatedPill.textContent="\u00d7 "+esc(singleTaskObj.title||"Task");isolatedPill.title="Showing only this task \u2014 click to show all tasks";
+    isolatedPill.onclick=()=>{taskSingleId=null;renderTasks();};}
   if(isMobileFilters){
     // Mobile: keep the search box and the filter dropdowns on a single, tidy row. They share one
     // horizontally-scrollable strip (a chip bar) so they stay aligned instead of the full-width search
@@ -3637,6 +3649,7 @@ function renderTasks(m){
     if(backRm)trow.append(backRm);
     if(backCap)trow.append(backCap);
     if(backBranch)trow.append(backBranch);
+    if(isolatedPill)trow.append(isolatedPill);
     trow.append(filterBar,resetBtn);  // resetBtn carries margin-left:auto, anchoring the right-hand group below the strip
     if(runnerReset)trow.append(runnerReset);
     if(anyFilter)trow.append(clearAll);
@@ -3645,6 +3658,7 @@ function renderTasks(m){
     if(backRm)trow.append(backRm);
     if(backCap)trow.append(backCap);
     if(backBranch)trow.append(backBranch);
+    if(isolatedPill)trow.append(isolatedPill);
     const filterBar=document.createElement("div");
     filterBar.style.cssText="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;";
     filterBar.append(searchInp,timeT,whoT,catT,stageT,rmT);
