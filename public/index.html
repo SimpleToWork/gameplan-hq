@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/png" href="/mbi-logo.png">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" href="/mbi-logo.png">
-<title>MerchantsBi</title>
+<title>Gameplan HQ</title>
 <!--
   ============================================================
   GAMEPLAN HQ — hosted build (Firebase storage + Claude API)
@@ -54,19 +54,11 @@
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
   .brand{display:flex;align-items:center;gap:11px;}
-  .brandlogo{height:34px;width:auto;display:block;}
+  .brandlogo{height:34px;width:auto;display:block;filter:grayscale(1) sepia(1) hue-rotate(210deg) saturate(2);}
   .brandtext{display:flex;align-items:baseline;gap:9px;}
   .brand b{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:21px;letter-spacing:-.02em;}
   .brand span{font-size:12px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;}
-  .app-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 6px;border-radius:20px;font-size:10.5px;font-weight:600;letter-spacing:.03em;border:1.5px solid var(--app-accent,#4646c8);color:var(--app-accent,#4646c8);cursor:pointer;user-select:none;transition:opacity .15s;white-space:nowrap;vertical-align:middle;}
-  .app-badge:hover{opacity:.75;}
-  .app-badge::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--app-accent,#4646c8);flex-shrink:0;}
-  .app-switcher{position:relative;display:inline-block;}
-  .app-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:100;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:0 4px 18px rgba(0,0,0,.13);padding:5px;min-width:168px;display:none;flex-direction:column;gap:1px;}
-  .app-menu.open{display:flex;}
-  .app-menu-item{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink);}
-  .app-menu-item:hover,.app-menu-item.cur{background:var(--canvas);}
-  .app-menu-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+
   .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
   .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:wrap;}
   .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;}
@@ -545,7 +537,7 @@
 <div class="app">
   <header>
     <div class="brandrow">
-      <div class="brand"><img class="brandlogo" id="brandlogo" src="/mbi-logo.png" alt="MerchantsBI"><span class="brandtext"><b>MerchantsBI</b><span class="app-switcher" id="appSwitcher"><span class="app-badge" id="appBadge"></span><div class="app-menu" id="appMenu"></div></span></span></div>
+      <div class="brand"><img class="brandlogo" id="brandlogo" src="/mbi-logo.png" alt="Gameplan HQ"><span class="brandtext"><b>Gameplan HQ</b></span></div>
       <div class="hctrl"><button id="syncBtn" class="btn sm" title="Re-sync live data — recover a stalled connection and fetch the latest">↻ Sync</button> You are <span id="identity" style="font-weight:600;"></span></div>
     </div>
     <div class="tabs" id="tabs">
@@ -815,6 +807,8 @@ const normRepo=u=>String(u||"").toLowerCase().replace(/^https?:\/\/[^/]+\//,"").
 const repoNameKey=u=>normRepo(u).replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"_"; // Firestore doc id (no slashes)
 const repoFriendly=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.name?e.name:"";};
 const repoColor=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.color?e.color:"";};
+// Per-repo agents folder: falls back to SYNC_DIR when not configured (covers repos using .claude/agents/).
+const repoAgentsFolder=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.agentsFolder?e.agentsFolder:SYNC_DIR;};
 const repoLabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
 // Save/clear a repo's friendly name. Preserves color if set; deletes doc only when both name and color are absent.
 async function setRepoName(url,name){
@@ -831,6 +825,13 @@ async function setRepoName(url,name){
 async function setRepoColor(url,color){
   const id=repoNameKey(url);
   await fbSet("repoNames",id,{repoUrl:normRepo(url),color,updatedAt:nowTs(),updatedBy:identity},true);
+}
+// Save (or clear) a per-repo agents folder override. Empty string → revert to SYNC_DIR default.
+async function setRepoAgentsFolder(url,folder){
+  const id=repoNameKey(url);
+  const v=String(folder||"").trim().replace(/^\/+|\/+$/g,"");
+  await fbSet("repoNames",id,{repoUrl:normRepo(url),agentsFolder:v,updatedAt:nowTs(),updatedBy:identity},true);
+  banner(v?"Agents folder saved.":"Agents folder reset to default ("+SYNC_DIR+").","ok");
 }
 // Parse a "YYYY-MM-DD" string to a local midnight Date (null if blank/invalid).
 function parseDay(s){if(!s)return null;const p=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);if(!p)return null;return new Date(+p[1],+p[2]-1,+p[3]);}
@@ -2349,7 +2350,7 @@ function taskCard(t){
   npop.append(nlist,nta,nAdd);
   notesBtn.onclick=()=>{const open=npop.classList.toggle("open");open?taskNotesOpen.add(t.id):taskNotesOpen.delete(t.id);if(open)nta.focus();};
   // files pop -> attach files to the task (stored in Firebase Storage; metadata on the task doc)
-  const fpop=document.createElement("div");fpop.className="pop"+(taskFilesOpen.has(t.id)?" open":"");fpop.appendChild(attachmentsBox("tasks",t.id,taskFiles));d.appendChild(fpop);
+  const fpop=document.createElement("div");fpop.className="pop"+(taskFilesOpen.has(t.id)?" open":"");fpop.appendChild(attachmentsBox("tasks",t.id,taskFiles));
   filesBtn.onclick=()=>{const open=fpop.classList.toggle("open");open?taskFilesOpen.add(t.id):taskFilesOpen.delete(t.id);};
   // ask pop -> builds a prompt to paste into claude.ai
   const qpop=document.createElement("div");qpop.className="pop"+(taskAskOpen.has(t.id)?" open":"");
@@ -2383,6 +2384,7 @@ function taskCard(t){
   filesBtn.style.marginLeft="auto";notesBtn.style.marginLeft="6px";nfRow.append(notesBtn,ask,filesBtn);d.appendChild(nfRow);
   d.appendChild(npop);
   d.appendChild(qpop);
+  d.appendChild(fpop);
   // Dedicated Edit / Run row — Edit left-aligned, Model+Run right-aligned, isolated from the acts toolbar.
   const erRow=document.createElement("div");erRow.className="er-row";
   const erEdit=document.createElement("button");erEdit.className="er-edit";erEdit.textContent="Edit";
@@ -3360,25 +3362,16 @@ function renderTasks(m){
     b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(label);
     if(on)b.style.cssText="background:"+color+";border-color:"+color+";color:#fff;";
     b.onclick=onClick;return b;};
-  // A collapsible group: a toolbar toggle (chevron + label + active marker) paired with its row of controls.
-  // The toggle flips only its own row's visibility — no full re-render; the controls inside re-render on change.
-  // Mobile (isMobileFilters computed above): below the breakpoint each filter group collapses into a dropdown — the
-  // toggle floats its options in a popover (assembled after the toolbar) instead of expanding an inline row.
-  // Desktop keeps the inline expand/collapse rows.
-  const filterGroups=[];   // mobile: {toggle,row,getOpen,setOpen} for each group, so the open one can be floated below
+  // Each filter group is a dropdown: the toggle button floats its options in a popover anchored below it.
+  // Only one filter dropdown opens at a time; opening one closes the others. The option rows are always
+  // hidden in the inline panel (panelWrap) — the floating block below moves the open row into its popover.
+  const filterGroups=[];   // {toggle,row,getOpen,setOpen} for each group, so the open one can be floated below
   const mkGroup=(label,getOpen,setOpen,activeSuffix,row)=>{
     const tgl=document.createElement("button");tgl.type="button";tgl.className="btn sm rmtgl"+(getOpen()?" on":"");
     tgl.innerHTML='<span class="tgchev">▾</span>'+label+(activeSuffix||"");
-    if(isMobileFilters){
-      // Dropdown trigger: only one filter dropdown opens at a time, so opening one closes the others. The option
-      // row stays hidden in the inline panel; the float block below relocates the open group's row into a popover.
-      row.style.display="none";
-      filterGroups.push({toggle:tgl,row,getOpen,setOpen});
-      tgl.onclick=()=>{const n=!getOpen();filterGroups.forEach(g=>g.setOpen(g.row===row?n:false));renderTasks();};
-    }else{
-      row.style.display=getOpen()?"":"none";
-      tgl.onclick=()=>{const n=row.style.display==="none";row.style.display=n?"":"none";tgl.classList.toggle("on",n);setOpen(n);};
-    }
+    row.style.display="none";
+    filterGroups.push({toggle:tgl,row,getOpen,setOpen});
+    tgl.onclick=()=>{const n=!getOpen();filterGroups.forEach(g=>g.setOpen(g.row===row?n:false));renderTasks();};
     return tgl;
   };
   // Timeframe group = Date-type toggle + Timeframe controls, laid out on a single wrapping row (divider between the two sub-groups).
@@ -3581,28 +3574,25 @@ function renderTasks(m){
   }
   // (The always-visible "Filter columns" bar was removed; per-header column filters remain on each expanded section's
   // table header, still driving the shared tableColFilters.tasks applied below.)
-  // Third sticky bar: the expanded filter-option rows, so the selectable options stay in reach (not just their toggles)
-  // while scrolling. z-4 tucks it under trow (z-5). When every group is collapsed the child rows are display:none, so it
-  // has zero height and is invisible; its shadow then coincides with trow's. Its `top` is set after it's measured below.
+  // Hidden panel: holds filter-option rows (display:none) so they can be relocated into the floating dropdown
+  // popover when a group is opened. Always zero-height; kept as a DOM container so the rows exist when re-rendering.
   const panelWrap=document.createElement("div");panelWrap.append(timeRow,pf,cf,sf,rf);
   panelWrap.style.cssText="position:sticky;z-index:4;background:var(--canvas);box-shadow:0 8px 8px -8px rgba(0,0,0,.12);";
   m.append(trow,panelWrap);
   panelWrap.style.top=(hh+vb.offsetHeight+trow.offsetHeight-1)+"px"; // stacked below trow, now that trow's height is known
-  // Mobile: float the open filter group's options in a dropdown popover anchored under its toggle (the inline panel
-  // rows are hidden in this mode — see mkGroup). This runs every render, so toggling an option (which re-renders)
+  // Float the open filter group's options in a dropdown popover anchored under its toggle (the inline panel
+  // rows are always hidden — see mkGroup). This runs every render, so toggling an option (which re-renders)
   // keeps the dropdown open and re-anchored to the freshly-built toggle. An outside-click clears the group's open
   // flag and re-renders so the toggle marker updates. The prior render's outside-click listener is detached first.
-  if(isMobileFilters){
-    if(taskFilterPopCloser){document.removeEventListener("mousedown",taskFilterPopCloser,true);taskFilterPopCloser=null;}
-    const openG=filterGroups.find(g=>g.getOpen());
-    if(openG){
-      const {pop,place}=floatTaskPop(openG.toggle);
-      openG.row.style.display="";openG.row.style.margin="0";   // it was hidden in the panel; show it inside the popover
-      pop.appendChild(openG.row);                              // relocate the real option row (no duplicated controls)
-      place();
-      const onOut=e=>{if(pop.contains(e.target)||openG.toggle.contains(e.target))return;document.removeEventListener("mousedown",onOut,true);taskFilterPopCloser=null;openG.setOpen(false);renderTasks();};
-      taskFilterPopCloser=onOut;setTimeout(()=>document.addEventListener("mousedown",onOut,true),0);
-    }
+  if(taskFilterPopCloser){document.removeEventListener("mousedown",taskFilterPopCloser,true);taskFilterPopCloser=null;}
+  const openG=filterGroups.find(g=>g.getOpen());
+  if(openG){
+    const {pop,place}=floatTaskPop(openG.toggle);
+    openG.row.style.display="";openG.row.style.margin="0";   // it was hidden in the panel; show it inside the popover
+    pop.appendChild(openG.row);                              // relocate the real option row (no duplicated controls)
+    place();
+    const onOut=e=>{if(pop.contains(e.target)||openG.toggle.contains(e.target))return;document.removeEventListener("mousedown",onOut,true);taskFilterPopCloser=null;openG.setOpen(false);renderTasks();};
+    taskFilterPopCloser=onOut;setTimeout(()=>document.addEventListener("mousedown",onOut,true),0);
   }
   if(_refocusSearch){searchInp.focus();try{searchInp.setSelectionRange(_searchCaret,_searchCaret);}catch(_){}}
   // taskColOpts + _base/_tableMode were computed above the toolbar. Narrow to the active column filters for table mode.
@@ -5395,8 +5385,9 @@ function renderTeam(m){
       // Actions row: rename, sync, open — left-aligned
       const actRow=document.createElement("div");actRow.style.cssText="display:flex;align-items:center;gap:7px;justify-content:flex-start;";
       const ren=document.createElement("button");ren.className="btn sm";ren.textContent="✎ Name";ren.title="Set a friendly name for this repo";
-      // Two-way sync: auto-import every spec under the sync dir (.claude/agents/) + push/pull each by last-write-wins.
-      const sync=document.createElement("button");sync.className="btn sm";sync.textContent="⇄ Sync agents";sync.title="Import new specs from "+SYNC_DIR+"/ and push/pull existing ones (newest wins)";
+      const folderBtn=document.createElement("button");folderBtn.className="btn sm";folderBtn.textContent="📁 Agents folder";folderBtn.title="Set the folder in this repo where agent specs live (default: "+SYNC_DIR+")";
+      // Two-way sync: auto-import every spec under the repo's agents folder + push/pull each by last-write-wins.
+      const sync=document.createElement("button");sync.className="btn sm";sync.textContent="⇄ Sync agents";sync.title="Import new specs from "+(repoAgentsFolder(r.url))+"/ and push/pull existing ones (newest wins)";
       sync.onclick=async()=>{
         sync.disabled=true;sync.innerHTML='<span class="spin"></span> Syncing';
         try{const c=await syncRepoAgents(r.url);banner("Synced "+r.fullName+": "+c.imported+" imported, "+c.pulled+" pulled, "+c.pushed+" pushed"+(c.skipped?", "+c.skipped+" unchanged":"")+(c.errors?", "+c.errors+" errors":"")+".","ok");}
@@ -5404,7 +5395,7 @@ function renderTeam(m){
         sync.disabled=false;sync.textContent="⇄ Sync agents";
       };
       const open=document.createElement("a");open.className="btn sm";open.textContent="Open ↗";open.href=r.url;open.target="_blank";open.rel="noopener";
-      actRow.append(ren,sync,open);card.appendChild(actRow);
+      actRow.append(ren,folderBtn,sync,open);card.appendChild(actRow);
       // Inline friendly-name editor (collapsible pop, matching the Categories/Domains rename pattern).
       const rp=document.createElement("div");rp.className="pop";
       const ri=document.createElement("input");ri.className="ctrl";ri.value=fr;ri.placeholder="Friendly name (e.g. Main Web App)";
@@ -5414,8 +5405,23 @@ function renderTeam(m){
       acts.appendChild(rb);
       if(fr){const clr=document.createElement("button");clr.className="btn sm";clr.textContent="Clear";clr.onclick=async()=>{try{await setRepoName(r.url,"");rp.classList.remove("open");}catch(e){banner(e.message,"err");}};acts.appendChild(clr);}
       rp.append(ri,acts);card.appendChild(rp);
-      ren.onclick=()=>{rp.classList.toggle("open");if(rp.classList.contains("open"))ri.focus();};
+      ren.onclick=()=>{rp.classList.toggle("open");fp.classList.remove("open");if(rp.classList.contains("open"))ri.focus();};
       ri.addEventListener("keydown",e=>{if(e.key==="Enter")rb.click();});
+      // Inline agents-folder editor: lets the user override which folder in this repo holds agent specs.
+      const curFolder=repoAgentsFolder(r.url);
+      const fp=document.createElement("div");fp.className="pop";
+      fp.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin-bottom:6px;">Folder in this repo where agent spec (<code>.md</code>) files live. Leave blank to use the default (<code>'+SYNC_DIR+'</code>).</div>');
+      const fi=document.createElement("input");fi.className="ctrl";fi.value=curFolder===SYNC_DIR?"":curFolder;fi.placeholder=SYNC_DIR+" (default)";
+      const facts=document.createElement("div");facts.style.cssText="display:flex;gap:6px;align-items:center;margin-top:6px;";
+      const fb2=document.createElement("button");fb2.className="btn primary sm";fb2.textContent="Save folder";
+      fb2.onclick=async()=>{try{await setRepoAgentsFolder(r.url,fi.value);fp.classList.remove("open");sync.title="Import new specs from "+(fi.value.trim().replace(/^\/+|\/+$/g,"")||SYNC_DIR)+"/ and push/pull existing ones (newest wins)";}catch(e){banner(e.message,"err");}};
+      facts.appendChild(fb2);
+      const fclr=document.createElement("button");fclr.className="btn sm";fclr.textContent="Reset to default";
+      fclr.onclick=async()=>{try{await setRepoAgentsFolder(r.url,"");fi.value="";fp.classList.remove("open");sync.title="Import new specs from "+SYNC_DIR+"/ and push/pull existing ones (newest wins)";}catch(e){banner(e.message,"err");}};
+      facts.appendChild(fclr);
+      fp.append(fi,facts);card.appendChild(fp);
+      folderBtn.onclick=()=>{fp.classList.toggle("open");rp.classList.remove("open");if(fp.classList.contains("open"))fi.focus();};
+      fi.addEventListener("keydown",e=>{if(e.key==="Enter")fb2.click();});
       rlist.appendChild(card);
     });
     (ghInstalls||[]).forEach(i=>{if(!i.manageUrl)return;const a=document.createElement("a");a.className="btn sm";a.style.marginTop="6px";a.textContent="Manage "+(i.account?"@"+i.account:"")+" on GitHub →";a.href=i.manageUrl;a.target="_blank";a.rel="noopener";rlist.appendChild(a);});
@@ -5496,7 +5502,9 @@ function agentEffectivePath(a){const p=agentPendingMoves[a.id];return p?p.newPat
 function agentDirSegments(a){
   let p=agentEffectivePath(a).replace(/^\/+/,"").replace(/\/+$/,""); // effective = staged dest if a move is pending
   if(!p)return null;
-  if(p===SYNC_DIR||p.startsWith(SYNC_DIR+"/"))p=p.slice(SYNC_DIR.length).replace(/^\/+/,""); // make it relative to the sync dir
+  // Strip the repo's agents folder prefix so the tree roots at the folder's contents, not the full path.
+  const sd=repoAgentsFolder(a.repoUrl||"");
+  if(p===sd||p.startsWith(sd+"/"))p=p.slice(sd.length).replace(/^\/+/,"");
   const parts=p.split("/");parts.pop(); // drop the file name, keep the directories
   return parts.filter(Boolean);
 }
@@ -5542,10 +5550,11 @@ async function runAgent(payload){
 // Scans <repo>/agents/*.md: file with no local agent → import (create); both exist → newer of {git commit
 // time, local updatedAt} wins (pull or push); local agent in this repo whose file is missing → push (create).
 // Returns counts. Writes commits, so it's behind an explicit "Sync" button, not silent on load.
-const SYNC_DIR=".claude/agents"; // folder convention scanned for agent spec files (Claude Code's subagent location)
+const SYNC_DIR=".claude/agents"; // default agents folder (Claude Code's subagent location); repos may override via repoNames.agentsFolder
 async function syncRepoAgents(repoUrl){
   const norm=normRepo(repoUrl);
-  const {files}=await githubSync({op:"listFiles",repoUrl,path:SYNC_DIR});
+  const syncDir=repoAgentsFolder(repoUrl); // use per-repo override if configured, else default to SYNC_DIR
+  const {files}=await githubSync({op:"listFiles",repoUrl,path:syncDir});
   const r={imported:0,pulled:0,pushed:0,skipped:0,errors:0};
   const localForRepo=DB.agents.filter(a=>normRepo(a.repoUrl)===norm&&a.repoPath);
   const handled=new Set(); // local agent ids reconciled below — kept out of the trailing "push missing" pass
@@ -5613,7 +5622,7 @@ function resolveMove(a,destFolderRaw,opts){
   let folder=String(destFolderRaw||"").trim().replace(/\\/g,"/").replace(/^\/+|\/+$/g,"").replace(/\/+/g,"/");
   // opts.absolute: folder is the exact repo path of a target folder (e.g. from a drag-drop onto a tree node).
   // Otherwise it's a relative entry taken as living under the sync dir (the typed move modal).
-  if(!opts.absolute){ if(folder&&folder!==SYNC_DIR&&!folder.startsWith(SYNC_DIR+"/"))folder=SYNC_DIR+"/"+folder; if(!folder)folder=SYNC_DIR; }
+  if(!opts.absolute){ const sd=repoAgentsFolder(a.repoUrl||"");if(folder&&folder!==sd&&!folder.startsWith(sd+"/"))folder=sd+"/"+folder;if(!folder)folder=sd; }
   const segs=folder.split("/");
   if(!folder||segs.some(s=>!s||s==="."||s===".."))return{ok:false,msg:"Invalid destination folder."};
   const filename=a.repoPath.split("/").pop();
@@ -5842,13 +5851,14 @@ function agentMoveModal(a){
     const wrap=document.createElement("div");wrap.style.cssText="display:flex;flex-direction:column;gap:8px;";
     const pend=agentPendingMoves[a.id];
     wrap.insertAdjacentHTML("beforeend",'<div class="cmeta">Current path: '+esc(a.repoPath||"(unfiled)")+(pend?' · staged → '+esc(pend.newPath):'')+'</div>');
-    const lab=document.createElement("div");lab.className="cmeta";lab.style.fontWeight="600";lab.textContent="Destination folder (under "+SYNC_DIR+"/)";wrap.appendChild(lab);
-    const inp=document.createElement("input");inp.className="ctrl";inp.style.width="100%";inp.placeholder=SYNC_DIR+"/…";
+    const agentSyncDir=repoAgentsFolder(a.repoUrl||"");
+    const lab=document.createElement("div");lab.className="cmeta";lab.style.fontWeight="600";lab.textContent="Destination folder (under "+agentSyncDir+"/)";wrap.appendChild(lab);
+    const inp=document.createElement("input");inp.className="ctrl";inp.style.width="100%";inp.placeholder=agentSyncDir+"/…";
     const dl=document.createElement("datalist");dl.id="agentFolderList";
     const folders=new Set();DB.agents.forEach(x=>{const s=agentDirSegments(x);if(s&&s.length)folders.add(s.join("/"));});
     Array.from(folders).sort().forEach(f=>{const o=document.createElement("option");o.value=f;dl.appendChild(o);});
     inp.setAttribute("list","agentFolderList");
-    const curSegs=agentDirSegments(a);inp.value=curSegs?curSegs.join("/"):SYNC_DIR;
+    const curSegs=agentDirSegments(a);inp.value=curSegs?curSegs.join("/"):agentSyncDir;
     wrap.append(inp,dl);
     wrap.insertAdjacentHTML("beforeend",'<div class="hint">The file keeps its name. The move is <b>staged locally</b> — click “Commit moves” in the Agents header to write it to the repo (new file written, then the old one removed).</div>');
     const row=document.createElement("div");row.className="row";row.style.marginTop="6px";
@@ -6482,24 +6492,10 @@ function startApp(user){
 function applyAppVariant(key){
   const v=APP_VARIANTS[key]||APP_VARIANTS.gameplan;
   currentApp=key;
-  try{localStorage.setItem("gp_app",key);}catch(e){}
   const r=document.documentElement;
   r.style.setProperty("--accent",v.color);
   r.style.setProperty("--accent-soft",v.soft);
   r.style.setProperty("--app-accent",v.color);
-  const logo=document.getElementById("brandlogo");
-  if(logo)logo.style.filter=v.logoFilter||"none";
-  const badge=document.getElementById("appBadge");
-  if(badge)badge.textContent=v.label;
-  const menu=document.getElementById("appMenu");
-  if(menu){
-    menu.innerHTML=Object.entries(APP_VARIANTS).map(([k,av])=>
-      `<div class="app-menu-item${k===key?" cur":""}" data-app="${k}"><span class="app-menu-dot" style="background:${av.color}"></span>${av.label}</div>`
-    ).join("");
-    menu.querySelectorAll(".app-menu-item").forEach(el=>{
-      el.addEventListener("click",e=>{e.stopPropagation();applyAppVariant(el.dataset.app);document.getElementById("appMenu")?.classList.remove("open");});
-    });
-  }
 }
 
 function init(){
@@ -6514,10 +6510,8 @@ function init(){
   restoreTaskState(); // restore the Tasks-tab filters/view/sort/column-filters the user last had
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
   applyAppVariant(currentApp);
-  document.getElementById("appSwitcher")?.addEventListener("click",e=>{e.stopPropagation();document.getElementById("appMenu")?.classList.toggle("open");});
   document.addEventListener("click",e=>{
     if(!e.target.closest(".dots-wrap"))document.querySelectorAll(".dots-drop.open").forEach(d=>d.classList.remove("open"));
-    if(!e.target.closest("#appSwitcher"))document.getElementById("appMenu")?.classList.remove("open");
   });
 
   if(!fbReady){
