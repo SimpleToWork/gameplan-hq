@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" href="/mbi-logo.png">
-<title>Gameplan HQ</title>
+<title>MerchantsBi</title>
 <!--
   ============================================================
   GAMEPLAN HQ — hosted build (Firebase storage + Claude API)
@@ -3324,7 +3324,7 @@ function renderTasks(m){
   }
   // Status-view + Group/Sort row. Sticky (second bar under the page header) so the display controls stay reachable
   // while scrolling; its `top` is set below once the header height is known, and trow stacks beneath it.
-  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;";
+  const vb=document.createElement("div");vb.className="views";vb.style.cssText="margin:16px 0 0;position:sticky;z-index:6;background:var(--canvas);padding:6px 0;box-shadow:0 8px 8px -8px rgba(0,0,0,.12);flex-wrap:nowrap;align-items:center;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;";
   const VIEW_OPTS=[["viewall","View All"],["all","All open"],["working","Working"],["mine","My tasks"],["top","Top priority"],["done","Completed"],["archived","Archived"],["trash","Trash"+(trashN?" ("+trashN+")":"")]];
   if(isMobileFilters){
     vb.appendChild(taskMenuBtn("Status",VIEW_OPTS,taskView,k=>{taskView=k;renderTasks();}));
@@ -3425,7 +3425,7 @@ function renderTasks(m){
   if(taskRoadmap){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskRoadmap=null;taskFromRoadmap=null;renderTasks();};rf.appendChild(clr);}
   // Group-by — a display option (not a filter): always visible, right-aligned in the status-view row (All open / My tasks).
   // Mobile: collapses to a single dropdown so it sits inline in the compact banner (no margin-left:auto to pack left).
-  const gb=document.createElement("div");gb.className="views";gb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:auto;";
+  const gb=document.createElement("div");gb.className="views";gb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:auto;flex-wrap:nowrap;align-items:center;";
   if(isMobileFilters){
     gb.appendChild(taskMenuBtn("Group",GROUP_OPTS,taskGroup,k=>{taskGroup=k;taskSecSortFilter={};renderTasks();}));
   }else{
@@ -3453,7 +3453,7 @@ function renderTasks(m){
   // Agenda/Roadmap layout toggles; the choice persists across reloads in gp_taskLayout. Sits beside Group-by / Sort-by.
   // Mobile: collapses to a single "View:" dropdown to keep the banner on one row.
   const LAYOUT_OPTS=[["card","Cards"],["table","Table"],["chart","Chart"]];
-  const lb=document.createElement("div");lb.className="views";lb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:10px;";
+  const lb=document.createElement("div");lb.className="views";lb.style.cssText=isMobileFilters?"margin:0;":"margin:0;margin-left:10px;flex-wrap:nowrap;align-items:center;";
   const pickLayout=k=>{if(taskLayout===k)return;taskLayout=k;try{localStorage.setItem("gp_taskLayout",k);}catch(e){}renderTasks();};
   if(isMobileFilters){
     lb.appendChild(taskMenuBtn("View",LAYOUT_OPTS,taskLayout,pickLayout));
