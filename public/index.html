@@ -514,6 +514,22 @@
   .th-srt:hover .th-srt-arr{opacity:.7;}
   .th-hd{display:flex;align-items:center;gap:4px;} /* sort label + filter funnel in one <th> */
   body.col-resizing *{cursor:col-resize!important;-webkit-user-select:none;user-select:none;}
+  /* branches table */
+  .fbtable-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:8px;}
+  .fbtable{border-collapse:collapse;width:100%;font-size:13px;min-width:700px;}
+  .fbtable th{text-align:left;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.02em;color:#c7ccd6;text-transform:uppercase;padding:9px 12px;border-bottom:1px solid #14171f;background:#1f2330;white-space:nowrap;}
+  .fbtable th .th-srt{color:#c7ccd6;}.fbtable th .th-srt:hover,.fbtable th .th-srt.active{color:#fff;}
+  .fbtable th .col-resizer::after{background:rgba(255,255,255,.22);}
+  .fbtable td{padding:8px 12px;border-bottom:1px solid #eef0f4;vertical-align:middle;}
+  .fbtable tr:last-child td{border-bottom:none;}
+  .fbtable tbody tr{cursor:pointer;}
+  .fbtable tbody tr:hover td{background:#f3f3fb;}
+  .fbtable tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 #b9b9ec;}
+  .fbtable .fb-grp-tr td{background:var(--canvas);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:6px 12px;cursor:default;}
+  .fbtable .fb-grp-tr:hover td{background:var(--canvas);}
+  .fbtable .fb-name{font-weight:600;color:var(--ink);}
+  .fbtable .fb-mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted);}
+  .fbtable .fb-sub{color:var(--muted);font-size:11.5px;}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   /* Rendered-markdown view (agent .md files) */
   .mdv{font-size:13.5px;line-height:1.6;color:var(--ink);word-wrap:break-word;}
@@ -547,8 +563,8 @@
       <button data-page="roadmap">Roadmap</button>
       <button data-page="agendas">Agendas</button>
       <button data-page="agents">Agents</button>
-      <button data-page="branches">Branches</button>
       <button data-page="deploy">Deploy</button>
+      <button data-page="branches">Branches</button>
       <button data-page="team">Settings</button>
     </div>
   </header>
@@ -6441,6 +6457,8 @@ function renderDeploy(m){
 let branchSearch="";            // free-text filter on the Branches page
 let branchSearchTimer=null;     // debounce handle for search oninput → renderBranches
 let branchGroupCollapsed={open:false,merged:true}; // collapse state for Open/Merged branch groups
+let branchLayout=(localStorage.getItem("gp_branchLayout")==="table")?"table":"cards"; // "cards" | "table"
+let branchTableColSort={col:null,dir:"asc"};
 let _branchModalRepaint=null;   // set while a branch detail modal is open; lets live snapshots repaint it (see subscribeAll)
 
 const FB_STATUS_COLOR={creating:["#fdeecf","#a86a08"],ready:["#e9f7ee","#1d6b45"],merging:["#fdeecf","#a86a08"],merged:["#eceef1","#6a7280"],failed:["#fcecec","#a32d2d"],conflict:["#fcecec","#a32d2d"]};
@@ -6687,16 +6705,22 @@ function renderBranches(m){
   const add=document.createElement("button");add.className="btn sm primary";add.style.marginLeft="auto";add.textContent="+ New branch";add.onclick=()=>createBranchModal(null,id=>branchModal(id));
   head.appendChild(add);m.appendChild(head);
   // Search
-  const bar=document.createElement("div");bar.style.cssText="display:flex;gap:8px;align-items:center;margin:8px 0 4px;";
+  const bar=document.createElement("div");bar.style.cssText="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px;";
   const se=document.getElementById("branchPageSearch");const refocus=!!(se&&document.activeElement===se);const caret=refocus?(se.selectionStart??se.value.length):0;
   const s=document.createElement("input");s.type="search";s.className="ctrl";s.id="branchPageSearch";s.placeholder="Search branches…";s.value=branchSearch;s.style.cssText="flex:1;min-width:160px;max-width:320px;";
-  s.oninput=()=>{branchSearch=s.value;clearTimeout(branchSearchTimer);branchSearchTimer=setTimeout(renderBranches,150);};bar.appendChild(s);m.appendChild(bar);
+  s.oninput=()=>{branchSearch=s.value;clearTimeout(branchSearchTimer);branchSearchTimer=setTimeout(renderBranches,150);};bar.appendChild(s);
+  // Layout toggle: cards vs table
+  const layoutBox=document.createElement("div");layoutBox.className="views";layoutBox.style.margin="0";
+  [["cards","Cards"],["table","Table"]].forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(branchLayout===k)b.classList.add("on");b.onclick=()=>{if(branchLayout===k)return;branchLayout=k;try{localStorage.setItem("gp_branchLayout",k);}catch(e){}renderBranches();};layoutBox.appendChild(b);});
+  bar.appendChild(layoutBox);
+  m.appendChild(bar);
   if(refocus){s.focus();try{s.setSelectionRange(caret,caret);}catch(_){}}
   if(!DB.featureBranches.length){m.insertAdjacentHTML("beforeend",'<div class="empty"><div class="big">No feature branches yet</div>Click "+ New branch" to create one off master, then assign tasks to it.</div>');return;}
   const q=branchSearch.trim().toLowerCase();
   const match=b=>!q||(b.name||"").toLowerCase().includes(q)||(b.branch_name||"").toLowerCase().includes(q)||repoLabel(b.repoUrl).toLowerCase().includes(q);
   const open=DB.featureBranches.filter(b=>b.status!=="merged"&&match(b)).sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
   const merged=DB.featureBranches.filter(b=>b.status==="merged"&&match(b)).sort((a,b)=>(b.merged_at||"").localeCompare(a.merged_at||""));
+  if(branchLayout==="table"){renderBranchesTable(m,open,merged);return;}
   const branchRow=b=>{
     const tasks=branchTasks(b);
     const row=document.createElement("div");row.className="card";row.style.cssText="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;";
@@ -6729,6 +6753,62 @@ function renderBranches(m){
     if(!mCol)merged.forEach(b=>m.appendChild(branchRow(b)));
   }
   if(!open.length&&!merged.length)m.insertAdjacentHTML("beforeend",'<div class="cmeta">No branches match “'+esc(branchSearch)+'”.</div>');
+}
+
+function renderBranchesTable(m,openBranches,mergedBranches){
+  const S=branchTableColSort;
+  const resort=()=>renderBranches();
+  const FBCS={
+    name:(a,b)=>(a.name||a.branch_name||"").localeCompare(b.name||b.branch_name||""),
+    repo:(a,b)=>repoLabel(a.repoUrl).localeCompare(repoLabel(b.repoUrl)),
+    status:(a,b)=>(a.status||"").localeCompare(b.status||""),
+    tasks:(a,b)=>branchTasks(a).length-branchTasks(b).length,
+    age:(a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""),
+  };
+  const sortGroup=arr=>{if(!S.col||!FBCS[S.col])return arr;const cmp=FBCS[S.col];const d=S.dir==="asc"?1:-1;return arr.slice().sort((a,b)=>d*cmp(a,b));};
+  const wrap=document.createElement("div");wrap.className="fbtable-wrap";
+  const t=document.createElement("table");t.className="fbtable";
+  const thead=document.createElement("thead");const htr=document.createElement("tr");
+  [sortTh("Branch","name",S,resort),sortTh("Repo","repo",S,resort),sortTh("Status","status",S,resort),
+   plainTh("Checks"),sortTh("Tasks","tasks",S,resort),sortTh("Age","age",S,resort),plainTh("")].forEach(th=>htr.appendChild(th));
+  thead.appendChild(htr);t.appendChild(thead);
+  const tb=document.createElement("tbody");
+  const addGrpRow=(label,count)=>{const tr=document.createElement("tr");tr.className="fb-grp-tr";const td=document.createElement("td");td.colSpan=7;td.innerHTML='<span>'+esc(label)+'</span><span class="fb-sub" style="margin-left:6px;">('+count+')</span>';tr.appendChild(td);tb.appendChild(tr);};
+  const addRow=b=>{
+    const tasks=branchTasks(b);
+    const merged=b.status==="merged";
+    const tr=document.createElement("tr");tr.tabIndex=0;tr.title="Open branch: "+(b.name||b.branch_name);
+    const open=()=>branchModal(b.id);tr.onclick=open;tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}};
+    // Name + branch_name
+    const cN=document.createElement("td");
+    cN.innerHTML='<div class="fb-name">⎇ '+esc(b.name||b.branch_name)+'</div><div class="fb-mono">'+esc(b.branch_name)+'</div>';
+    tr.appendChild(cN);
+    // Repo
+    const cR=document.createElement("td");cR.innerHTML='<span class="fb-sub">'+esc(repoLabel(b.repoUrl))+'</span>';tr.appendChild(cR);
+    // Status chip
+    const cS=document.createElement("td");cS.appendChild(chipEl(b.status||"ready",FB_STATUS_COLOR[b.status]||FB_STATUS_COLOR.ready));tr.appendChild(cS);
+    // Checks
+    const cC=document.createElement("td");
+    if(b.checks_status&&b.checks_status!=="unknown")cC.appendChild(chipEl(b.checks_status,FB_CHECKS_COLOR[b.checks_status]||FB_CHECKS_COLOR.unknown));
+    else cC.innerHTML='<span class="fb-sub">—</span>';tr.appendChild(cC);
+    // Tasks count
+    const cT=document.createElement("td");
+    if(tasks.length){const btn=document.createElement("button");btn.className="btn sm";btn.style.cssText="font-size:11.5px;padding:2px 7px;";btn.textContent=tasks.length+" task"+(tasks.length!==1?"s":"");btn.title="View tasks in this branch";btn.onclick=e=>{e.stopPropagation();goToBranchTasks(b.id);};cT.appendChild(btn);}
+    else cT.innerHTML='<span class="fb-sub">—</span>';tr.appendChild(cT);
+    // Age
+    const cA=document.createElement("td");
+    const ts=merged?b.merged_at:b.createdAt;cA.innerHTML='<span class="fb-sub" title="'+(ts?new Date(ts).toLocaleString():"")+'">'+timeAgo(ts)+'</span>';tr.appendChild(cA);
+    // Actions
+    const cX=document.createElement("td");cX.style.whiteSpace="nowrap";
+    if(merged){const rb=document.createElement("button");rb.className="btn sm";rb.textContent="↩ Reuse";rb.title="Create a fresh branch with the same name";rb.onclick=e=>{e.stopPropagation();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};cX.appendChild(rb);}
+    tr.appendChild(cX);
+    tb.appendChild(tr);
+  };
+  if(openBranches.length){addGrpRow("Open",openBranches.length);sortGroup(openBranches).forEach(addRow);}
+  if(mergedBranches.length){addGrpRow("Merged",mergedBranches.length);sortGroup(mergedBranches).forEach(addRow);}
+  if(!openBranches.length&&!mergedBranches.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.className="fb-sub";td.style.padding="14px 12px";td.textContent='No branches match the search.';tr.appendChild(td);tb.appendChild(tr);}
+  t.appendChild(tb);wrap.appendChild(t);m.appendChild(wrap);
+  makeColumnsResizable(t,"branches");
 }
 
 function renderAgents(m){
