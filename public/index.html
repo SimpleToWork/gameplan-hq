@@ -47,8 +47,8 @@
      so without this the surround shows the browser's default white band against our gray canvas. body min-height
      keeps short pages filled to the bottom (no white gap below the content when zoomed out). */
   html{background:var(--canvas);}
-  body{margin:0;min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;}
-  button,select,textarea,input{font-family:inherit;}
+  body{margin:0;min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;-webkit-tap-highlight-color:transparent;}
+  button,select,textarea,input{font-family:inherit;touch-action:manipulation;}
   .app{max-width:1680px;margin:0 auto;padding:0 32px 70px;}
   @media(max-width:560px){.app{padding:0 16px 60px;min-width:540px;}}  /* tighter gutters on phones; min-width:540px keeps content area ≥508px so all 7 header tabs (incl. Settings) fit on one row */
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
@@ -61,11 +61,11 @@
 
   .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
   .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:wrap;}
-  .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;}
+  .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;will-change:background,color;}
   .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06);}
   select.ctrl,input.ctrl{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:7px 10px;font-size:13px;cursor:pointer;}
   .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 14px;font-size:13.5px;font-weight:500;cursor:pointer;transition:background .15s,transform .05s;display:inline-flex;align-items:center;gap:7px;}
-  .btn:hover{background:#f1f1f0;} .btn:active{transform:scale(.99);}
+  .btn:hover{background:#f1f1f0;will-change:transform;} .btn:active{transform:scale(.99);}
   .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;} .btn.primary:hover{background:#3a3ab0;}
   .btn.sm{padding:5px 10px;font-size:12px;}
   .btn:disabled{opacity:.5;cursor:default;}
@@ -201,7 +201,7 @@
   @media(max-width:480px){.tabs{width:100%;box-sizing:border-box;}.tabs button{flex:1;text-align:center;padding:7px 8px;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;position:relative;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
-  .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
+  .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;touch-action:manipulation;}
   .card[data-task-id]:hover{border-color:#9d9dde;border-color:color-mix(in srgb,var(--accent,#4646c8) 55%,#fff);}
   @keyframes taskflash{0%,30%{box-shadow:0 0 0 3px var(--accent,#4646c8);}100%{box-shadow:0 0 0 3px transparent;}}
   .card.flash{animation:taskflash 1.6s ease-out;}
@@ -1074,6 +1074,11 @@ function liveStreamOnly(prev,next){
 // re-renders (e.g. runner status transitions writing non-stream fields) won't wipe unsaved input,
 // and (3) deferral when a task-card native <select> is focused so open dropdowns aren't reset.
 let _editGuardDeferTimer=null;
+// Coalesces rapid Firestore snapshot re-renders into one per animation frame. Multiple snapshots arriving
+// in the same tick (e.g. initial load or batch writes) all collapse into a single renderWithEditGuard call,
+// preventing redundant full-page DOM rebuilds and the layout thrashing they cause.
+let _renderQueued=false;
+function queueRenderWithEditGuard(){if(_renderQueued)return;_renderQueued=true;requestAnimationFrame(()=>{_renderQueued=false;renderWithEditGuard();});}
 function renderWithEditGuard(){
   // If a task-card <select> (status/priority/category) is focused, the user may have the
   // dropdown open. Rebuilding the DOM would close it. Retry in 200ms; successive snapshots
@@ -1143,6 +1148,13 @@ function subscribeAll(){
       // The runner heartbeats into runnerControl/state on a timer. Outside the Branches page nothing reads it, so
       // skip the re-render there — otherwise every heartbeat would rebuild the board and wipe an in-progress edit.
       if(k==="runnerControl"&&page!=="branches")return;
+      // agentRuns is written when an agent completes, but DB.agentRuns is never read in any render function.
+      // Skip the wasted re-render entirely — the data is still fresh in DB for any future use.
+      if(k==="agentRuns")return;
+      // agendas data is only consumed by renderAgendas; skip re-renders on all other pages.
+      if(k==="agendas"&&page!=="agendas")return;
+      // domains is only consumed by renderTeam (Settings page); skip re-renders elsewhere.
+      if(k==="domains"&&page!=="team")return;
       if(k==="areas"&&!DB.areas.length&&!seededAreas){ seededAreas=true; DEFAULT_AREAS.forEach(a=>fbAdd("areas",a)); }
       if(k==="phases"&&!DB.phases.length&&!seededPhases){ seededPhases=true; DEFAULT_PHASES.forEach(p=>fbAdd("phases",p)); }
       let catsRebuilt=false;   // did this snapshot replace the fallback CATS literals with the real team disciplines?
@@ -1167,7 +1179,7 @@ function subscribeAll(){
       // Tasks snapshot while on another page: DB.tasks is already fresh — skip the disruptive re-render so active
       // edits in agendas, roadmap, etc. are preserved. The tasks board renders correctly on the next page switch.
       if(k==="tasks"&&page!=="tasks")return;
-      if(page!=="capture"||seededDefault||capRmChanged||catsRebuilt){ renderWithEditGuard(); }
+      if(page!=="capture"||seededDefault||capRmChanged||catsRebuilt){ queueRenderWithEditGuard(); }
     },err=>banner("Sync error: "+err.message,"err")));
   });
 }
@@ -1287,11 +1299,12 @@ async function captureTasks(){
   const hint=document.getElementById("capHint");hint.textContent="Turning it into tasks and checking for duplicates…";
   const out=document.getElementById("capResult");out.innerHTML="";
   try{
-    const existing=DB.tasks.map(t=>({id:t.id,title:t.title}));
     // Disciplines the AI may choose from: the user-selected subset, or all when nothing is selected.
     const cats=(captureCats&&captureCats.size)?CATS.filter(c=>captureCats.has(c)):CATS;
     const catFallback=(captureCats&&captureCats.size)?cats[0]:"Admin";
     const selRepoUrls=captureRepos&&captureRepos.size?[...captureRepos]:[];
+    // When repos are selected, scope duplicate-checking to tasks in those repos so cross-repo tasks don't block new ones.
+    const existing=(selRepoUrls.length?DB.tasks.filter(t=>t.repoUrl&&selRepoUrls.includes(normRepo(t.repoUrl))):DB.tasks).map(t=>({id:t.id,title:t.title}));
     const selRepoNames=selRepoUrls.map(u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;});
     const selAgents=captureAgentIds&&captureAgentIds.size?DB.agents.filter(a=>captureAgentIds.has(a.id)):[];
     const repoCtxStr=selRepoNames.length?" The team member is working in these repos: "+selRepoNames.join(", ")+".":"";
@@ -1618,7 +1631,10 @@ function askDoneUI(t,onDone){
 }
 
 /* ---------- Render ---------- */
-function setPage(p){if(speechRec)stopSpeech();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));render();}
+function setPage(p){if(speechRec)stopSpeech();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));
+  // Defer the heavy DOM rebuild to the next animation frame so the tab highlight paints first,
+  // giving immediate visual feedback before the CPU-intensive render runs.
+  requestAnimationFrame(render);}
 // Stop any active voice recording (its onstop handler transcribes + cleans up). Safe to call anytime.
 function stopSpeech(){
   if(speechRec){try{speechRec.stop();}catch(e){}}
@@ -1705,7 +1721,7 @@ function renderCapture(m){m=m||document.getElementById("main");
   const repoLabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
   const repoSummary=()=>{if(!captureRepos||!captureRepos.size)return "All repos";const names=[...captureRepos].map(repoLabel);return names.length<=2?names.join(", "):names.slice(0,2).join(", ")+" +"+(names.length-2);};
   const rpRow=document.createElement("div");rpRow.className="views";rpRow.style.margin="8px 0 0";
-  const rpLab=document.createElement("span");rpLab.className="cmeta";rpLab.style.cssText="align-self:center;margin-right:4px;";rpLab.title="Limit to specific repos — Claude will use these as context when drafting tasks";rpLab.textContent="Repos:";rpRow.appendChild(rpLab);
+  const rpLab=document.createElement("span");rpLab.className="cmeta";rpLab.style.cssText="align-self:center;margin-right:4px;";rpLab.title="Limit to specific repos — Claude uses these as context and only checks tasks in these repos for duplicates";rpLab.textContent="Repos:";rpRow.appendChild(rpLab);
   const rpWriteSel=document.createElement("select");rpWriteSel.className="ghost-select";rpWriteSel.title="Which repo to write tasks to (when multiple selected)";rpWriteSel.style.display="none";
   const rebuildWriteSel=()=>{
     if(!captureRepos||captureRepos.size<=1){rpWriteSel.style.display="none";return;}
@@ -2087,14 +2103,22 @@ function updateRunPanel(t){
   // Update git badge in title row (runGit is a stream field so this won't trigger a full re-render)
   const titleRow=card.querySelector(".ctitle-row");
   if(titleRow){const ob=titleRow.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):titleRow.appendChild(nb);}else if(ob)ob.remove();}
-  // Patch the run button and reset button in the acts bar so run-start fields (runRequested, runStatus, etc.)
+  // Patch the run button and reset buttons in the er-row so run-start fields (runRequested, runStatus, etc.)
   // no longer need a full re-render to update the button state.
   const runBtn=card.querySelector(".runbtn");
   if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":t.runStatus==="waiting"?"💬 Waiting…":"▶ Run";runBtn.disabled=runLive;runBtn.title=t.runError?("Last run failed: "+t.runError):runLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}
-  const acts=card.querySelector(":scope > .acts");
-  if(acts){const existReset=acts.querySelector("[data-runreset]");
-    if(runLive&&!existReset){const reset=document.createElement("button");reset.className="rm";reset.dataset.runreset="1";reset.textContent="✕ reset";reset.title="Clear a stuck run state (use if it's been stuck on running/queued). Does not stop a process already running on the dev machine.";reset.onclick=e=>{e.stopPropagation();if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});banner("Run state reset.","ok");};if(runBtn)runBtn.after(reset);else acts.appendChild(reset);}
-    else if(!runLive&&existReset)existReset.remove();}
+  const erRight=card.querySelector(".er-right");
+  if(erRight){
+    // Stuck-reset: visible only during live runs
+    const existReset=erRight.querySelector("[data-runreset]");
+    if(runLive&&!existReset){const reset=document.createElement("button");reset.className="rm";reset.dataset.runreset="1";reset.textContent="✕ reset";reset.title="Clear a stuck run state (use if it's been stuck on running/queued). Does not stop a process already running on the dev machine.";reset.onclick=e=>{e.stopPropagation();if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});banner("Run state reset.","ok");};erRight.appendChild(reset);}
+    else if(!runLive&&existReset)existReset.remove();
+    // Re-run reset: visible after a completed run so the task can be cleanly re-run
+    const hasCompletedRun=!runLive&&(t.runEndedAt||t.runResult||(t.runError&&!/^(runner )?reset by /.test(t.runError)));
+    const existRerunReset=erRight.querySelector("[data-runrereset]");
+    if(hasCompletedRun&&!existRerunReset){const rr=document.createElement("button");rr.className="rm";rr.dataset.runrereset="1";rr.textContent="⟲ re-run";rr.title="Clear all run history so this task can be re-run cleanly — wipes logs, result, cost, and git info.";rr.onclick=e=>{e.stopPropagation();if(!confirm('Reset run history for "'+t.title+'"?\n\nClears all run logs, results, cost, and history. The task will be ready for a clean re-run.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null});banner("Run history cleared — ready for a clean re-run.","ok");};erRight.appendChild(rr);}
+    else if(!hasCompletedRun&&existRerunReset)existRerunReset.remove();
+  }
 }
 // In-place update of the Run / Duration / Logs cells for one task row in the table layout. Patches only the three
 // run-related cells (cols 13-15) so streamed log updates never rebuild the full table and close open select dropdowns
@@ -2275,6 +2299,16 @@ function taskCard(t){
       if(!confirm('Reset the run state for "'+t.title+'"?\n\nUse this if it\'s stuck on running/queued (the runner died or errored). This only clears the board flag — if a run is genuinely still active on the dev machine, stop it there too.'))return;
       setTask(t.id,{runRequested:false,runStatus:null,runError:"reset by "+identity});
       banner("Run state reset.","ok");};}
+  // ⟲ Re-run reset — clear all run state so the task can be re-run cleanly after the runner has already finished.
+  // Shown only when not live and a prior run exists (runEndedAt, runResult, or a real error — not a manual reset).
+  const hasCompletedRun=!runLive&&(t.runEndedAt||t.runResult||(t.runError&&!/^(runner )?reset by /.test(t.runError)));
+  const rerunReset=hasCompletedRun?document.createElement("button"):null;
+  if(rerunReset){rerunReset.className="rm";rerunReset.dataset.runrereset="1";rerunReset.textContent="⟲ re-run";
+    rerunReset.title="Clear all run history so this task can be re-run cleanly — wipes logs, result, cost, and git info.";
+    rerunReset.onclick=e=>{e.stopPropagation();
+      if(!confirm('Reset run history for "'+t.title+'"?\n\nClears all run logs, results, cost, and history. The task will be ready for a clean re-run.'))return;
+      setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null});
+      banner("Run history cleared — ready for a clean re-run.","ok");};}
   const dotWrap=document.createElement("div");dotWrap.className="dots-wrap";dotWrap.style.cssText="position:absolute;top:6px;right:6px;z-index:2;";
   const dot=document.createElement("button");dot.textContent="⋯";dot.title="More options";dot.style.cssText="border:none;background:none;cursor:pointer;font-size:16px;color:var(--muted);padding:0 2px;line-height:1;";
   const dotDrop=document.createElement("div");dotDrop.className="dots-drop";
@@ -2405,8 +2439,8 @@ function taskCard(t){
   const erRun=document.createElement("button");erRun.className="runbtn";
   erRun.textContent=run.textContent;erRun.title=run.title;if(runLive)erRun.disabled=true;
   erRun.onclick=run.onclick;
-  const erRight=document.createElement("div");erRight.style.cssText="display:flex;align-items:center;gap:6px;";
-  erRight.append(lvl,erRun);if(reset)erRight.append(reset);
+  const erRight=document.createElement("div");erRight.className="er-right";erRight.style.cssText="display:flex;align-items:center;gap:6px;";
+  erRight.append(lvl,erRun);if(reset)erRight.append(reset);if(rerunReset)erRight.append(rerunReset);
   erRow.append(erEdit,erRight);d.appendChild(erRow);
   return d;
 }
@@ -3275,8 +3309,12 @@ function setupStickyHScroll(){
   };
   bar.addEventListener("scroll",()=>{if(!activeWrap||syncing)return;syncing=true;activeWrap.scrollLeft=bar.scrollLeft;requestAnimationFrame(()=>{syncing=false;});},sig);
   wraps.forEach(w=>w.addEventListener("scroll",()=>{if(syncing||w!==activeWrap)return;syncing=true;bar.scrollLeft=w.scrollLeft;requestAnimationFrame(()=>{syncing=false;});},sig));
-  window.addEventListener("scroll",update,{passive:true,...sig});
-  window.addEventListener("resize",update,{passive:true,...sig});
+  // Debounce scroll/resize through rAF so getBoundingClientRect() reads are batched to one per frame,
+  // preventing layout thrashing when the user scrolls fast or the viewport resizes.
+  let _ssbRaf=null;
+  const rafUpdate=()=>{if(_ssbRaf)return;_ssbRaf=requestAnimationFrame(()=>{_ssbRaf=null;update();});};
+  window.addEventListener("scroll",rafUpdate,{passive:true,...sig});
+  window.addEventListener("resize",rafUpdate,{passive:true,...sig});
   requestAnimationFrame(update);
 }
 function renderTasks(m){
@@ -4446,9 +4484,10 @@ function startTlResize(e){
   const startX=e.clientX,startW=rmTlLabelW;
   const prevCursor=document.body.style.cursor,prevSel=document.body.style.userSelect;
   document.body.style.cursor="col-resize";document.body.style.userSelect="none";
+  const tlEls=Array.from(document.querySelectorAll(".timeline")); // capture once — avoids repeated DOM query on each mousemove
   const move=ev=>{
     rmTlLabelW=Math.max(110,Math.min(900,Math.round(startW+(ev.clientX-startX))));
-    document.querySelectorAll(".timeline").forEach(t=>t.style.setProperty("--tlw",rmTlLabelW+"px"));
+    tlEls.forEach(t=>t.style.setProperty("--tlw",rmTlLabelW+"px"));
   };
   const up=()=>{
     document.removeEventListener("mousemove",move);document.removeEventListener("mouseup",up);
@@ -6528,7 +6567,9 @@ function init(){
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
   applyAppVariant(currentApp);
   document.addEventListener("click",e=>{
-    if(!e.target.closest(".dots-wrap"))document.querySelectorAll(".dots-drop.open").forEach(d=>d.classList.remove("open"));
+    if(e.target.closest(".dots-wrap"))return;
+    // Use querySelector as a cheap guard — in the common case (no open dropdown) this avoids the full querySelectorAll.
+    if(document.querySelector(".dots-drop.open"))document.querySelectorAll(".dots-drop.open").forEach(d=>d.classList.remove("open"));
   });
 
   if(!fbReady){
