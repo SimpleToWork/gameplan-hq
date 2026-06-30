@@ -2817,7 +2817,7 @@ function taskTable(items,secLabel){
   // Header: sortable columns use sortTh / sortFilterTh; filterable+sortable use sortFilterTh.
   const sfth=(label,key,field)=>o?sortFilterTh(label,key,S,resort,field,o[field]||[],F,renderTasks):sortTh(label,key,S,resort);
   const sth=(label,key)=>sortTh(label,key,S,resort);
-  [sth("Task","title"),plainTh("Description"),sfth("Status","status","status"),sfth("Priority","priority","priority"),sfth("Category","category","category"),sfth("Who","who","who"),sfth("Created by","createdby","createdby"),sth("Timestamps","ts"),sfth("Target","due","due"),sfth("Roadmap","roadmap","rmarea"),plainTh("Repos"),plainTh("Agents"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),sfth("Run","run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
+  [sth("Task","title"),plainTh("MerchantsBI"),sfth("Status","status","status"),sfth("Priority","priority","priority"),sfth("Category","category","category"),sfth("Who","who","who"),sfth("Created by","createdby","createdby"),sth("Timestamps","ts"),sfth("Target","due","due"),sfth("Roadmap","roadmap","rmarea"),plainTh("Repos"),plainTh("Agents"),plainTh("Notes"),plainTh("Files"),plainTh("Ask"),sfth("Run","run","run"),plainTh("Duration"),plainTh("Logs"),plainTh("ID")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);tbl.appendChild(thead);
   const tb=document.createElement("tbody");
   // Sub-group dividers are suppressed when a column sort is active (items no longer group by taskSort key).
