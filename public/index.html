@@ -639,6 +639,7 @@ let identityUnknown=false; // true when the signed-in account isn't in the roste
 let page="capture";
 let currentApp=(()=>{const v=localStorage.getItem("gp_app");return APP_VARIANTS[v]?v:"gameplan";})();
 let captureText="";          // Capture textarea contents, kept in state so tab switches don't wipe it
+let captureDraft=(()=>{try{const o=JSON.parse(localStorage.getItem("gp_captureDraft"));return(o&&Array.isArray(o.added))?o:null;}catch(e){return null;}})(); // pending drafted tasks awaiting review; null = no pending draft
 let speechRec=null;          // active Web Speech recognition while dictating in Capture; null when idle
 // Capture picker selections persist across page refreshes via localStorage (gp_capturePrefs). Seeded from the
 // saved blob on load; saveCapturePrefs() rewrites it on every change. If a refresh restored an explicit choice,
@@ -1318,8 +1319,11 @@ async function captureTasks(){
       banner("No new tasks to add.","ok");return;
     }
     // Review step — nothing is saved until the user approves. Shared panel (also used by the Roadmap breakdown).
-    buildReviewPanel(added,skipped,out,{afterApprove:(chosen,c)=>{
-      ta.value="";captureText="";
+    // Persist draft so navigating away and back restores the review panel.
+    captureDraft={added,skipped,captureId};try{localStorage.setItem("gp_captureDraft",JSON.stringify(captureDraft));}catch(e){}
+    const clearDraft=()=>{captureDraft=null;try{localStorage.removeItem("gp_captureDraft");}catch(e){}};
+    buildReviewPanel(added,skipped,out,{onDiscard:()=>{clearDraft();out.innerHTML="";},afterApprove:(chosen,c)=>{
+      clearDraft();ta.value="";captureText="";
       const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="Go to generated tasks →";go.onclick=()=>goToCaptureTasks(captureId,skipped.map(s=>s.id).filter(Boolean));c.appendChild(go);
     }});
   }catch(e){out.innerHTML='<div class="banner err show" style="margin:0;">Could not turn that into tasks ('+esc(e.message||"error")+'). Check AI_ENDPOINT, or retry.</div>';console.error(e);}
@@ -1824,6 +1828,15 @@ function renderCapture(m){m=m||document.getElementById("main");
   cr.parentNode.insertBefore(agRow,cr);
   // Restore + persist the textarea across tab switches (render() rebuilds the DOM each time).
   const cta=document.getElementById("capText");cta.value=captureText;cta.addEventListener("input",()=>{captureText=cta.value;});
+  // Restore the pending draft review panel if the user navigated away before approving/discarding.
+  if(captureDraft&&captureDraft.added&&captureDraft.added.length){
+    const{added,skipped,captureId}=captureDraft;
+    const clearDraft=()=>{captureDraft=null;try{localStorage.removeItem("gp_captureDraft");}catch(e){}};
+    buildReviewPanel(added,skipped,cr,{onDiscard:()=>{clearDraft();cr.innerHTML="";},afterApprove:(chosen,c)=>{
+      clearDraft();cta.value="";captureText="";
+      const go=document.createElement("button");go.className="btn primary";go.style.marginTop="12px";go.textContent="Go to generated tasks →";go.onclick=()=>goToCaptureTasks(captureId,(skipped||[]).map(s=>s.id).filter(Boolean));c.appendChild(go);
+    }});
+  }
   // Voice-to-text: record audio, transcribe via /api/transcribe (Groq Whisper). Works on iOS/Android/desktop.
   if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder){
     const hint=document.getElementById("capHint");
