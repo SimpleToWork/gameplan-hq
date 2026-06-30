@@ -6470,7 +6470,11 @@ const MERGE_STEP_LABEL={merging:"Merging",rebasing:"Rebasing",resolving:"Resolvi
 // ── Pure logic (mirrored in tests/branch-logic.test.mjs) ──
 function slugifyBranch(s){return String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60);}
 function featureBranchName(s){const slug=slugifyBranch(s);return slug?"feature/"+slug:"";}
-function branchNameExists(branches,branchName,repoId){const bn=String(branchName||"").toLowerCase();return (branches||[]).some(b=>b.status!=="merged"&&normRepo(b.repo_id||b.repoUrl||"")===repoId&&String(b.branch_name||"").toLowerCase()===bn);}
+// A branch_name is "taken" if ANY branch in this repo ever used it — including merged ones. Reusing a merged
+// branch's name collides on the physical git branch (the runner keys work by branch_name, and an empty/no-op
+// merge never deletes the remote branch), so tasks from two same-named docs land on one branch and one doc's
+// "merge" silently no-ops. Burn the name permanently instead.
+function branchNameExists(branches,branchName,repoId){const bn=String(branchName||"").toLowerCase();return (branches||[]).some(b=>normRepo(b.repo_id||b.repoUrl||"")===repoId&&String(b.branch_name||"").toLowerCase()===bn);}
 // Returns null when `task` may be assigned to `branch`, else a short reason string. Enforces: same-repo only,
 // one-branch-per-task is handled by the caller (assignment overwrites), merged branches are read-only.
 function assignBranchError(task,branch){
