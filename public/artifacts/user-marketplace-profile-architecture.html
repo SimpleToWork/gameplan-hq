@@ -1,0 +1,472 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style>
+</head>
+<body>
+<title>MerchantsBI · User–Marketplace–Profile Architecture</title>
+<style>
+  :root{
+    --ground:#f6f5fa; --surface:#ffffff; --surface-2:#fbfbfe;
+    --ink:#1b1826; --muted:#6b6780; --faint:#9a96ac; --line:#e6e4f0;
+    --accent:#5a4bd4; --accent-soft:#ece9fb;
+    --user:#c8455f;  --user-bg:#fbe9ec;
+    --mkt:#218a67;   --mkt-bg:#e5f4ec;
+    --profile:#c67a1e; --profile-bg:#fbf0dd;
+    --sub:#3f77c9;   --sub-bg:#e8f0fb;
+    --role-sup:#5a4bd4; --role-adm:#218a67; --role-usr:#6b6780;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --shadow:0 1px 2px rgba(27,24,38,.04),0 8px 28px rgba(27,24,38,.06);
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+    line-height:1.55;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px 96px;}
+  h1,h2,h3{text-wrap:balance;margin:0;line-height:1.12;letter-spacing:-.02em;}
+  p{margin:0;}
+  a{color:var(--accent);}
+  .mono{font-family:var(--mono);}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;}
+  .lede{color:var(--muted);font-size:18px;max-width:64ch;}
+  section{margin-top:64px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;flex-wrap:wrap;}
+  .sec-head h2{font-size:clamp(21px,2.4vw,27px);}
+  .sec-num{font-family:var(--mono);font-size:13px;color:var(--faint);font-weight:600;}
+  .sec-note{color:var(--muted);font-size:14px;max-width:62ch;}
+
+  /* Masthead */
+  header{padding:72px 0 8px;}
+  header h1{font-size:clamp(30px,5vw,50px);font-weight:760;margin:16px 0 18px;}
+  header h1 .u{color:var(--user)} header h1 .m{color:var(--mkt)} header h1 .p{color:var(--profile)}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:26px;}
+  .chip{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;
+    background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 13px;box-shadow:var(--shadow);}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+
+  /* Entity cards */
+  .entities{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    padding:22px;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+  .card::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:var(--c);}
+  .card .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--c);font-weight:600;}
+  .card h3{font-size:20px;margin:8px 0 6px;}
+  .card p{font-size:14.5px;color:var(--muted);}
+  .split{display:flex;gap:8px;margin-top:14px;}
+  .split .s{flex:1;border:1px dashed var(--line);border-radius:9px;padding:9px 11px;background:var(--surface-2);}
+  .split .s b{display:block;font-size:13px;}
+  .split .s span{font-size:12px;color:var(--muted);}
+  .fields{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;display:flex;flex-wrap:wrap;gap:6px;}
+  .f{font-family:var(--mono);font-size:11.5px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:6px;padding:3px 7px;color:#4a4658;}
+  .f.key{border-color:var(--c);color:var(--c);background:transparent;}
+
+  /* Relationship diagram */
+  .rel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:26px;box-shadow:var(--shadow);}
+  .rel-grid{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:0;}
+  .node{border-radius:12px;padding:16px 14px;text-align:center;border:1.5px solid;}
+  .node .t{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
+  .node .d{font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .node.user{border-color:var(--user);background:var(--user-bg);} .node.user .t{color:var(--user);}
+  .node.mkt{border-color:var(--mkt);background:var(--mkt-bg);} .node.mkt .t{color:var(--mkt);}
+  .node.profile{border-color:var(--profile);background:var(--profile-bg);} .node.profile .t{color:var(--profile);}
+  .edge{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 6px;min-width:96px;}
+  .edge .card-lbl{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;white-space:nowrap;}
+  .edge .rule{width:100%;height:2px;background:linear-gradient(90deg,var(--line),var(--accent),var(--line));margin:5px 0;}
+  .edge .card-sub{font-size:10.5px;color:var(--faint);white-space:nowrap;}
+  .pivot{margin-top:22px;display:flex;gap:16px;align-items:center;background:var(--accent-soft);
+    border:1px solid #d9d4f6;border-radius:12px;padding:16px 18px;}
+  .pivot .badge{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:13px;white-space:nowrap;
+    border:1.5px solid var(--accent);border-radius:8px;padding:8px 12px;background:#fff;}
+  .pivot p{font-size:14px;color:#3a3550;}
+  .pivot .triple{font-family:var(--mono);color:var(--accent);font-weight:600;}
+  .cards-rules{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px;}
+  .rc{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface-2);}
+  .rc b{font-family:var(--mono);font-size:12px;color:var(--accent);}
+  .rc span{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;}
+
+  /* Cross-filter demo */
+  .demo{background:var(--ink);border-radius:var(--r);padding:26px;color:#eceaf4;box-shadow:var(--shadow);}
+  .demo-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+  .demo-top .who{font-family:var(--mono);font-size:13px;color:#b9b4d0;}
+  .demo-top .who b{color:#fff;}
+  .demo-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .col-h{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:#b9b4d0;margin-bottom:11px;}
+  .opts{display:flex;flex-direction:column;gap:8px;}
+  .opt{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;
+    background:#26222f;border:1.5px solid #34303f;color:#eceaf4;border-radius:10px;padding:12px 14px;
+    font-family:var(--mono);font-size:13.5px;cursor:pointer;transition:transform .12s,border-color .12s,background .12s,opacity .12s;}
+  .opt:hover:not(.dim){transform:translateY(-1px);border-color:#55507a;}
+  .opt .tag{font-size:10.5px;padding:2px 7px;border-radius:999px;letter-spacing:.04em;}
+  .opt .tag.public{background:rgba(33,138,103,.22);color:#7fd6b0;}
+  .opt .tag.private{background:rgba(200,69,95,.22);color:#f0a3b1;}
+  .opt.sel{border-color:currentColor;}
+  .col-profiles .opt.sel{background:#3a2a14;border-color:var(--profile);color:#f4c98a;}
+  .col-mkts .opt.sel{background:#0f3227;border-color:var(--mkt);color:#8fe0bd;}
+  .opt.dim{opacity:.26;cursor:not-allowed;filter:saturate(.4);}
+  .opt:focus-visible{outline:2px solid #8b81e0;outline-offset:2px;}
+  .demo-out{margin-top:20px;border-top:1px solid #34303f;padding-top:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-height:30px;}
+  .demo-out .lbl{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#8b86a3;}
+  .sess{font-family:var(--mono);font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .sess .pm{background:#26222f;border:1px solid #403a52;border-radius:8px;padding:5px 10px;}
+  .sess .arrow{color:#8b86a3;}
+  .role{font-family:var(--mono);font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;}
+  .role.superuser{background:rgba(122,108,230,.24);color:#c3baff;}
+  .role.admin{background:rgba(33,138,103,.24);color:#8fe0bd;}
+  .role.user{background:rgba(155,150,172,.22);color:#c8c4d6;}
+  .hint{color:#8b86a3;font-family:var(--mono);font-size:12.5px;}
+  .reset{margin-left:auto;background:transparent;border:1px solid #403a52;color:#b9b4d0;border-radius:8px;
+    padding:6px 12px;font-family:var(--mono);font-size:12px;cursor:pointer;}
+  .reset:hover{border-color:#6b6488;color:#fff;}
+
+  /* Sequence */
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .step{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow);position:relative;}
+  .step .n{font-family:var(--mono);font-size:12px;font-weight:700;color:#fff;background:var(--accent);
+    width:26px;height:26px;border-radius:8px;display:grid;place-items:center;}
+  .step h3{font-size:15.5px;margin:12px 0 5px;}
+  .step p{font-size:13px;color:var(--muted);}
+  .step .writes{font-family:var(--mono);font-size:11.5px;margin-top:11px;color:var(--accent);}
+  .derived{margin-top:16px;display:flex;flex-direction:column;gap:9px;}
+  .drow{display:flex;gap:12px;align-items:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 15px;font-size:14px;}
+  .drow .when{font-family:var(--mono);font-size:12.5px;color:var(--muted);flex:1;}
+  .drow .to{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--accent);white-space:nowrap;}
+  .drow .ar{color:var(--faint);}
+
+  /* Branching flow */
+  .flow{display:flex;flex-direction:column;gap:12px;}
+  .frow{display:grid;grid-template-columns:44px 210px 1fr;gap:20px;align-items:center;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);}
+  .frow .n{font-family:var(--mono);font-size:14px;font-weight:700;color:#fff;background:var(--accent);
+    width:36px;height:36px;border-radius:9px;display:grid;place-items:center;}
+  .frow .ti h3{font-size:16px;} .frow .ti p{font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .branches{display:flex;flex-direction:column;gap:8px;}
+  .branch{display:flex;align-items:baseline;gap:9px;font-size:13.5px;border-left:3px solid var(--bc,var(--line));padding:2px 0 2px 12px;flex-wrap:wrap;}
+  .branch .cond{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;}
+  .branch .ar{color:var(--faint);}
+  .branch .res{color:var(--ink);}
+  .branch .pill{font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;padding:2px 8px;border-radius:999px;margin-left:2px;white-space:nowrap;}
+  .branch.ok{--bc:var(--mkt);} .branch.ok .pill{background:var(--mkt-bg);color:var(--mkt);}
+  .branch.gate{--bc:var(--user);} .branch.gate .pill{background:var(--user-bg);color:var(--user);}
+  .branch.invite{--bc:var(--accent);} .branch.invite .pill{background:var(--accent-soft);color:var(--accent);}
+  .branch.neutral{--bc:var(--faint);} .branch.neutral .pill{background:var(--surface-2);color:var(--muted);border:1px solid var(--line);}
+  @media(max-width:860px){ .frow{grid-template-columns:1fr;gap:12px;} }
+
+  /* Roles */
+  .roles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .rolecard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:var(--shadow);border-top:4px solid var(--rc);}
+  .rolecard .rk{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--rc);text-transform:uppercase;letter-spacing:.06em;}
+  .rolecard ul{margin:10px 0 0;padding-left:18px;color:var(--muted);font-size:13px;}
+  .rolecard li{margin:5px 0;}
+  .gov{margin-top:16px;background:var(--user-bg);border:1px solid #f2cdd4;border-radius:10px;padding:14px 16px;font-size:13.5px;color:#7a3442;}
+  .gov b{color:var(--user);font-family:var(--mono);font-size:12px;}
+
+  /* two-up */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px;box-shadow:var(--shadow);}
+  .panel h3{font-size:17px;margin-bottom:8px;}
+  .panel p{font-size:14px;color:var(--muted);}
+  .flags{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px;align-items:center;}
+  .flag{font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:5px 11px;background:var(--surface-2);}
+  .flag .i{color:var(--faint);}
+  .flagarrow{color:var(--faint);font-size:12px;}
+  .flag.done{border-color:var(--mkt);color:var(--mkt);background:var(--mkt-bg);}
+
+  /* Footer / physical */
+  .foot{margin-top:64px;border-top:1px solid var(--line);padding-top:24px;color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:12px;}
+  .maprow{display:flex;flex-wrap:wrap;gap:6px;}
+  .ttag{font-family:var(--mono);font-size:11.5px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 8px;}
+  .warn{background:#fef6e7;border:1px solid #f3e0b0;border-radius:10px;padding:12px 15px;color:#8a5a12;font-size:13px;}
+  .warn b{font-family:var(--mono);}
+
+  @media(max-width:860px){
+    .entities,.roles,.steps{grid-template-columns:1fr;}
+    .cards-rules{grid-template-columns:1fr 1fr;}
+    .rel-grid{grid-template-columns:1fr;gap:8px;}
+    .rel-grid .edge{min-width:0;flex-direction:row;gap:10px;padding:4px 0;}
+    .rel-grid .edge .rule{width:40px;height:2px;}
+    .demo-cols,.two{grid-template-columns:1fr;}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">MerchantsBI · Core Architecture</div>
+    <h1>How a <span class="u">user</span> works across <span class="m">marketplaces</span> and <span class="p">profiles</span></h1>
+    <p class="lede">Three entities in a tiered many-to-many. A user reaches many profile-marketplaces; a profile-marketplace holds many users. Everything downstream — billing, routing, permissions — hangs off that join.</p>
+    <div class="legend">
+      <span class="chip"><span class="dot" style="background:var(--user)"></span> User — an identity that signs in</span>
+      <span class="chip"><span class="dot" style="background:var(--mkt)"></span> Marketplace — a product offering</span>
+      <span class="chip"><span class="dot" style="background:var(--profile)"></span> Profile — a company account</span>
+    </div>
+  </header>
+
+  <!-- 1 · Entities -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>The three entities</h2></div>
+    <div class="entities">
+      <div class="card" style="--c:var(--user)">
+        <div class="k">core_user</div>
+        <h3>User</h3>
+        <p>An identity that logs into the system. Exists on its own — before any profile or marketplace is attached.</p>
+        <div class="fields">
+          <span class="f key">username</span><span class="f">email</span><span class="f">is_superuser</span>
+          <span class="f">current_profile</span><span class="f">current_marketplace</span>
+        </div>
+      </div>
+      <div class="card" style="--c:var(--mkt)">
+        <div class="k">marketplaces</div>
+        <h3>Marketplace</h3>
+        <p>A product offering. Two kinds — decided by <span class="mono" style="font-size:12px">marketplace_type</span>:</p>
+        <div class="split">
+          <div class="s"><b>Private</b><span><span class="mono">entity</span> · org-level, always Private</span></div>
+          <div class="s"><b>Public</b><span><span class="mono">offering</span> · scalable product</span></div>
+        </div>
+        <div class="fields">
+          <span class="f key">marketplace_id</span><span class="f">marketplace_name</span><span class="f">status</span><span class="f">database</span>
+        </div>
+      </div>
+      <div class="card" style="--c:var(--profile)">
+        <div class="k">profiles</div>
+        <h3>Profile</h3>
+        <p>A specific company account — the billable business entity a user operates on behalf of.</p>
+        <div class="fields">
+          <span class="f key">profile_id</span><span class="f">profile_name</span><span class="f">stripe_customer_id</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · Relationships -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>How they relate</h2>
+      <p class="sec-note">The real unit of association is a <b>profile-marketplace pairing</b>. Users attach to those pairings; each pairing carries exactly one subscription.</p>
+    </div>
+    <div class="rel">
+      <div class="rel-grid">
+        <div class="node user"><div class="t">User</div><div class="d">signs in</div></div>
+        <div class="edge"><span class="card-lbl">many ⟷ many</span><span class="rule"></span><span class="card-sub">via user_profile</span></div>
+        <div class="node profile"><div class="t">Profile</div><div class="d">company account</div></div>
+        <div class="edge"><span class="card-lbl">1 ⟶ many</span><span class="rule"></span><span class="card-sub">profile has many</span></div>
+        <div class="node mkt"><div class="t">Marketplace</div><div class="d">offering</div></div>
+      </div>
+
+      <div class="pivot">
+        <span class="badge">user_profile</span>
+        <p>The pivot. Every row grants one <span class="triple">(user × profile × marketplace)</span> triple, with a role. A user's set of rows <em>is</em> the source of truth for what they can toggle between.</p>
+      </div>
+
+      <div class="cards-rules">
+        <div class="rc"><b>profile → marketplaces</b><span>one profile, many marketplaces</span></div>
+        <div class="rc"><b>(profile, marketplace) → subscription</b><span>exactly one each</span></div>
+        <div class="rc"><b>user → profile-marketplaces</b><span>one user, many pairings</span></div>
+        <div class="rc"><b>profile-marketplace → users</b><span>one pairing, many users</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · Cross-filter demo -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Toggling context — the cross-filter</h2>
+      <p class="sec-note">On sign-in a user picks which profile and marketplace they're working in. Selecting one side narrows the other to only what's available. Try it — this runs off <span class="mono" style="font-size:12.5px">user_profile</span> grants for one user.</p>
+    </div>
+    <div class="demo" id="demo">
+      <div class="demo-top">
+        <div class="who">signed in as <b>ricky</b> · grants live in <span style="color:#8fe0bd">user_profile</span></div>
+        <button class="reset" id="reset">Clear selection</button>
+      </div>
+      <div class="demo-cols">
+        <div class="col-profiles">
+          <div class="col-h"><span class="dot" style="background:var(--profile)"></span> Profiles</div>
+          <div class="opts" id="profiles"></div>
+        </div>
+        <div class="col-mkts">
+          <div class="col-h"><span class="dot" style="background:var(--mkt)"></span> Marketplaces</div>
+          <div class="opts" id="mkts"></div>
+        </div>
+      </div>
+      <div class="demo-out" id="out"></div>
+    </div>
+  </section>
+
+  <!-- 4 · Transaction sequence -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>From signup to provisioned</h2>
+      <p class="sec-note">Each step branches on state — does the user already exist, are they a superuser of the profile, and were they invited. The <span style="color:var(--accent);font-weight:600">invited</span> path pre-selects marketplace &amp; subscription; the self-serve path opens the generic choices.</p>
+    </div>
+    <div class="flow">
+      <div class="frow">
+        <div class="n">1</div>
+        <div class="ti"><h3>Sign up</h3><p>Establish the user.</p></div>
+        <div class="branches">
+          <div class="branch ok"><span class="cond">username exists</span><span class="ar">→</span><span class="res">take on that existing user — <b>no new account</b></span><span class="pill">reuse</span></div>
+          <div class="branch neutral"><span class="cond">new username</span><span class="ar">→</span><span class="res">create the user in core_user</span><span class="pill">create</span></div>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="n">2</div>
+        <div class="ti"><h3>Profile</h3><p>The user may already be tied to a profile.</p></div>
+        <div class="branches">
+          <div class="branch ok"><span class="cond">already superuser of it</span><span class="ar">→</span><span class="res">reuse the profile directly</span><span class="pill">reuse</span></div>
+          <div class="branch gate"><span class="cond">member, not superuser</span><span class="ar">→</span><span class="res">needs the superuser's authorization <span style="color:var(--faint)">(protocol TBD — guards against bad actors)</span></span><span class="pill">authorize</span></div>
+          <div class="branch neutral"><span class="cond">or start fresh</span><span class="ar">→</span><span class="res">register a new profile — <b>they become its superuser</b></span><span class="pill">new</span></div>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="n">3</div>
+        <div class="ti"><h3>Marketplace</h3><p>What offering the profile runs on.</p></div>
+        <div class="branches">
+          <div class="branch invite"><span class="cond">invited</span><span class="ar">→</span><span class="res">marketplace is <b>pre-selected</b> from the invite</span><span class="pill">pre-selected</span></div>
+          <div class="branch neutral"><span class="cond">self-serve</span><span class="ar">→</span><span class="res">choose from available <b>public</b> marketplaces</span><span class="pill">choose</span></div>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="n">4</div>
+        <div class="ti"><h3>Subscription</h3><p>The tier for that profile-marketplace.</p></div>
+        <div class="branches">
+          <div class="branch invite"><span class="cond">invited</span><span class="ar">→</span><span class="res">subscription is <b>pre-selected</b> from the invite</span><span class="pill">pre-selected</span></div>
+          <div class="branch neutral"><span class="cond">self-serve</span><span class="ar">→</span><span class="res">generic selection flow</span><span class="pill">choose</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="derived">
+      <div class="drow"><span class="when">once <b>user</b> + <b>profile</b> + <b>marketplace</b> exist</span><span class="ar">→</span><span class="to">user_profile</span></div>
+      <div class="drow"><span class="when">once <b>profile</b> + <b>marketplace</b> + <b>subscription</b> exist</span><span class="ar">→</span><span class="to">profile_table</span></div>
+      <div class="drow"><span class="when">when that profile-marketplace row is created</span><span class="ar">→</span><span class="to">schema_setup</span></div>
+    </div>
+  </section>
+
+  <!-- 5 · Roles -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Who can do what</h2>
+      <p class="sec-note">Role lives on the <span class="mono" style="font-size:12.5px">user_profile</span> row (<span class="mono" style="font-size:12.5px">user_type</span>). It's per profile-marketplace, not global.</p>
+    </div>
+    <div class="roles">
+      <div class="rolecard" style="--rc:var(--role-sup)">
+        <div class="rk">superuser</div>
+        <ul><li>The profile <em>creator</em> defaults here</li><li>Can invite anyone</li><li>Can demote another superuser to admin / user</li></ul>
+      </div>
+      <div class="rolecard" style="--rc:var(--role-adm)">
+        <div class="rk">admin</div>
+        <ul><li>Can invite users</li><li>Can promote only up to <em>admin</em> — never superuser</li></ul>
+      </div>
+      <div class="rolecard" style="--rc:var(--role-usr)">
+        <div class="rk">user</div>
+        <ul><li>The default for an <em>invited</em> user</li><li>Cannot invite or promote anyone</li></ul>
+      </div>
+    </div>
+    <div class="gov"><b>INVARIANT</b> &nbsp;Every profile keeps at least one superuser at all times.</div>
+  </section>
+
+  <!-- 6 · Sessions + state machine -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Sessions &amp; onboarding state</h2></div>
+    <div class="two">
+      <div class="panel">
+        <h3>session_details</h3>
+        <p>One row per browser tab / connection. It records which <span class="mono" style="font-size:12.5px">profile_id</span> + <span class="mono" style="font-size:12.5px">marketplace_id</span> that tab is currently logged into — so two tabs can sit in two different pairings at once. This is what backs the toggle above.</p>
+        <div class="flags" style="margin-top:16px">
+          <span class="flag"><span class="i">session →</span> profile_id</span>
+          <span class="flag"><span class="i">session →</span> marketplace_id</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>current_process</h3>
+        <p>The onboarding state machine, keyed by username. Flags flip in order and gate where the frontend routes the user next.</p>
+        <div class="flags">
+          <span class="flag done">registration</span><span class="flagarrow">→</span>
+          <span class="flag">company_registration</span><span class="flagarrow">→</span>
+          <span class="flag">profile_marketplace_set</span><span class="flagarrow">→</span>
+          <span class="flag">subscriptions_set</span><span class="flagarrow">→</span>
+          <span class="flag">payment_submitted</span><span class="flagarrow">→</span>
+          <span class="flag">accounts_set</span><span class="flagarrow">→</span>
+          <span class="flag">onboarding</span><span class="flagarrow">→</span>
+          <span class="flag">data_loaded</span><span class="flagarrow">→</span>
+          <span class="flag">all_accounts_filled</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <div class="maprow">
+      <span class="ttag">core_user</span><span class="ttag">user_types</span><span class="ttag">user_profile</span>
+      <span class="ttag">profiles</span><span class="ttag">profile_registration</span><span class="ttag">profile_table</span>
+      <span class="ttag">marketplaces</span><span class="ttag">subscription_types</span><span class="ttag">subscription_table</span>
+      <span class="ttag">schema_setup</span><span class="ttag">session_details</span><span class="ttag">current_process</span><span class="ttag">accounts</span>
+    </div>
+    <div class="warn"><b>open reconciliation</b> &nbsp;<b>user_types</b> looked unseeded in the dev DB — confirm the superuser / admin / user rows &amp; ids exist before wiring role logic against them.</div>
+    <p>Modeled from your <span class="mono">core_architecture.pdf</span> (the canonical design) reconciled against the live code. If anything below is off, that's the thing to correct before we reshape the flow.</p>
+  </div>
+
+</div>
+
+<script>
+  // Grants for one user (ricky) — the user_profile rows. Drives the cross-filter.
+  const GRANTS = [
+    {profile:'Copper Compression', marketplace:'Acme Internal',  type:'private', role:'superuser'},
+    {profile:'Copper Compression', marketplace:'Amazon Seller',  type:'public',  role:'superuser'},
+    {profile:'Copper Compression', marketplace:'Amazon Vendor',  type:'public',  role:'admin'},
+    {profile:'Josmo',              marketplace:'Amazon Seller',  type:'public',  role:'user'},
+    {profile:'Josmo',              marketplace:'Shopify',        type:'public',  role:'admin'},
+    {profile:'Q4 Designs',         marketplace:'Shopify',        type:'public',  role:'admin'},
+  ];
+  const PROFILES = [...new Set(GRANTS.map(g=>g.profile))];
+  const MKTS = [...new Map(GRANTS.map(g=>[g.marketplace,g.type])).entries()].map(([name,type])=>({name,type}));
+
+  let selProfile = null, selMkt = null;
+  const $profiles = document.getElementById('profiles');
+  const $mkts = document.getElementById('mkts');
+  const $out = document.getElementById('out');
+
+  function mktsFor(p){ return new Set(GRANTS.filter(g=>g.profile===p).map(g=>g.marketplace)); }
+  function profilesFor(m){ return new Set(GRANTS.filter(g=>g.marketplace===m).map(g=>g.profile)); }
+
+  function render(){
+    const availMkts = selProfile ? mktsFor(selProfile) : null;
+    const availProfiles = selMkt ? profilesFor(selMkt) : null;
+
+    $profiles.innerHTML = PROFILES.map(p=>{
+      const dim = availProfiles && !availProfiles.has(p);
+      const sel = selProfile===p;
+      return `<button class="opt${sel?' sel':''}${dim?' dim':''}" data-kind="profile" data-val="${p}" ${dim?'disabled':''} aria-pressed="${sel}">
+        <span>${p}</span></button>`;
+    }).join('');
+
+    $mkts.innerHTML = MKTS.map(m=>{
+      const dim = availMkts && !availMkts.has(m.name);
+      const sel = selMkt===m.name;
+      return `<button class="opt${sel?' sel':''}${dim?' dim':''}" data-kind="mkt" data-val="${m.name}" ${dim?'disabled':''} aria-pressed="${sel}">
+        <span>${m.name}</span><span class="tag ${m.type}">${m.type}</span></button>`;
+    }).join('');
+
+    // Output: the session the user would be in
+    if(selProfile && selMkt){
+      const g = GRANTS.find(x=>x.profile===selProfile && x.marketplace===selMkt);
+      $out.innerHTML = `<span class="lbl">this tab's session</span>
+        <span class="sess"><span class="pm">${selProfile}</span><span class="arrow">×</span><span class="pm">${selMkt}</span>
+        <span class="role ${g.role}">${g.role}</span></span>`;
+    } else if(selProfile || selMkt){
+      $out.innerHTML = `<span class="lbl">filtered</span><span class="hint">pick the other side to resolve the session &amp; role</span>`;
+    } else {
+      $out.innerHTML = `<span class="hint">nothing selected — every grant is available</span>`;
+    }
+  }
+
+  document.getElementById('demo').addEventListener('click', e=>{
+    const b = e.target.closest('.opt'); if(!b || b.disabled) return;
+    const {kind,val} = b.dataset;
+    if(kind==='profile') selProfile = (selProfile===val? null : val);
+    else selMkt = (selMkt===val? null : val);
+    render();
+  });
+  document.getElementById('reset').addEventListener('click', ()=>{ selProfile=null; selMkt=null; render(); });
+  render();
+</script>
+
+</body></html>
