@@ -3502,26 +3502,39 @@ function renderTasks(m){
   TIME_OPTS.forEach(([k,lbl])=>{const b=document.createElement("button");b.textContent=lbl;if(taskTime===k)b.classList.add("on");b.onclick=()=>{taskTime=k;renderTasks();};tf.appendChild(b);});
   const tdiv=document.createElement("span");tdiv.style.cssText="border-left:1px solid var(--line,#e6e6e3);align-self:stretch;margin:2px 2px;";
   timeRow.append(df,tdiv,tf);
-  // Who group (by assignee) — buttons carry each member's colour.
-  const pf=document.createElement("div");pf.className="views";pf.style.margin="0 0 12px";
-  const plab=document.createElement("span");plab.className="cmeta";plab.style.cssText="align-self:center;margin-right:4px;";plab.textContent="Who:";pf.appendChild(plab);
-  roster().forEach(mem=>{const on=!!(taskPerson&&taskPerson.has(mem.name));
-    pf.appendChild(colorTgl(mem.name,mem.color||"#8a8a8a",on,()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(mem.name)?taskPerson.delete(mem.name):taskPerson.add(mem.name);if(!taskPerson.size)taskPerson=null;renderTasks();}));});
-  const unOn=!!(taskPerson&&taskPerson.has(UNASSIGNED));
-  pf.appendChild(colorTgl("Unassigned","#8a8a8a",unOn,()=>{if(!taskPerson)taskPerson=new Set();taskPerson.has(UNASSIGNED)?taskPerson.delete(UNASSIGNED):taskPerson.add(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();}));
-  if(taskPerson){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
-  // Discipline group (by category) — buttons carry each discipline's colour from CAT_COLOR.
-  const cf=document.createElement("div");cf.className="views";cf.style.margin="0 0 12px";
-  const clab=document.createElement("span");clab.className="cmeta";clab.style.cssText="align-self:center;margin-right:4px;";clab.textContent="Category:";cf.appendChild(clab);
-  CATS.forEach(cat=>{const on=!!(taskCategory&&taskCategory.has(cat));
-    cf.appendChild(colorTgl(cat,CAT_COLOR[cat]||"#888",on,()=>{taskCatDefaulted=true;if(!taskCategory)taskCategory=new Set();taskCategory.has(cat)?taskCategory.delete(cat):taskCategory.add(cat);if(!taskCategory.size)taskCategory=null;renderTasks();}));});
-  if(taskCategory){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskCatDefaulted=true;taskCategory=null;renderTasks();};cf.appendChild(clr);}
-  // Stage group (by status) — only the actively-working stages; Done/Archived have their own status views.
-  const sf=document.createElement("div");sf.className="views";sf.style.margin="0 0 12px";
-  const slab=document.createElement("span");slab.className="cmeta";slab.style.cssText="align-self:center;margin-right:4px;";slab.textContent="Stage:";sf.appendChild(slab);
-  ACTIVE_STAGES.forEach(st=>{const on=!!(taskStage&&taskStage.has(st));const col=(ST_COLOR[st]||["#eee","#888"])[1];
-    sf.appendChild(colorTgl(st,col,on,()=>{if(!taskStage)taskStage=new Set();taskStage.has(st)?taskStage.delete(st):taskStage.add(st);if(!taskStage.size)taskStage=null;renderTasks();}));});
-  if(taskStage){const clr=document.createElement("button");clr.textContent="Clear";clr.onclick=()=>{taskStage=null;renderTasks();};sf.appendChild(clr);}
+  // Who group (by assignee) — vertical checkbox list.
+  const pf=document.createElement("div");pf.className="colfilter-pop";pf.style.cssText="display:flex;flex-direction:column;gap:3px;min-width:180px;";
+  roster().forEach(mem=>{
+    const lbl=document.createElement("label");lbl.className="opt";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(taskPerson&&taskPerson.has(mem.name));
+    cb.onchange=()=>{if(!taskPerson)taskPerson=new Set();cb.checked?taskPerson.add(mem.name):taskPerson.delete(mem.name);if(!taskPerson.size)taskPerson=null;renderTasks();};
+    const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+(mem.color||"#8a8a8a")+";flex:none;";
+    lbl.append(cb,dot,document.createTextNode(" "+mem.name));pf.appendChild(lbl);});
+  const unLblP=document.createElement("label");unLblP.className="opt";
+  const unCbP=document.createElement("input");unCbP.type="checkbox";unCbP.checked=!!(taskPerson&&taskPerson.has(UNASSIGNED));
+  unCbP.onchange=()=>{if(!taskPerson)taskPerson=new Set();unCbP.checked?taskPerson.add(UNASSIGNED):taskPerson.delete(UNASSIGNED);if(!taskPerson.size)taskPerson=null;renderTasks();};
+  const unDotP=document.createElement("span");unDotP.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:#8a8a8a;flex:none;";
+  unLblP.append(unCbP,unDotP,document.createTextNode(" Unassigned"));pf.appendChild(unLblP);
+  if(taskPerson){const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear";clr.onclick=()=>{taskPerson=null;renderTasks();};pf.appendChild(clr);}
+  // Discipline group (by category) — vertical checkbox list.
+  const cf=document.createElement("div");cf.className="colfilter-pop";cf.style.cssText="display:flex;flex-direction:column;gap:3px;min-width:180px;";
+  CATS.forEach(cat=>{
+    const lbl=document.createElement("label");lbl.className="opt";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(taskCategory&&taskCategory.has(cat));
+    cb.onchange=()=>{taskCatDefaulted=true;if(!taskCategory)taskCategory=new Set();cb.checked?taskCategory.add(cat):taskCategory.delete(cat);if(!taskCategory.size)taskCategory=null;renderTasks();};
+    const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+(CAT_COLOR[cat]||"#888")+";flex:none;";
+    lbl.append(cb,dot,document.createTextNode(" "+cat));cf.appendChild(lbl);});
+  if(taskCategory){const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear";clr.onclick=()=>{taskCatDefaulted=true;taskCategory=null;renderTasks();};cf.appendChild(clr);}
+  // Stage group (by status) — vertical checkbox list; only actively-working stages.
+  const sf=document.createElement("div");sf.className="colfilter-pop";sf.style.cssText="display:flex;flex-direction:column;gap:3px;min-width:180px;";
+  ACTIVE_STAGES.forEach(st=>{
+    const lbl=document.createElement("label");lbl.className="opt";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(taskStage&&taskStage.has(st));
+    const col=(ST_COLOR[st]||["#eee","#888"])[1];
+    cb.onchange=()=>{if(!taskStage)taskStage=new Set();cb.checked?taskStage.add(st):taskStage.delete(st);if(!taskStage.size)taskStage=null;renderTasks();};
+    const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+col+";flex:none;";
+    lbl.append(cb,dot,document.createTextNode(" "+st));sf.appendChild(lbl);});
+  if(taskStage){const clr=document.createElement("button");clr.className="btn sm";clr.style.marginTop="6px";clr.textContent="Clear";clr.onclick=()=>{taskStage=null;renderTasks();};sf.appendChild(clr);}
   // Roadmap group — cascading Area (parent) → target (child) selects. Changing the area resets the target.
   const rf=document.createElement("div");rf.className="views";rf.style.margin="0 0 12px";
   const rlab=document.createElement("span");rlab.className="cmeta";rlab.style.cssText="align-self:center;margin-right:4px;";rlab.textContent="Roadmap:";rf.appendChild(rlab);
@@ -4273,39 +4286,34 @@ function renderRoadmap(m){
     ss.onchange=()=>{rmSort=ss.value;renderRoadmap();};
     sw.append(sl,ss);bar.appendChild(sw);
   }
-  const {row:fl,scroll:flScroll,add:flAdd}=rmScrollRow("cmeta rmrow-label","Filter:");
-  fl.style.margin="6px 0 4px";
+  // Filter row — vertical checkbox list of areas.
+  const fl=document.createElement("div");fl.className="colfilter-pop";fl.style.cssText="display:flex;flex-direction:column;gap:3px;min-width:180px;";
   areasSorted().forEach(a=>{
-    const on=rmActive.has(a.name);
-    const b=document.createElement("button");b.className="btn sm";
-    b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":a.color)+';margin-right:6px;vertical-align:middle;"></span>'+esc(a.name);
-    if(on)b.style.cssText="background:"+a.color+";border-color:"+a.color+";color:#fff;";
-    b.onclick=()=>{on?rmActive.delete(a.name):rmActive.add(a.name);renderRoadmap();};
-    flScroll.appendChild(b);
+    const lbl=document.createElement("label");lbl.className="opt";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=rmActive.has(a.name);
+    cb.onchange=()=>{cb.checked?rmActive.add(a.name):rmActive.delete(a.name);renderRoadmap();};
+    const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+a.color+";flex:none;";
+    lbl.append(cb,dot,document.createTextNode(" "+a.name));fl.appendChild(lbl);
   });
-  const allB=document.createElement("button");allB.className="btn sm";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
+  const allB=document.createElement("button");allB.className="btn sm";allB.style.marginTop="6px";allB.textContent=(rmActive.size>=DB.areas.length?"Clear all":"Select all");
   allB.onclick=()=>{rmActive=new Set(rmActive.size>=DB.areas.length?[]:DB.areas.map(a=>a.name));renderRoadmap();};
-  flAdd.appendChild(allB);
-  // People filter row — opt-in (off by default); selecting members shows only their assigned targets.
-  const {row:pf,scroll:pfScroll,add:pfAdd}=rmScrollRow("cmeta rmrow-label","People:");
-  pf.style.margin="6px 0 4px";
+  fl.appendChild(allB);
+  // People filter row — vertical checkbox list of roster members.
+  const pf=document.createElement("div");pf.className="colfilter-pop";pf.style.cssText="display:flex;flex-direction:column;gap:3px;min-width:180px;";
   roster().forEach(mem=>{
-    const on=!!(rmPeopleActive&&rmPeopleActive.has(mem.name));
-    const mc=mem.color||"#8a8a8a";
-    const b=document.createElement("button");b.className="btn sm";
-    b.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(on?"#fff":mc)+';margin-right:6px;vertical-align:middle;"></span>'+esc(mem.name);
-    if(on)b.style.cssText="background:"+mc+";border-color:"+mc+";color:#fff;";
-    b.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(mem.name)?rmPeopleActive.delete(mem.name):rmPeopleActive.add(mem.name);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
-    pfScroll.appendChild(b);
+    const lbl=document.createElement("label");lbl.className="opt";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!(rmPeopleActive&&rmPeopleActive.has(mem.name));
+    cb.onchange=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();cb.checked?rmPeopleActive.add(mem.name):rmPeopleActive.delete(mem.name);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
+    const dot=document.createElement("span");dot.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:"+(mem.color||"#8a8a8a")+";flex:none;";
+    lbl.append(cb,dot,document.createTextNode(" "+mem.name));pf.appendChild(lbl);
   });
-  const unOn=!!(rmPeopleActive&&rmPeopleActive.has(UNASSIGNED));
-  const unB=document.createElement("button");unB.className="btn sm";
-  unB.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(unOn?"#fff":"#8a8a8a")+';margin-right:6px;vertical-align:middle;"></span>'+esc("Unassigned");
-  if(unOn)unB.style.cssText="background:#8a8a8a;border-color:#8a8a8a;color:#fff;";
-  unB.onclick=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();rmPeopleActive.has(UNASSIGNED)?rmPeopleActive.delete(UNASSIGNED):rmPeopleActive.add(UNASSIGNED);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
-  pfScroll.appendChild(unB);
-  const clrP=document.createElement("button");clrP.className="btn sm";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
-  pfAdd.appendChild(clrP);
+  const unLblR=document.createElement("label");unLblR.className="opt";
+  const unCbR=document.createElement("input");unCbR.type="checkbox";unCbR.checked=!!(rmPeopleActive&&rmPeopleActive.has(UNASSIGNED));
+  unCbR.onchange=()=>{if(!rmPeopleActive)rmPeopleActive=new Set();unCbR.checked?rmPeopleActive.add(UNASSIGNED):rmPeopleActive.delete(UNASSIGNED);if(!rmPeopleActive.size)rmPeopleActive=null;renderRoadmap();};
+  const unDotR=document.createElement("span");unDotR.style.cssText="display:inline-block;width:8px;height:8px;border-radius:50%;background:#8a8a8a;flex:none;";
+  unLblR.append(unCbR,unDotR,document.createTextNode(" Unassigned"));pf.appendChild(unLblR);
+  const clrP=document.createElement("button");clrP.className="btn sm";clrP.style.marginTop="6px";clrP.textContent="Clear";clrP.disabled=!rmPeopleActive;clrP.onclick=()=>{rmPeopleActive=null;renderRoadmap();};
+  pf.appendChild(clrP);
   // Filters and People toggles always use the dropdown popover style (like the Tasks category filter dropdown).
   // The option rows stay hidden inline; clicking a toggle floats the row in a body-mounted popover.
   fl.style.display="none";pf.style.display="none";
