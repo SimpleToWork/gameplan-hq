@@ -1,0 +1,329 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runner Orchestration — Repo Routing</title>
+<style>
+  :root{
+    --ink:#1b2330; --paper:#eceff3; --surface:#ffffff; --line:#d7dde5;
+    --muted:#5c6775; --faint:#8a94a2;
+    --accent:#bd5c39; --accent-soft:#f7e8e0;
+    --feat:#5b53c9; --feat-bg:#edecfb;
+    --tgt:#0f857a; --tgt-bg:#e0f2ef;
+    --self:#bd5c39; --self-bg:#f8e9e1;
+    --ok:#1d7a4d; --warn:#a9711a; --stop:#c2402f;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    line-height:1.55;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1000px;margin:0 auto;padding:48px 24px 80px;}
+  a{color:var(--accent);}
+
+  /* ---- header ---- */
+  header{margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin-bottom:14px;}
+  h1{font-size:clamp(28px,4.4vw,44px);line-height:1.05;margin:0 0 14px;letter-spacing:-.02em;
+    text-wrap:balance;font-weight:680;}
+  .lede{font-size:17px;color:var(--muted);max-width:64ch;margin:0;}
+  .srcline{margin-top:18px;font-family:var(--mono);font-size:12.5px;color:var(--faint);
+    display:flex;flex-wrap:wrap;gap:8px 16px;}
+  .srcline b{color:var(--muted);font-weight:600;}
+
+  /* ---- stage rail ---- */
+  .stage{position:relative;padding:0 0 6px 62px;margin-bottom:30px;}
+  .stage::before{content:"";position:absolute;left:22px;top:36px;bottom:-30px;width:2px;background:var(--line);}
+  .stage:last-of-type::before{display:none;}
+  .num{position:absolute;left:0;top:0;width:44px;height:44px;border-radius:50%;
+    background:var(--surface);border:2px solid var(--accent);color:var(--accent);
+    font-family:var(--mono);font-weight:600;font-size:16px;
+    display:flex;align-items:center;justify-content:center;z-index:1;}
+  .stage h2{font-size:20px;margin:6px 0 3px;letter-spacing:-.01em;font-weight:640;}
+  .stage .sub{font-family:var(--mono);font-size:12px;color:var(--faint);margin-bottom:14px;}
+  .stage p{margin:0 0 12px;color:var(--muted);max-width:66ch;}
+  .stage p strong{color:var(--ink);font-weight:620;}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;
+    box-shadow:0 1px 2px rgba(27,35,48,.04);}
+
+  code{font-family:var(--mono);font-size:.88em;background:#eceef2;border-radius:4px;padding:1px 5px;
+    color:#33404f;}
+  pre{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#e7ebf2;
+    background:#20293a;border-radius:10px;padding:14px 16px;overflow-x:auto;}
+  pre .k{color:#e8a583;} pre .c{color:#7f8ba0;font-style:italic;} pre .s{color:#8fce9b;} pre .f{color:#7db4f0;}
+
+  .kv{font-family:var(--mono);font-size:12.5px;}
+  table{border-collapse:collapse;width:100%;font-size:13px;}
+  .scroll{overflow-x:auto;border-radius:10px;border:1px solid var(--line);}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);background:#f4f6f9;font-weight:600;}
+  td{font-family:var(--mono);font-size:12px;color:var(--ink);}
+  tr:last-child td{border-bottom:none;}
+  td .arrow{color:var(--faint);}
+
+  .chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;
+    font-weight:600;padding:2px 9px;border-radius:20px;letter-spacing:.02em;}
+  .chip.ok{background:#e3f3ea;color:var(--ok);} .chip.warn{background:#f7edd8;color:var(--warn);}
+  .chip.stop{background:#f8e4e0;color:var(--stop);}
+
+  /* ---- fork lanes ---- */
+  .lanes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:6px;}
+  @media(max-width:720px){.lanes{grid-template-columns:1fr;}}
+  .lane{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface);
+    display:flex;flex-direction:column;}
+  .lane .lh{padding:12px 14px 11px;border-bottom:1px solid var(--line);}
+  .lane .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    font-weight:700;}
+  .lane h3{margin:5px 0 2px;font-size:15px;font-weight:640;letter-spacing:-.01em;}
+  .lane .when{font-size:12px;color:var(--muted);margin:0;}
+  .lane .lb{padding:12px 14px;display:flex;flex-direction:column;gap:9px;flex:1;}
+  .step{display:flex;gap:9px;font-size:12.5px;color:var(--muted);line-height:1.45;}
+  .step .d{flex-shrink:0;width:16px;height:16px;border-radius:50%;margin-top:2px;
+    font-family:var(--mono);font-size:10px;font-weight:700;color:#fff;
+    display:flex;align-items:center;justify-content:center;}
+  .step code{font-size:11.5px;background:#eceef2;}
+  .lane.f{--c:var(--feat);} .lane.t{--c:var(--tgt);} .lane.s{--c:var(--self);}
+  .lane.f .lh{background:var(--feat-bg);} .lane.t .lh{background:var(--tgt-bg);} .lane.s .lh{background:var(--self-bg);}
+  .lane .tag{color:var(--c);} .lane .d{background:var(--c);} .lane h3{color:var(--c);}
+  .conv{margin-top:16px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted);}
+  .conv b{color:var(--ink);}
+
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:11px 15px;font-size:13.5px;color:#5c3524;margin-top:6px;}
+  .note b{color:#3f2418;}
+  .flowbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+    color:var(--muted);margin:2px 0 4px;}
+  .flowbar .node{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 10px;color:var(--ink);}
+  .flowbar .to{color:var(--accent);font-weight:700;}
+  .outcomes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:4px;}
+  @media(max-width:640px){.outcomes{grid-template-columns:1fr;}}
+  .outcome{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface);}
+  .outcome .t{font-weight:640;font-size:14px;margin-bottom:3px;display:flex;align-items:center;gap:7px;}
+  .outcome p{font-size:12.5px;margin:0;color:var(--muted);}
+  .foot{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;
+    color:var(--faint);font-family:var(--mono);}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Gameplan HQ · Task Runner</div>
+    <h1>How a task gets routed &amp; orchestrated</h1>
+    <p class="lede">One board doc becomes one git strategy. This traces a task from the <b>▶ Run</b> click
+      through repo resolution, the three-way routing fork, execution, merge, and deploy — the whole path the
+      runner walks for every task.</p>
+    <div class="srcline">
+      <span><b>daemon</b> .local/runner.mjs</span>
+      <span><b>bus</b> Firestore (board-as-queue)</span>
+      <span><b>map</b> .local/repo-map.json</span>
+    </div>
+  </header>
+
+  <!-- 1 -->
+  <section class="stage">
+    <div class="num">1</div>
+    <h2>Enqueue — the board is the message bus</h2>
+    <div class="sub">SPA ▶ Run  →  tasks/{id}.runRequested = true</div>
+    <p>The browser can't reach your laptop, so the task board <em>is</em> the queue. Clicking <b>▶ Run</b> in the
+      SPA writes run fields onto the task doc; it never calls the runner directly.</p>
+    <div class="card">
+      <div class="flowbar">
+        <span class="node">SPA ▶ Run</span><span class="to">→</span>
+        <span class="node">setTask(id, {runRequested:true, runId, runMode, runLevel, repoUrl?, feature_branch_id?})</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="stage">
+    <div class="num">2</div>
+    <h2>Claim — one runner, one task, exactly once</h2>
+    <div class="sub">onSnapshot(where runRequested == true)  ·  runTransaction  ·  PID lockfile</div>
+    <p>A live <code>onSnapshot</code> listener wakes the instant a doc flips. The task is claimed inside a
+      <strong>Firestore transaction</strong> — so a stray second runner can't double-run it — and a
+      <strong>PID lockfile</strong> enforces one runner per machine (two on the same worktree paths would stomp
+      each other).</p>
+    <div class="card">
+<pre><span class="c">// atomic claim — the loser bails</span>
+<span class="k">if</span>(!d.runRequested || d.lastRunId === t.runId) <span class="k">return</span>;   <span class="c">// already taken / already ran</span>
+tx.update(ref, { runRequested:<span class="k">false</span>, runStatus:<span class="s">"running"</span>, lastRunId:t.runId });</pre>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="stage">
+    <div class="num">3</div>
+    <h2>Resolve the repo — URL → local clone path</h2>
+    <div class="sub">normRepo(url)  ·  REPO_MAP[…]  ·  resolveLocalRepo()</div>
+    <p>The task carries a <code>repoUrl</code> (and maybe a <code>feature_branch_id</code>). The runner normalizes
+      the URL and looks it up in <code>repo-map.json</code> to find a <strong>local checkout</strong> — that's what
+      makes worktrees fast (no clone). Unmapped repos fall back to a shallow <code>git clone</code>.</p>
+    <div class="card" style="margin-bottom:12px;">
+<pre><span class="k">const</span> normRepo = url =&gt; url.replace(<span class="s">/^https?:\/\//</span>,<span class="s">""</span>).replace(<span class="s">/^www\./</span>,<span class="s">""</span>)
+                        .toLowerCase().replace(<span class="s">/\.git$/</span>,<span class="s">""</span>).replace(<span class="s">/\/$/</span>,<span class="s">""</span>);
+<span class="k">const</span> resolveLocalRepo = url =&gt; REPO_MAP[normRepo(url)] || <span class="k">null</span>;</pre>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>normalized repo key</th><th></th><th>local checkout</th></tr></thead>
+        <tbody>
+          <tr><td>github.com/simpletowork/angular-frontend</td><td class="arrow">→</td><td>/home/new_projects/Angular-Frontend</td></tr>
+          <tr><td>github.com/simpletowork/django-server</td><td class="arrow">→</td><td>/home/new_projects/Django-Server</td></tr>
+          <tr><td>github.com/simpletowork/gameplan-hq</td><td class="arrow">→</td><td>/home/new_projects/gameplan-hq</td></tr>
+          <tr><td>github.com/simpletowork/merchantsbi-admin</td><td class="arrow">→</td><td>/home/new_projects/merchantsbi-admin</td></tr>
+          <tr><td>github.com/simpletowork/merchantsbi_connections</td><td class="arrow">→</td><td>/home/new_projects/MerchantsBI_Connections</td></tr>
+          <tr><td>github.com/simpletowork/pulse-crm</td><td class="arrow">→</td><td>/home/new_projects/pulse-crm</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="stage">
+    <div class="num">4</div>
+    <h2>Route — the three-way fork</h2>
+    <div class="sub">precedence: feature branch  ›  external repo  ›  self (gameplan-hq)</div>
+    <p>Exactly <strong>one</strong> working tree + git strategy is chosen, in strict precedence. This single
+      decision determines where the code lands and how it gets merged.</p>
+    <div class="card" style="margin-bottom:16px;">
+<pre><span class="k">const</span> useFeature   = !!fb &amp;&amp; !!fbLocalRepo;                          <span class="c">// (1)</span>
+<span class="k">const</span> useTargetRepo = !useFeature &amp;&amp; !!repoUrl
+                     &amp;&amp; !(localPath === CONFIG.repoDir);              <span class="c">// (2)</span>
+<span class="c">// else → (3) gameplan-hq itself</span></pre>
+    </div>
+
+    <div class="lanes">
+      <div class="lane f">
+        <div class="lh">
+          <div class="tag">Path 1 · Feature branch</div>
+          <h3>Commit onto the branch</h3>
+          <p class="when">task has <code>feature_branch_id</code> (branch not yet merged) &amp; its repo is mapped</p>
+        </div>
+        <div class="lb">
+          <div class="step"><span class="d">a</span><span><code>setupWorktreeAt()</code> — fresh worktree off <code>origin/&lt;branch&gt;</code> (or cut it from the base on first task)</span></div>
+          <div class="step"><span class="d">b</span><span>Claude edits → <code>mergeTaskInto()</code> merges the task branch <b>onto the feature branch</b> &amp; pushes it</span></div>
+          <div class="step"><span class="d">c</span><span>Isolated from master until the <b>Branches tab → Merge</b> fires <code>squashMergeBranch()</code> → master</span></div>
+        </div>
+      </div>
+
+      <div class="lane t">
+        <div class="lh">
+          <div class="tag">Path 2 · External repo</div>
+          <h3>Merge to its default branch</h3>
+          <p class="when"><code>repoUrl</code> set &amp; it isn't gameplan-hq — pulse-crm, Angular frontend, <b>merchantsbi-admin</b></p>
+        </div>
+        <div class="lb">
+          <div class="step"><span class="d">a</span><span><code>setupTargetRepo()</code> — local worktree via repo-map, else <code>git clone --depth=1</code></span></div>
+          <div class="step"><span class="d">b</span><span>Base = <code>origin/main</code> ?? <code>origin/master</code> (auto-detected per repo)</span></div>
+          <div class="step"><span class="d">c</span><span>Claude edits → <code>mergeTaskInto()</code> merges runner branch → the repo's default branch &amp; pushes</span></div>
+        </div>
+      </div>
+
+      <div class="lane s">
+        <div class="lh">
+          <div class="tag">Path 3 · Self</div>
+          <h3>Merge to master</h3>
+          <p class="when">no <code>repoUrl</code>, or it resolves to gameplan-hq itself</p>
+        </div>
+        <div class="lb">
+          <div class="step"><span class="d">a</span><span><code>setupWorktree()</code> — fresh worktree + branch off <code>origin/master</code></span></div>
+          <div class="step"><span class="d">b</span><span>Claude edits directly in this checkout</span></div>
+          <div class="step"><span class="d">c</span><span><code>integrate()</code> merges the branch → master &amp; pushes</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="conv">all three converge at → <b>validate → commit → merge → push</b> (stages 7–9)</div>
+  </section>
+
+  <!-- 5 -->
+  <section class="stage">
+    <div class="num">5</div>
+    <h2>Gate — the task charter dispatcher</h2>
+    <div class="sub">if worktree has .claude/task-charter.md + task-management-dispatcher.md</div>
+    <p>Generic by worktree content: any repo that ships a charter gets a <strong>gatekeeper prepended</strong> to the
+      prompt. It classifies the task <span class="chip stop">RED</span> <span class="chip warn">YELLOW</span>
+      <span class="chip ok">GREEN</span>, and blocks load-bearing or always-blocked work <em>before any edit</em>.
+      Today the <b>Angular frontend</b> is the only charter-governed repo.</p>
+    <div class="note"><b>Rejection is not failure.</b> A block emits <code>DISPATCHER BLOCKED:</code> and makes no
+      changes → the task is marked <b>Stuck / Rejected</b> and pushed back to the submitter with the reason. No commit happens.</div>
+  </section>
+
+  <!-- 6 -->
+  <section class="stage">
+    <div class="num">6</div>
+    <h2>Run mode — how Claude is launched</h2>
+    <div class="sub">task.runMode: auto · interactive · detach</div>
+    <div class="outcomes">
+      <div class="outcome"><div class="t">🤖 auto</div><p>Headless <code>claude -p</code> (stream-json). The default — runs to completion, runner owns git.</p></div>
+      <div class="outcome"><div class="t">💬 interactive</div><p>Headless but can ask you: Q&amp;A bridges through the app via <code>ask-user.mjs</code>; Pause / Continue / Abort honored.</p></div>
+      <div class="outcome"><div class="t">⎗ detach</div><p>Opens a live <code>tmux</code> session you attach to and drive by hand. Runner won't commit detached work.</p></div>
+    </div>
+    <p style="margin-top:14px;">Model &amp; effort come from the task's <b>level</b>:
+      <span class="kv"><code>quick→haiku</code> · <code>standard→sonnet</code> · <code>deep→opus</code></span>.</p>
+  </section>
+
+  <!-- 7 -->
+  <section class="stage">
+    <div class="num">7</div>
+    <h2>Validate — block broken builds before commit</h2>
+    <div class="sub">validateAppSyntax()  ·  validateAngularBuild()</div>
+    <p>Each is a no-op where it doesn't apply, so the same gate runs on every path:</p>
+    <div class="card">
+      <div class="step" style="margin-bottom:8px;"><span class="chip ok">SPA</span>&nbsp; <span style="color:var(--muted);font-size:13px;"><code>node --check</code> on the single-file SPA's embedded JS (gameplan-hq, pulse-crm)</span></div>
+      <div class="step"><span class="chip ok">NG</span>&nbsp; <span style="color:var(--muted);font-size:13px;"><code>npm run build</code> when an <code>angular.json</code> is present (Angular frontend, merchantsbi-admin)</span></div>
+    </div>
+    <p style="margin-top:12px;">A failed validation throws → the task goes <b>Stuck</b>, nothing is committed.</p>
+  </section>
+
+  <!-- 8 -->
+  <section class="stage">
+    <div class="num">8</div>
+    <h2>Merge — serialized, retried, self-healing</h2>
+    <div class="sub">serializeMerge()  ·  6 retries  ·  resolveConflictWithClaude()</div>
+    <p>Only <strong>one merge runs at a time</strong> (the merge lock), even with parallel task runs. Each attempt
+      re-syncs to the very latest <code>origin</code>, re-merges, and pushes. If the push is rejected because the
+      branch moved under it, it loops. On a real conflict, <strong>Claude resolves it</strong> and the merge
+      continues — up to 6 attempts before giving up and keeping the branch for manual merge.</p>
+    <div class="scroll" style="border:none;">
+      <div class="flowbar">
+        <span class="node">fetch origin</span><span class="to">→</span>
+        <span class="node">merge --no-ff</span><span class="to">→</span>
+        <span class="node">conflict? → Claude resolves</span><span class="to">→</span>
+        <span class="node">push HEAD:branch</span><span class="to">↺</span>
+        <span class="node">rejected? re-sync &amp; retry</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="stage">
+    <div class="num">9</div>
+    <h2>Deploy — master push → Vercel</h2>
+    <div class="sub">git integration  ·  ignoreCommand: build only master</div>
+    <p>A push to <code>master</code> is picked up by Vercel's git integration. To stay under the deploy rate limit,
+      <code>vercel.json</code>'s <code>ignoreCommand</code> builds <strong>only master</strong> and skips every other
+      branch — so feature-branch pushes don't burn deploys.</p>
+    <div class="card"><pre><span class="c">// vercel.json — exit 1 = build, exit 0 = skip</span>
+<span class="s">"ignoreCommand"</span>: <span class="s">"[ \"$VERCEL_GIT_COMMIT_REF\" != \"master\" ]"</span></pre></div>
+    <div class="note" style="border-left-color:var(--tgt);background:var(--tgt-bg);color:#0c4f48;"><b>Not every repo deploys via Vercel.</b>
+      <b>merchantsbi-admin</b> merges to its <code>main</code> branch and ships through its own container pipeline —
+      <code>Dockerfile</code> → <code>k8s/</code> → nginx — so this Vercel/master step doesn't apply to it.</div>
+  </section>
+
+  <!-- 10 -->
+  <section class="stage">
+    <div class="num">10</div>
+    <h2>Write back — the board reflects the outcome</h2>
+    <div class="sub">setStatus()  ·  runStatus  ·  auto-note  →  SPA onSnapshot re-renders</div>
+    <p>The runner writes the result straight back onto the task doc. Because the SPA listens on the same collection,
+      your board updates live — no refresh.</p>
+    <div class="outcomes">
+      <div class="outcome"><div class="t"><span class="chip ok">Done</span></div><p>Merged &amp; pushed. Result summary + git note posted to the task.</p></div>
+      <div class="outcome"><div class="t"><span class="chip warn">Stuck</span></div><p>Run errored or a merge couldn't complete — branch kept for manual merge.</p></div>
+      <div class="outcome"><div class="t"><span class="chip stop">Rejected</span></div><p>Charter blocked it before any edit — pushed back with the reason to re-scope.</p></div>
+    </div>
+  </section>
+
+  <div class="foot">.local/runner.mjs · board-as-queue over Firestore · one runner per machine · merges serialized, deploys master-only</div>
+</div>
