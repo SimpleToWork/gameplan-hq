@@ -1704,6 +1704,9 @@ function render(){const m=document.getElementById("main");
 let artifactView="open";           // open | closed | all
 let artifactRepoFilter="";         // "" = every repo; else a normRepo() key
 const artifactPreviewOpen=new Set(); // artifact ids currently expanded inline
+// claude.ai artifacts are private + frame-blocked, so they can never embed cross-origin — surface them as
+// link-only (Open ↗) instead of a blank iframe. Same-origin/self-hosted URLs stay embeddable.
+function artifactEmbeddable(url){ try{ return !/(^|\.)claude\.ai$/i.test(new URL(url,location.origin).hostname); }catch{ return true; } }
 
 function renderArtifacts(m){m=m||document.getElementById("main");
   const all=(DB.artifacts||[]).filter(a=>!a.trashed);
@@ -1762,8 +1765,10 @@ function artifactCard(a){
   const mkBtn=(txt,title,fn)=>{const b=document.createElement("button");b.textContent=txt;b.title=title;b.style.cssText=btnCss;b.onclick=fn;return b;};
   const open=document.createElement("a");open.href=a.url||"#";open.target="_blank";open.rel="noopener";open.textContent="Open ↗";open.title="Open in a new tab";open.style.cssText="border:1px solid var(--accent);color:var(--accent);background:var(--surface);border-radius:6px;padding:4px 10px;font-size:12px;text-decoration:none;font-weight:600;";
   acts.appendChild(open);
-  const prevOpen=artifactPreviewOpen.has(a.id);
-  acts.appendChild(mkBtn(prevOpen?"▾ Hide preview":"▸ Preview","Embed inline",()=>{prevOpen?artifactPreviewOpen.delete(a.id):artifactPreviewOpen.add(a.id);renderArtifacts();}));
+  const embeddable=artifactEmbeddable(a.url);
+  const prevOpen=embeddable&&artifactPreviewOpen.has(a.id);
+  if(embeddable)acts.appendChild(mkBtn(prevOpen?"▾ Hide preview":"▸ Preview","Embed inline",()=>{prevOpen?artifactPreviewOpen.delete(a.id):artifactPreviewOpen.add(a.id);renderArtifacts();}));
+  else{const ll=document.createElement("span");ll.textContent="🔗 Link-only";ll.title="claude.ai blocks embedding — opens in a new tab";ll.style.cssText="font-size:11.5px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:4px 10px;";acts.appendChild(ll);}
   acts.appendChild(mkBtn(closed?"⤺ Reopen":"✓ Close","Toggle open / closed",async()=>{try{await fbUpdate("artifacts",a.id,{status:closed?"open":"closed",updatedAt:nowTs()});}catch(e){banner(e.message,"err");}}));
   acts.appendChild(mkBtn("✎ Edit","Edit artifact",()=>openArtifactForm(a)));
   acts.appendChild(mkBtn("🗑","Delete artifact",async()=>{if(!confirm('Delete "'+(a.title||"artifact")+'"?'))return;try{await fbDelete("artifacts",a.id);banner("Artifact deleted.","ok");}catch(e){banner(e.message,"err");}}));
