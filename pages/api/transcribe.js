@@ -16,6 +16,10 @@ const ALLOWED_ORIGINS = [
 
 const MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo";
 
+// pages/api default bodyParser cap is 1 MB — too small for base64 audio clips. 4.5 MB is Vercel's
+// hard request-body limit, so this restores the pre-Next effective ceiling.
+export const config = { api: { bodyParser: { sizeLimit: "4.5mb" } } };
+
 // Map an audio mime type to a filename extension Groq accepts (it keys off the extension).
 function extFor(mime) {
   const m = (mime || "").toLowerCase();

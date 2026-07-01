@@ -19,6 +19,10 @@ const ALLOWED_ORIGINS = [
   "https://gameplan-hq.vercel.app"
 ];
 
+// The tool-use loop can legitimately run for minutes — pin the duration instead of inheriting
+// whatever the project default happens to be.
+export const config = { maxDuration: 300 };
+
 const MAX_ITERS = 8;          // hard cap on Claude↔tool round-trips per run
 const MAX_TOKENS = 4096;      // per Claude call
 const MAX_BODY = 20000;       // cap tool-result / response sizes fed back to the model
