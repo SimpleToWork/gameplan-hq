@@ -51,7 +51,7 @@
   body{margin:0;min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45;-webkit-tap-highlight-color:transparent;}
   button,select,textarea,input{font-family:inherit;touch-action:manipulation;}
   .app{max-width:1680px;margin:0 auto;padding:0 32px 70px;}
-  @media(max-width:560px){.app{padding:0 16px 60px;min-width:540px;}}  /* tighter gutters on phones; min-width:540px keeps content area ≥508px so all 7 header tabs (incl. Settings) fit on one row */
+  @media(max-width:560px){.app{padding:0 16px 60px;min-width:540px;}}  /* tighter gutters on phones; min-width:540px keeps content area ≥508px so all 8 header tabs fit on one row */
   header{position:sticky;top:0;background:var(--canvas);padding:20px 0 12px;z-index:10;}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
   .brand{display:flex;align-items:center;gap:11px;}
@@ -61,7 +61,7 @@
   .brand span{font-size:12px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;}
 
   .hctrl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
-  .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:wrap;}
+  .tabs{display:flex;gap:2px;background:#e4e6ea;border-radius:11px;padding:3px;width:fit-content;flex-wrap:nowrap;overflow-x:auto;}
   .tabs button{border:none;background:transparent;color:var(--muted);font-size:13.5px;font-weight:500;padding:7px 15px;border-radius:8px;cursor:pointer;transition:background .15s,color .15s;}
   .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06);}
   select.ctrl,input.ctrl{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:7px 10px;font-size:13px;cursor:pointer;}
@@ -197,9 +197,9 @@
   /* Task cards run wider so status / priority / category / date fit on one row (see .crow). Scoped to the
      task board grid only — the other .grid users (settings, trash, mini cards) keep the narrower default. */
   .grid.taskgrid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr));}
-  @media(max-width:480px){.grid.taskgrid{grid-template-columns:1fr;}}
+  @media(max-width:560px){.grid.taskgrid{grid-template-columns:1fr;}}
   /* On mobile, header tabs fill the same width as a task card (full content area with app padding). */
-  @media(max-width:480px){.tabs{width:100%;box-sizing:border-box;}.tabs button{flex:1;text-align:center;padding:7px 8px;}}
+  @media(max-width:560px){.tabs{width:100%;box-sizing:border-box;}.tabs button{flex:1;text-align:center;padding:7px 6px;font-size:12.5px;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;display:flex;flex-direction:column;gap:7px;position:relative;contain:layout style;}
   /* Task cards are clickable to "work in" — pointer + a light accent border on hover previews the selection the click locks in. */
   .card[data-task-id]{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;touch-action:manipulation;}
