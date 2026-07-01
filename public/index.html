@@ -304,6 +304,8 @@
   .runprog.run-waiting .runprog-h:hover{background:#fef3c705;}
   .runprog.run-paused{border-color:#60a5fa55;background:#eff6ff10;}
   .runprog.run-paused .runprog-h{color:#2563eb;}
+  .runprog.run-rejected{border-color:#d9770688;background:#fff7ed40;}
+  .runprog.run-rejected .runprog-h{color:#b45309;}
   .run-ctrl-bar{display:flex;gap:6px;padding:5px 9px;border-bottom:1px solid #D9775722;align-items:center;flex-wrap:wrap;}
   .run-ctrl-btn{font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid;cursor:pointer;font-weight:600;line-height:1.6;background:transparent;}
   .run-ctrl-btn.run-pause{color:#d97706;border-color:#f59e0b66;} .run-ctrl-btn.run-pause:hover{background:#fffbeb;}
@@ -1999,6 +2001,18 @@ function sendRunStepControl(taskId,control){
   else if(control==="pause")banner("Pause signal sent.","ok");
   else if(control==="continue")banner("Continue signal sent.","ok");
 }
+// The push-back surface: a distinct amber banner explaining WHY auto-mode rejected the task and what the
+// submitter should do next. Reused by the inline card panel and the floating run-log pop. Not a red error —
+// the charter deliberately returned the task; no code was changed.
+function rejectionBanner(t){
+  const box=document.createElement("div");
+  box.style.cssText="border:1px solid #d97706;background:#fff7ed;border-radius:8px;padding:8px 10px;flex-shrink:0;";
+  const h=document.createElement("div");h.style.cssText="font-weight:700;font-size:11.5px;color:#b45309;margin-bottom:3px;";h.textContent="⛔ Rejected by auto-mode charter";
+  const why=document.createElement("div");why.style.cssText="font-size:11.5px;color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.5;";why.textContent=rejectReason(t);
+  const next=document.createElement("div");next.style.cssText="font-size:11px;color:#b45309;margin-top:5px;line-height:1.5;";next.textContent="No code was changed. To proceed: narrow the task to additive / GREEN-tier work, or re-submit with a human in the session for the flagged area.";
+  box.append(h,why,next);
+  return box;
+}
 function buildRunPanel(t){
   const runLines=Array.isArray(t.runProgress)?t.runProgress:[];
   const runLive=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
@@ -2007,7 +2021,7 @@ function buildRunPanel(t){
   const isInteractive=t.runMode==="interactive"||!!t.runInteractive;
   const isPending=isInteractive&&runLive&&!!t.runPendingPrompt;
   const isPaused=isInteractive&&runLive&&!!t.runPaused;
-  let panelClass="runprog"+(collapsed?" collapsed":"")+(isPending?" run-waiting":isPaused?" run-paused":"");
+  let panelClass="runprog"+(collapsed?" collapsed":"")+(isRejected(t)?" run-rejected":isPending?" run-waiting":isPaused?" run-paused":"");
   const rp=document.createElement("div");rp.className=panelClass;
   // Header
   const head=document.createElement("div");head.className="runprog-h";
@@ -2018,6 +2032,7 @@ function buildRunPanel(t){
   else if(t.runStatus==="waiting")headText.textContent="💬 Waiting — Claude needs your input…";
   else if(runLive)headText.textContent="🔴 Live — Claude is working…";
   else if(t.runStatus==="detached")headText.textContent="⎗ Detached — session opened locally";
+  else if(isRejected(t))headText.textContent="⛔ Rejected by auto-mode — needs attention";
   else if(t.runError)headText.textContent="⚠️ Last run logs — failed";
   else headText.textContent="📜 Last run logs";
   const tog=document.createElement("span");tog.className="runprog-toggle";tog.textContent=collapsed?"▸":"▾";
@@ -2028,6 +2043,7 @@ function buildRunPanel(t){
   else if(isPaused){const badge=document.createElement("span");badge.className="run-paused-badge";badge.textContent="⏸ Paused";head.insertBefore(badge,right);}
   head.onclick=e=>{e.stopPropagation();const on=rp.classList.toggle("collapsed");on?runPanelCollapsed.add(t.id):runPanelCollapsed.delete(t.id);tog.textContent=on?"▸":"▾";};
   rp.appendChild(head);
+  if(isRejected(t))rp.appendChild(rejectionBanner(t)); // push-back: show why auto-mode rejected the task
   // Step controls — only when interactive + live
   if(isInteractive&&runLive){
     const ctrl=document.createElement("div");ctrl.className="run-ctrl-bar";
@@ -2645,7 +2661,8 @@ function openTaskLogsPop(anchor,t){
   const live=t.runStatus==="running"||t.runStatus==="queued"||t.runStatus==="waiting";
   const bar=document.createElement("div");bar.style.cssText="padding:8px 10px 7px;display:flex;align-items:center;justify-content:space-between;cursor:move;border-bottom:1px solid var(--line);flex-shrink:0;user-select:none;background:var(--surface);border-radius:10px 10px 0 0;";
   const head=document.createElement("div");head.style.cssText="font-size:11px;font-weight:600;color:#D97757;";
-  head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":(t.runMode==="interactive"||t.runInteractive)&&t.runPendingPrompt&&live?"⏰ Waiting — Claude has a question":(t.runMode==="interactive"||t.runInteractive)&&t.runPaused&&live?"⏸ Paused":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runStatus==="waiting"?"💬 Waiting — Claude needs your input…":t.runStatus==="detached"?"⎗ Detached — session opened locally":t.runError?"⚠️ Last run failed":t.runEndedAt?"✓ Last run":"Runtime logs";
+  head.textContent=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":(t.runMode==="interactive"||t.runInteractive)&&t.runPendingPrompt&&live?"⏰ Waiting — Claude has a question":(t.runMode==="interactive"||t.runInteractive)&&t.runPaused&&live?"⏸ Paused":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runStatus==="waiting"?"💬 Waiting — Claude needs your input…":t.runStatus==="detached"?"⎗ Detached — session opened locally":isRejected(t)?"⛔ Rejected by auto-mode":t.runError?"⚠️ Last run failed":t.runEndedAt?"✓ Last run":"Runtime logs";
+  if(isRejected(t))head.style.color="#b45309";
   const closeBtn=document.createElement("button");closeBtn.style.cssText="border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted);padding:0 2px;line-height:1;flex-shrink:0;margin-left:8px;";closeBtn.textContent="✕";closeBtn.title="Close";closeBtn.onclick=()=>pop.remove();
   bar.append(head,closeBtn);pop.appendChild(bar);
   // Dragging
@@ -2701,7 +2718,8 @@ function openTaskLogsPop(anchor,t){
     content.appendChild(body);
     setTimeout(()=>{body.scrollTop=body.scrollHeight;},0);
   }else{const e=document.createElement("div");e.className="cmeta";e.textContent=live?"No log lines yet — the runner will stream progress here.":"No log lines were captured for this run.";content.appendChild(e);}
-  if(t.runError){const err=document.createElement("div");err.style.cssText="font-size:11.5px;color:var(--danger);white-space:pre-wrap;word-break:break-word;flex-shrink:0;";err.textContent="Error: "+t.runError;content.appendChild(err);}
+  if(isRejected(t)){content.appendChild(rejectionBanner(t));} // push-back banner instead of a red error — this was a deliberate charter rejection
+  else if(t.runError){const err=document.createElement("div");err.style.cssText="font-size:11.5px;color:var(--danger);white-space:pre-wrap;word-break:break-word;flex-shrink:0;";err.textContent="Error: "+t.runError;content.appendChild(err);}
 }
 // Repos — checkbox list of connected repos; toggles task.repos (array of repoUrls).
 function openTaskReposPop(anchor,t){
@@ -2843,11 +2861,18 @@ function openColFilterPop(anchor,label,options,filters,field,reRender){
   clr.onclick=()=>{delete filters[field];pop.remove();reRender();};
   row.append(apply,clr);pop.appendChild(row);place();
 }
+// Auto-mode rejection: the runner's task-charter dispatcher gate pushed a task back BEFORE any code changed
+// (RED-tier / always-blocked / non-additive YELLOW). The runner marks it with runError "DISPATCHER BLOCKED: …"
+// and runGit "blocked by task charter — no changes made". This is NOT a failure — it's a deliberate push-back
+// to the submitter, so we surface it distinctly (its own run-status bucket + a rejection banner + guidance).
+const REJECT_TAG="DISPATCHER BLOCKED:";
+const isRejected=t=>!!t&&(String(t.runError||"").startsWith(REJECT_TAG)||t.runGit==="blocked by task charter — no changes made");
+const rejectReason=t=>{const e=String(t.runError||"").trim();return e.startsWith(REJECT_TAG)?e.slice(REJECT_TAG.length).trim():(e||"This task was rejected by the repository's auto-mode task charter before any change was made.");};
 // Run-status bucket for a task, mirroring what the Run column actually surfaces: a live run (Running/Queued), a
-// previous failure (runError set, surfaced in the button's hover title), or idle ("▶ Run"). These are the filterable
+// rejection by the charter (Rejected), a previous failure (Failed), or idle ("▶ Run"). These are the filterable
 // values for the Run column. Canonical order (RUN_STATUS_ORDER) drives the dropdown ordering, like STATUSES/PRIORITIES.
-const RUN_STATUS_ORDER=["Running","Waiting","Queued","Detached","Failed","Not run"];
-const runStatusLabel=t=>t.runStatus==="running"?"Running":t.runStatus==="waiting"?"Waiting":t.runStatus==="queued"?"Queued":t.runStatus==="detached"?"Detached":t.runError?"Failed":"Not run";
+const RUN_STATUS_ORDER=["Running","Waiting","Queued","Detached","Rejected","Failed","Not run"];
+const runStatusLabel=t=>t.runStatus==="running"?"Running":t.runStatus==="waiting"?"Waiting":t.runStatus==="queued"?"Queued":t.runStatus==="detached"?"Detached":isRejected(t)?"Rejected":t.runError?"Failed":"Not run";
 // Value accessors per table (key → reader). Multi-value readers return an array (assignees/attendees); "" = none/unassigned.
 const TASK_COL_ACC={
   status:t=>t.status||"",priority:t=>t.priority||"",category:t=>t.category||"",
