@@ -6818,16 +6818,17 @@ function renderBranchesTable(m,openBranches,mergedBranches){
     status:(a,b)=>(a.status||"").localeCompare(b.status||""),
     tasks:(a,b)=>branchTasks(a).length-branchTasks(b).length,
     age:(a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""),
+    created:(a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""),
   };
   const sortGroup=arr=>{if(!S.col||!FBCS[S.col])return arr;const cmp=FBCS[S.col];const d=S.dir==="asc"?1:-1;return arr.slice().sort((a,b)=>d*cmp(a,b));};
   const wrap=document.createElement("div");wrap.className="fbtable-wrap";
   const t=document.createElement("table");t.className="fbtable";
   const thead=document.createElement("thead");const htr=document.createElement("tr");
   [sortTh("Branch","name",S,resort),sortTh("Repo","repo",S,resort),sortTh("Status","status",S,resort),
-   plainTh("Checks"),sortTh("Tasks","tasks",S,resort),sortTh("Age","age",S,resort),plainTh("")].forEach(th=>htr.appendChild(th));
+   plainTh("Checks"),sortTh("Tasks","tasks",S,resort),sortTh("Age","age",S,resort),sortTh("Created","created",S,resort),plainTh("")].forEach(th=>htr.appendChild(th));
   thead.appendChild(htr);t.appendChild(thead);
   const tb=document.createElement("tbody");
-  const addGrpRow=(label,count)=>{const tr=document.createElement("tr");tr.className="fb-grp-tr";const td=document.createElement("td");td.colSpan=7;td.innerHTML='<span>'+esc(label)+'</span><span class="fb-sub" style="margin-left:6px;">('+count+')</span>';tr.appendChild(td);tb.appendChild(tr);};
+  const addGrpRow=(label,count)=>{const tr=document.createElement("tr");tr.className="fb-grp-tr";const td=document.createElement("td");td.colSpan=8;td.innerHTML='<span>'+esc(label)+'</span><span class="fb-sub" style="margin-left:6px;">('+count+')</span>';tr.appendChild(td);tb.appendChild(tr);};
   const addRow=b=>{
     const tasks=branchTasks(b);
     const merged=b.status==="merged";
@@ -6852,6 +6853,8 @@ function renderBranchesTable(m,openBranches,mergedBranches){
     // Age
     const cA=document.createElement("td");
     const ts=merged?b.merged_at:b.createdAt;cA.innerHTML='<span class="fb-sub" title="'+(ts?new Date(ts).toLocaleString():"")+'">'+timeAgo(ts)+'</span>';tr.appendChild(cA);
+    // Created timestamp
+    const cCr=document.createElement("td");cCr.innerHTML='<span class="fb-sub">'+esc(fmtTs(b.createdAt)||"—")+'</span>';tr.appendChild(cCr);
     // Actions
     const cX=document.createElement("td");cX.style.whiteSpace="nowrap";
     if(merged){const rb=document.createElement("button");rb.className="btn sm";rb.textContent="↩ Reuse";rb.title="Create a fresh branch with the same name";rb.onclick=e=>{e.stopPropagation();createBranchModal(b.repoUrl,id=>branchModal(id),b.name);};cX.appendChild(rb);}
@@ -6860,7 +6863,7 @@ function renderBranchesTable(m,openBranches,mergedBranches){
   };
   if(openBranches.length){addGrpRow("Open",openBranches.length);sortGroup(openBranches).forEach(addRow);}
   if(mergedBranches.length){addGrpRow("Merged",mergedBranches.length);sortGroup(mergedBranches).forEach(addRow);}
-  if(!openBranches.length&&!mergedBranches.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.className="fb-sub";td.style.padding="14px 12px";td.textContent='No branches match the search.';tr.appendChild(td);tb.appendChild(tr);}
+  if(!openBranches.length&&!mergedBranches.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=8;td.className="fb-sub";td.style.padding="14px 12px";td.textContent='No branches match the search.';tr.appendChild(td);tb.appendChild(tr);}
   t.appendChild(tb);wrap.appendChild(t);m.appendChild(wrap);
   makeColumnsResizable(t,"branches");
 }
