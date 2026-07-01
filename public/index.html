@@ -832,7 +832,7 @@ const normRepo=u=>String(u||"").toLowerCase().replace(/^https?:\/\/[^/]+\//,"").
 const repoNameKey=u=>normRepo(u).replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"_"; // Firestore doc id (no slashes)
 const repoFriendly=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.name?e.name:"";};
 const repoColor=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.color?e.color:"";};
-// Per-repo agents folder: falls back to SYNC_DIR when not configured (covers repos using .claude/agents/).
+// Per-repo agents folder: falls back to SYNC_DIR when not configured (covers all of .claude/ by default).
 const repoAgentsFolder=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.agentsFolder?e.agentsFolder:SYNC_DIR;};
 const repoLabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
 // Save/clear a repo's friendly name. Preserves color if set; deletes doc only when both name and color are absent.
@@ -1077,7 +1077,7 @@ function attachmentsBox(coll,docId,seed){
 // wipe an in-progress edit. Also includes run-start fields (runRequested, runId, runRequestedBy, runRequestedAt,
 // runLevel) — updateRunPanel patches the run/reset buttons in-place so a full re-render is no longer needed.
 // liveStreamOnly returns the list of tasks whose ONLY changes are these fields — or null if anything else moved.
-const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit","runRequested","runId","runRequestedBy","runRequestedAt","runLevel","runMode","runInteractive","runPendingPrompt","runPendingPromptAt","runUserReply","runUserReplyAt","runMessages","runStepControl","runStepControlAt","runPaused"]);
+const RUN_STREAM_FIELDS=new Set(["runProgress","runCostUsd","runProgressAt","runStatus","runError","runEndedAt","runResult","runDurationMs","runDurationRunId","runBranch","runGit","runRequested","runId","runRequestedBy","runRequestedAt","runLevel","runMode","runInteractive","runPendingPrompt","runPendingPromptAt","runUserReply","runUserReplyAt","runMessages","runStepControl","runStepControlAt","runPaused","runInteractivePrompt","runInteractiveResponse","notes"]);
 function liveStreamOnly(prev,next){
   if(!prev||prev.length!==next.length)return null;
   const pm=new Map(prev.map(t=>[t.id,t]));const changed=[];
@@ -2143,7 +2143,10 @@ function updateRunPanel(t){
       if(body){const existCount=body.childElementCount;const windowShifted=existCount>0&&toShow.length===existCount&&body.firstElementChild&&body.firstElementChild.textContent!==toShow[0];if(toShow.length<existCount||windowShifted){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;const pfb=body.scrollHeight-body.clientHeight-body.scrollTop;body.innerHTML="";toShow.forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;else body.scrollTop=Math.max(0,body.scrollHeight-body.clientHeight-pfb);}else if(toShow.length>existCount){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;toShow.slice(existCount).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;}}
     }
   } else {
-    // Non-interactive: patch in-place to avoid layout thrash from replaceWith on every log line
+    // Non-interactive: patch in-place, but rebuild if rejection state changed (banner needs adding/removing)
+    if(isRejected(t)!==old.classList.contains("run-rejected")){const fresh=buildRunPanel(t);if(fresh)old.replaceWith(fresh);else old.remove();}
+    else {
+    // Patch header text and log lines
     const headText=old.querySelector(".runprog-h > span:first-child");
     if(headText){const newTxt=t.runStatus==="queued"?"⏳ Queued — waiting for the runner…":t.runStatus==="running"?"🔴 Live — Claude is working…":t.runStatus==="waiting"?"💬 Waiting — Claude needs your input…":t.runStatus==="detached"?"⎗ Detached — session opened locally":t.runError?"⚠️ Last run logs — failed":"📜 Last run logs";if(headText.textContent!==newTxt)headText.textContent=newTxt;}
     const tsSpan=old.querySelector(".runprog-ts");if(tsSpan){const newTs=t.runProgressAt?fmtRunTs(t.runProgressAt):"";if(tsSpan.textContent!==newTs)tsSpan.textContent=newTs;}
@@ -2162,6 +2165,7 @@ function updateRunPanel(t){
       }
       else if(toShow.length>existCount){const atBottom=body.scrollTop>=body.scrollHeight-body.clientHeight-20;toShow.slice(existCount).forEach(l=>{const ln=document.createElement("div");ln.className="runprog-l";ln.textContent=l;body.appendChild(ln);});if(atBottom)body.scrollTop=body.scrollHeight;}
     }
+    } // end inner else (rejection state unchanged)
   }
   // Interactive reply block — add/remove/update in-place based on runInteractivePrompt
   if(old){const needReply=t.runMode==="interactive"&&t.runInteractivePrompt&&(t.runStatus==="waiting"||t.runStatus==="running");
@@ -2194,23 +2198,34 @@ function updateRunPanel(t){
     if(hasCompletedRun&&!existRerunReset){const rr=document.createElement("button");rr.className="rm";rr.dataset.runrereset="1";rr.textContent="⟲ Reset";rr.title="Reset this task — clears all run history (logs, result, cost, git info, branch, and notes) so it can be re-run cleanly.";rr.onclick=e=>{e.stopPropagation();if(!confirm('Reset "'+t.title+'"?\n\nClears all run logs, results, cost, branch, and notes. The task will be ready for a clean re-run.'))return;setTask(t.id,{runRequested:false,runStatus:null,runError:null,runResult:null,runProgress:null,runId:null,runEndedAt:null,runDurationMs:null,runDurationRunId:null,runCostUsd:null,runProgressAt:null,runBranch:null,runGit:null,runRequestedBy:null,runRequestedAt:null,runMessages:null,runPendingPrompt:null,runPendingPromptAt:null,runUserReply:null,runUserReplyAt:null,runStepControl:null,runStepControlAt:null,runPaused:null,runInteractivePrompt:null,runInteractiveResponse:null,notes:[]});banner("Task reset — ready for a clean re-run.","ok");};erRight.appendChild(rr);}
     else if(!hasCompletedRun&&existRerunReset)existRerunReset.remove();
   }
+  // Patch notes button count and refresh the open notes list (notes is in RUN_STREAM_FIELDS so no full re-render)
+  const taskNotes=Array.isArray(t.notes)?t.notes:[];
+  const notesBtnEl=card.querySelector('[data-notes-btn]');
+  if(notesBtnEl)notesBtnEl.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
+  if(taskNotesOpen.has(t.id)){
+    const npop=Array.from(card.querySelectorAll('.pop.open')).find(p=>!p.querySelector('input.ctrl')&&p.querySelector('textarea.ctrl'));
+    if(npop){const nlist=npop.querySelector('.notes-list');if(nlist){nlist.innerHTML='';if(taskNotes.length){taskNotes.forEach(nt=>{const mm=member(nt.by);const color=mm&&mm.color?mm.color:"#9aa0a8";const row=document.createElement("div");row.style.cssText="border-left:3px solid "+color+";padding:1px 0 1px 8px;";const meta=document.createElement("div");meta.style.cssText="display:flex;align-items:center;gap:6px;margin-bottom:2px;";const av=document.createElement("span");av.className="ava";av.style.cssText="background:"+color+";width:18px;height:18px;font-size:9px;";av.textContent=initials(nt.by||"?");meta.appendChild(av);meta.insertAdjacentHTML("beforeend",'<span style="font-weight:600;font-size:12px;color:'+color+';">'+esc(nt.by||"Unknown")+'</span>'+(nt.at?'<span class="cmeta">'+esc(nt.at)+'</span>':''));const body=document.createElement("div");body.style.cssText="white-space:pre-wrap;font-size:13px;";body.textContent=nt.text||"";row.append(meta,body);nlist.appendChild(row);});}else{nlist.innerHTML='<div class="cmeta">No notes yet.</div>';}}}
+  }
 }
-// In-place update of the Run / Duration / Logs cells for one task row in the table layout. Patches only the three
-// run-related cells (cols 13-15) so streamed log updates never rebuild the full table and close open select dropdowns
+// In-place update of the run-related cells (Notes col 12, Run col 15, Duration col 16, Logs col 17) for one task
+// row in the table layout, so streamed log updates never rebuild the full table and close open select dropdowns
 // or float pops the user has open on other rows. Column indices mirror the header order in taskTable().
 function updateRunTableRow(t){
   const main=document.getElementById("main");if(!main)return;
   const tr=main.querySelector('tr[data-task-id="'+CSS.escape(t.id)+'"]');if(!tr)return;
   const ttRunLive=t.runStatus==="running"||t.runStatus==="queued";
   const logLines=Array.isArray(t.runProgress)?t.runProgress:[];
-  // Run button — col 13
-  const tdRun=tr.cells[13];
+  // Notes button — col 12
+  const tdNotesPatch=tr.cells[12];
+  if(tdNotesPatch){const taskNotesPatch=Array.isArray(t.notes)?t.notes:[];const nBtnPatch=tdNotesPatch.querySelector('[data-notes-btn]');if(nBtnPatch)nBtnPatch.textContent=taskNotesPatch.length?("Notes ("+taskNotesPatch.length+")"):"Notes";}
+  // Run button — col 15
+  const tdRun=tr.cells[15];
   if(tdRun){const runBtn=tdRun.querySelector(".tt-runbtn");if(runBtn){runBtn.textContent=t.runStatus==="running"?"⏳ Running…":t.runStatus==="queued"?"⏳ Queued":"▶ Run";runBtn.disabled=ttRunLive;runBtn.title=t.runError?("Last run failed: "+t.runError):ttRunLive?"A run is in progress — watch this task's status/notes":"Run this task with Claude on the local runner";}}
-  // Duration — col 14
-  const tdDur=tr.cells[14];
+  // Duration — col 16
+  const tdDur=tr.cells[16];
   if(tdDur){const old=tdDur.firstChild;const fresh=runDurationCell(t);if(old)old.replaceWith(fresh);else tdDur.appendChild(fresh);}
-  // Logs button — col 15
-  const tdLogs=tr.cells[15];
+  // Logs button — col 17
+  const tdLogs=tr.cells[17];
   if(tdLogs){const logBtn=tdLogs.querySelector(".tt-asgbtn");if(logBtn){logBtn.textContent=logLines.length?("📜 ("+logLines.length+")"):"📜";if(logLines.length||t.runError||t.runEndedAt){logBtn.disabled=false;logBtn.title="View runtime logs from the runner";logBtn.onclick=()=>openTaskLogsPop(logBtn,t);}else{logBtn.disabled=true;logBtn.title="No runtime logs yet — run this task to capture execution history";}}}
   // Git badge — title cell (col 0), live-patched when runGit arrives as a stream field
   const tdTitle=tr.cells[0];if(tdTitle){const tw=tdTitle.querySelector(".tt-titlewrap");if(tw){const ob=tw.querySelector(".run-git-badge");if(t.runGit){const nb=document.createElement("span");nb.className="run-git-badge";nb.style.marginLeft="auto";nb.title="Git update: "+t.runGit;nb.textContent=t.runGit.slice(0,8);ob?ob.replaceWith(nb):tw.appendChild(nb);}else if(ob)ob.remove();}}
@@ -2335,7 +2350,7 @@ function taskCard(t){
   link.className="mini";if(rm){link.style.cssText="background:#ecebfb;color:#4646c8;border-color:#4646c855;font-weight:600;";}else{link.style.cssText="color:var(--muted);";}
   if(unlink){unlink.style.cssText="border:none;background:none;color:var(--muted);cursor:pointer;font-size:11.5px;padding:0 2px;flex-shrink:0;";unlink.onmouseover=()=>{unlink.style.color="var(--danger)";};unlink.onmouseout=()=>{unlink.style.color="var(--muted)";};}
   crow.append(link);if(unlink)crow.append(unlink);crow.append(dueIn);
-  const notesBtn=document.createElement("button");notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
+  const notesBtn=document.createElement("button");notesBtn.dataset.notesBtn="1";notesBtn.textContent=taskNotes.length?("Notes ("+taskNotes.length+")"):"Notes";
   const taskFiles=Array.isArray(t.attachments)?t.attachments:[];
   const filesBtn=document.createElement("button");filesBtn.innerHTML='<span style="font-size:16px;vertical-align:middle;line-height:1;">📎</span>'+(taskFiles.length?" Files ("+taskFiles.length+")":"  Files");filesBtn.title="Attach / view files";
   const ask=document.createElement("button");ask.title="Ask Claude";ask.setAttribute("aria-label","Ask Claude");
@@ -3035,7 +3050,7 @@ function taskTable(items,secLabel){
     agBtn.onclick=()=>openTaskAgentsPop(agBtn,t);agentsWrap.appendChild(agBtn);tdAgents.appendChild(agentsWrap);
     // Notes — opens the floating per-user notes editor; the button shows the current count.
     const notes=Array.isArray(t.notes)?t.notes:[];
-    const tdNotes=document.createElement("td");const nBtn=document.createElement("button");nBtn.type="button";nBtn.className="tt-asgbtn";nBtn.textContent=notes.length?("Notes ("+notes.length+")"):"Notes";nBtn.title="View / add notes";
+    const tdNotes=document.createElement("td");const nBtn=document.createElement("button");nBtn.type="button";nBtn.className="tt-asgbtn";nBtn.dataset.notesBtn="1";nBtn.textContent=notes.length?("Notes ("+notes.length+")"):"Notes";nBtn.title="View / add notes";
     nBtn.onclick=()=>openTaskNotesPop(nBtn,t);tdNotes.appendChild(nBtn);
     // Files — opens the floating attachments editor (same store as the card's 📎 Files).
     const files=Array.isArray(t.attachments)?t.attachments:[];
@@ -5659,9 +5674,9 @@ let agentSearchTimer=null; // debounce handle for search oninput → renderAgent
 function agentEffectivePath(a){const p=agentPendingMoves[a.id];return p?p.newPath:(a.repoPath||"");}
 // Folder segments for an agent, derived from its repoPath (the spec file's location), with the file name
 // dropped. "" repoPath → null = "unfiled" (not yet linked to a repo file). Segments are shown *relative to*
-// the sync dir so the tree roots at the contents of .claude/agents/ rather than repeating ".claude › agents"
-// on every node. Files outside the sync dir (e.g. a legacy "agents/x.md") keep their full path so they stay
-// visible. e.g. ".claude/agents/connectors/stripe.md" → ["connectors"]; ".claude/agents/x.md" → [].
+// the sync dir so the tree roots at the contents of .claude/ rather than repeating ".claude" on every node.
+// Files outside the sync dir keep their full path so they stay visible.
+// e.g. ".claude/agents/connectors/stripe.md" → ["agents","connectors"]; ".claude/agent-memory/foo.md" → ["agent-memory"].
 function agentDirSegments(a){
   let p=agentEffectivePath(a).replace(/^\/+/,"").replace(/\/+$/,""); // effective = staged dest if a move is pending
   if(!p)return null;
@@ -5713,7 +5728,7 @@ async function runAgent(payload){
 // Scans <repo>/agents/*.md: file with no local agent → import (create); both exist → newer of {git commit
 // time, local updatedAt} wins (pull or push); local agent in this repo whose file is missing → push (create).
 // Returns counts. Writes commits, so it's behind an explicit "Sync" button, not silent on load.
-const SYNC_DIR=".claude/agents"; // default agents folder (Claude Code's subagent location); repos may override via repoNames.agentsFolder
+const SYNC_DIR=".claude"; // discovery scope: all .md files anywhere under .claude/ (agents/, agent-memory/, etc.); repos may override via repoNames.agentsFolder
 async function syncRepoAgents(repoUrl){
   const norm=normRepo(repoUrl);
   const syncDir=repoAgentsFolder(repoUrl); // use per-repo override if configured, else default to SYNC_DIR
@@ -5772,7 +5787,7 @@ async function resyncAllAgents(){
   return tot;
 }
 // Move an agent's spec file to a different folder in its repo, keeping the file name. destFolderRaw is a folder
-// path; bare/relative entries are taken as living under agents/ (SYNC_DIR). Persists the move to the repo as
+// path; bare/relative entries are taken as living under the sync dir (SYNC_DIR = .claude/). Persists the move to the repo as
 // write-new-then-delete-old — the new file is confirmed written before the old one is removed, so an interruption
 // leaves a recoverable duplicate rather than a lost agent. Returns {ok,msg}; never deletes on a failed write.
 // Resolve + validate a destination WITHOUT touching the repo. Returns {ok:false,msg} on rejection, else
@@ -6855,7 +6870,7 @@ function renderAgents(m){
   m.insertAdjacentHTML("beforeend",'<div class="pagehead">Agents</div><p class="pagesub">AI agents authored with Claude and saved to the board. Organized into folders mirroring each repo’s layout — an agent’s folder follows its repo path, so changes sync back to the repo.</p>');
   const head=document.createElement("div");head.className="areahead";
   head.innerHTML='<span class="nm">Your agents</span><span class="cat-count">'+DB.agents.length+'</span>';
-  // Resync: import/reconcile agents from every connected repo's .claude/agents/ (no need to visit Settings).
+  // Resync: import/reconcile agents from every connected repo's .claude/ (no need to visit Settings).
   const resync=document.createElement("button");resync.className="btn sm";resync.textContent="⇄ Resync";
   resync.title="Import and reconcile agents from all connected repos ("+SYNC_DIR+"/)";
   resync.onclick=async()=>{
