@@ -606,6 +606,12 @@ const DEPLOY_ENDPOINT = "/api/deploy"; // co-located Vercel function — Vercel 
 // Only Google accounts on this Workspace domain may sign in. To use an explicit
 // email allowlist instead, set this to "" and edit the check in onAuthStateChanged.
 const ALLOWED_DOMAIN = "merchantsbi.com";
+// STRANGLER MIGRATION: legacy page ids already ported to the Next.js app (see lib/tabs.ts — flip
+// both lists in the same commit). A migrated tab never renders here: setPage() and init() both
+// hard-navigate to the Next route instead. The Next app links back into un-ported tabs as
+// "/?page=<id>" (read in init()).
+const MIGRATED_TABS=[];
+const MIGRATED_ROUTE={team:"/settings"}; // legacy ids whose Next route differs from "/"+id
 /* ==================================================== */
 
 let db=null, auth=null, storage=null, fbReady=false;
@@ -1677,7 +1683,7 @@ function askDoneUI(t,onDone){
 }
 
 /* ---------- Render ---------- */
-function setPage(p){if(speechRec)stopSpeech();if(p!=="deploy")stopDeployPoll();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));
+function setPage(p){if(MIGRATED_TABS.includes(p)){location.href=MIGRATED_ROUTE[p]||("/"+p);return;}if(speechRec)stopSpeech();if(p!=="deploy")stopDeployPoll();page=p;try{localStorage.setItem("gp_page",p);}catch(e){}document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===p));
   // Defer the heavy DOM rebuild to the next animation frame so the tab highlight paints first,
   // giving immediate visual feedback before the CPU-intensive render runs.
   // Suppress any coalesced snapshot render already queued — our fresh render covers it.
@@ -7082,8 +7088,13 @@ function init(){
   refreshIdentity();
   document.querySelectorAll("#tabs button").forEach(b=>{b.onclick=()=>setPage(b.dataset.page);});
   {const sb=document.getElementById("syncBtn");if(sb)sb.onclick=resyncNow;}
+  // Migration shim: the Next.js app links back into un-ported tabs as "/?page=<id>" — persist the
+  // requested tab, then clean the URL so refreshes don't re-apply a stale param.
+  try{const qp=new URLSearchParams(location.search).get("page");if(qp){localStorage.setItem("gp_page",qp);history.replaceState(null,"","/");}}catch(e){}
   // Restore the last-visited page across refreshes (falls back to the default for unknown/blocked storage).
-  try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","branches","deploy","team"].includes(sp))page=sp;}catch(e){}
+  try{const sp=localStorage.getItem("gp_page");if(sp&&["capture","tasks","roadmap","agendas","agents","branches","deploy","artifacts","team"].includes(sp))page=sp;}catch(e){}
+  // Migration shim: a stale gp_page (or deep link) pointing at a ported tab leaves this file for the Next route.
+  if(MIGRATED_TABS.includes(page)){location.replace(MIGRATED_ROUTE[page]||("/"+page));return;}
   restoreTaskState(); // restore the Tasks-tab filters/view/sort/column-filters the user last had
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.page===page));
   applyAppVariant(currentApp);
