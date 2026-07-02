@@ -844,6 +844,9 @@ const repoColor=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>norm
 // Per-repo agents folder: falls back to SYNC_DIR when not configured (covers all of .claude/ by default).
 const repoAgentsFolder=url=>{const norm=normRepo(url);const e=DB.repoNames.find(x=>normRepo(x.repoUrl)===norm);return e&&e.agentsFolder?e.agentsFolder:SYNC_DIR;};
 const repoLabel=u=>{const fn=repoFriendly(u);return fn||(u.replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/,""))||u;};
+// The Angular front-end repo. The runner stages its tasks onto a "feature" branch instead of master (see
+// .local/runner.mjs frontendStageBranch), so the new-branch modal defaults front-end branches to that name.
+const isFrontendRepo=u=>{const r=normRepo(u);return /(^|\/)angular-frontend$/.test(r)||/front-?end$/.test(r);};
 // Save/clear a repo's friendly name. Preserves color if set; deletes doc only when both name and color are absent.
 async function setRepoName(url,name){
   const id=repoNameKey(url),v=String(name||"").trim();
@@ -6709,7 +6712,11 @@ function createBranchModal(presetRepo,onCreated,presetName){
     // Name
     card.insertAdjacentHTML("beforeend",'<label class="cmeta" style="font-weight:600;display:block;margin-bottom:4px;">Branch name</label>');
     const nameIn=document.createElement("input");nameIn.className="ctrl";nameIn.style.width="100%";nameIn.placeholder="e.g. Checkout redesign";nameIn.setAttribute("aria-label","Branch name");
+    // Default the front-end repo's branches to "feature" (the runner's front-end staging branch) unless an
+    // explicit name was passed (reuse / auto-assign). initialRepo = whatever the repo <select> lands on below.
+    const initialRepo=(presetRepo&&repos.find(u=>normRepo(u)===normRepo(presetRepo)))||repos[0]||"";
     if(presetName)nameIn.value=presetName;
+    else if(isFrontendRepo(initialRepo))nameIn.value="feature";
     card.appendChild(nameIn);
     // Derived branch_name preview
     const prev=document.createElement("div");prev.className="cmeta";prev.style.cssText="margin:6px 0 12px;font-family:ui-monospace,Menlo,monospace;";
@@ -6722,7 +6729,7 @@ function createBranchModal(presetRepo,onCreated,presetName){
     card.appendChild(repoSel);
     card.insertAdjacentHTML("beforeend",'<div class="cmeta" style="margin:8px 0 12px;">Base branch: <b>master</b> (locked)</div>');
     const refresh=()=>{const bn=featureBranchName(nameIn.value);const repoId=normRepo(repoSel.value||"");const dup=bn&&repoId&&branchNameExists(DB.featureBranches,bn,repoId);prev.innerHTML=bn?("Branch: <b>"+esc(bn)+"</b>"):"Branch: —";prev.style.color=dup?"var(--danger)":"var(--muted)";live.textContent=dup?("“"+bn+"” already exists in this repo."):"";create.disabled=!bn||!repoSel.value||!!dup;};
-    nameIn.oninput=refresh;repoSel.onchange=refresh;
+    nameIn.oninput=refresh;repoSel.onchange=()=>{if(isFrontendRepo(repoSel.value)&&!nameIn.value.trim())nameIn.value="feature";refresh();};
     card.appendChild(live);
     const row=document.createElement("div");row.style.cssText="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;";
     const cancel=document.createElement("button");cancel.className="btn sm";cancel.textContent="Cancel";cancel.onclick=close;
