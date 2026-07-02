@@ -222,6 +222,8 @@
   .ccollapse:hover{color:var(--ink,#2a2f38);}
   /* Collapsed agenda card: show only its header (h3 with the title + controls), hide the body. */
   .ag.collapsed > *:not(h3){display:none;}
+  /* Agenda collapse chevron is inline in the h3 flex row, not absolutely positioned like task cards. */
+  .ag h3 .ccollapse{position:static;}
   .cmeta{font-size:12px;color:var(--muted);}
   /* Visible click-to-copy affordance next to the task ID (card + table). Parent carries .idcopy. */
   .copy-ico{opacity:.5;margin-left:4px;font-size:.9em;}
@@ -5843,7 +5845,12 @@ const SYNC_DIR=".claude"; // discovery scope: all .md files anywhere under .clau
 async function syncRepoAgents(repoUrl){
   const norm=normRepo(repoUrl);
   const syncDir=repoAgentsFolder(repoUrl); // use per-repo override if configured, else default to SYNC_DIR
-  const {files}=await githubSync({op:"listFiles",repoUrl,path:syncDir});
+  const {files:mainFiles}=await githubSync({op:"listFiles",repoUrl,path:syncDir});
+  // Also scan .agents at project root if not already covered by syncDir (e.g. when a project uses .agents/ alongside .claude/).
+  let files=mainFiles||[];
+  if(syncDir!==".agents"&&!syncDir.startsWith(".agents/")){
+    try{const {files:af}=await githubSync({op:"listFiles",repoUrl,path:".agents"});if(af&&af.length){const seen=new Set(files.map(f=>f.path));files=[...files,...af.filter(f=>!seen.has(f.path))];}}catch(e){}
+  }
   const r={imported:0,pulled:0,pushed:0,skipped:0,errors:0};
   const localForRepo=DB.agents.filter(a=>normRepo(a.repoUrl)===norm&&a.repoPath);
   const handled=new Set(); // local agent ids reconciled below — kept out of the trailing "push missing" pass
